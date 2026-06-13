@@ -28,3 +28,10 @@ td { padding: 9px 12px; border-top: 1px solid var(--line); }
 .btn-ghost { border: 1px solid var(--line); background: #fff; color: var(--quiet); border-radius: 7px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
 .btn-ghost.danger { border-color: var(--clay); color: var(--clay); }
 .field { font-size: 18px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font-family: inherit; }
+
+/* Modal bottom sheet */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; z-index: 200; }
+.modal-sheet { background: var(--paper); border-radius: 16px 16px 0 0; width: 100%; max-width: 560px; padding: 24px 24px calc(24px + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto; }
+.modal-title { font-size: 20px; font-weight: 700; margin: 0 0 16px; }
+.modal-label { display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--quiet); margin: 14px 0 5px; }
+.modal-error { color: var(--clay); font-size: 13px; font-weight: 600; margin: 8px 0 0; }

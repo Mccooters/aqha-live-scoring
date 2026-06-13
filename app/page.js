@@ -18,38 +18,46 @@ export default function Home() {
     <>
       <header className="header">
         <div className="wrap" style={{ padding: "0 0" }}>
-          <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)" }}>
-            AQHA Events
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)" }}>
+                AQHA Events
+              </div>
+              <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,4vw,30px)", margin: "2px 0 4px" }}>
+                Live Show Tracker
+              </h1>
+            </div>
+            <div style={{ display: "flex", gap: 14, alignItems: "center", paddingTop: 4 }}>
+              <Link href="/registry" style={{ color: "var(--brass-soft)", fontSize: 13, textDecoration: "none" }}>Registry</Link>
+              <Link href="/coordinator" style={{ color: "var(--brass-soft)", fontSize: 13, textDecoration: "none" }}>Staff →</Link>
+            </div>
           </div>
-          <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,4vw,30px)", margin: "2px 0 4px" }}>
-            Live Show Tracker
-          </h1>
-          <Link href="/coordinator" style={{ color: "var(--brass-soft)", fontSize: 13 }}>
-            Coordinator sign in →
-          </Link>
         </div>
       </header>
+
       <main className="wrap">
         {events === null && <p style={{ color: "var(--quiet)" }}>Loading events…</p>}
         {events?.length === 0 && (
           <p style={{ color: "var(--quiet)" }}>
-            No events yet. Sign in as coordinator to create your first event.
+            No events yet. <Link href="/coordinator" style={{ color: "var(--brass)" }}>Sign in as coordinator</Link> to create your first event.
           </p>
         )}
         {events?.map((ev) => (
-          <Link key={ev.id} href={`/event/${ev.id}`} style={{ textDecoration: "none", color: "inherit" }}>
-            <section className="card" style={{ padding: "14px 16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                <div>
-                  <div className="display" style={{ fontWeight: 700, fontSize: 18 }}>{ev.name}</div>
-                  <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                    {ev.starts_on} {ev.ends_on && ev.ends_on !== ev.starts_on ? `– ${ev.ends_on}` : ""} · {ev.location}
-                  </div>
+          <section key={ev.id} className="card" style={{ marginBottom: 14, overflow: "hidden" }}>
+            <Link href={`/event/${ev.id}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "14px 16px", textDecoration: "none", color: "inherit" }}>
+              <div>
+                <div className="display" style={{ fontWeight: 700, fontSize: 18 }}>{ev.name}</div>
+                <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+                  {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}
                 </div>
-                <span className={`badge ${ev.status}`}>{ev.status}</span>
               </div>
-            </section>
-          </Link>
+              <span className={`badge ${ev.status}`}>{ev.status}</span>
+            </Link>
+            <div style={{ borderTop: "1px solid var(--line)", padding: "8px 16px", display: "flex", gap: 16 }}>
+              <Link href={`/event/${ev.id}`} style={{ fontSize: 12.5, color: "var(--brass)", textDecoration: "none", fontWeight: 600 }}>Live scoring →</Link>
+              <Link href={`/event/${ev.id}/schedule`} style={{ fontSize: 12.5, color: "var(--brass)", textDecoration: "none", fontWeight: 600 }}>Schedule →</Link>
+            </div>
+          </section>
         ))}
       </main>
     </>

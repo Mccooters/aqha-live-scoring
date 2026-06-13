@@ -4,22 +4,28 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 
+const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
 const firstPending = (entries) =>
   entries.find((e) => e.score == null && !e.scratched) ?? null;
+
+function urlBase64ToUint8Array(base64) {
+  const pad = "=".repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + pad).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  return new Uint8Array([...raw].map((c) => c.charCodeAt(0)));
+}
 
 export default function EventPage() {
   const { id } = useParams();
   const [event, setEvent] = useState(null);
   const [classes, setClasses] = useState([]);
+  const [notifStatus, setNotifStatus] = useState("idle"); // idle | loading | subscribed | denied
 
   const load = useCallback(async () => {
     const [{ data: ev }, { data: cls }] = await Promise.all([
       supabase.from("events").select("*").eq("id", id).single(),
-      supabase
-        .from("classes")
-        .select("*, entries(*)")
-        .eq("event_id", id)
-        .order("sort_order"),
+      supabase.from("classes").select("*, entries(*)").eq("event_id", id).order("sort_order"),
     ]);
     if (ev) setEvent(ev);
     if (cls) {
@@ -28,7 +34,6 @@ export default function EventPage() {
     }
   }, [id]);
 
-  // Initial load + realtime: re-fetch whenever anything in this event changes
   useEffect(() => {
     load();
     const channel = supabase
@@ -39,6 +44,30 @@ export default function EventPage() {
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [id, load]);
+
+  const subscribePush = async () => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setNotifStatus("denied");
+      return;
+    }
+    setNotifStatus("loading");
+    try {
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+      const json = sub.toJSON();
+      await supabase.from("push_subscriptions").upsert(
+        { endpoint: json.endpoint, p256dh: json.keys.p256dh, auth_key: json.keys.auth },
+        { onConflict: "endpoint" }
+      );
+      setNotifStatus("subscribed");
+    } catch {
+      setNotifStatus("denied");
+    }
+  };
 
   const liveClass = classes.find((c) => c.status === "live");
   const current = liveClass ? firstPending(liveClass.entries) : null;
@@ -52,13 +81,30 @@ export default function EventPage() {
     <>
       <header className="header">
         <div style={{ maxWidth: 860, margin: "0 auto" }}>
-          <Link href="/" style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>← All events</Link>
-          <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,4vw,30px)", margin: "4px 0" }}>{event.name}</h1>
-          <div style={{ fontSize: 13, color: "#CBBFA9" }}>{event.location}</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
+                <Link href="/" style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>← All events</Link>
+                <Link href={`/event/${id}/schedule`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>Schedule →</Link>
+              </div>
+              <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,4vw,30px)", margin: "0 0 2px" }}>{event.name}</h1>
+              <div style={{ fontSize: 13, color: "#CBBFA9" }}>{event.location}</div>
+            </div>
+            {VAPID_PUBLIC_KEY && notifStatus !== "subscribed" && notifStatus !== "denied" && (
+              <button onClick={subscribePush} disabled={notifStatus === "loading"}
+                style={{ background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.25)", color: "#F2EADB", borderRadius: 20, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start", marginTop: 4 }}>
+                {notifStatus === "loading" ? "Subscribing…" : "🔔 Get notified"}
+              </button>
+            )}
+            {notifStatus === "subscribed" && (
+              <span style={{ fontSize: 12.5, color: "var(--brass-soft)", alignSelf: "flex-start", marginTop: 8 }}>✓ Notifications on</span>
+            )}
+          </div>
         </div>
       </header>
 
       <main className="wrap">
+        {/* ---- Live banner / completed summary / idle ---- */}
         {liveClass && current ? (
           <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -87,6 +133,25 @@ export default function EventPage() {
               <div style={{ height: "100%", width: `${(scored / Math.max(active.length, 1)) * 100}%`, background: "var(--brass)", transition: "width .5s ease" }} />
             </div>
           </section>
+        ) : event.status === "completed" ? (
+          <section className="card" style={{ background: "var(--sand)", border: "1px solid var(--line)", padding: "20px 22px" }}>
+            <div className="display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 14, color: "var(--leather)" }}>Final Results</div>
+            {classes.filter((cls) => cls.entries.some((e) => e.score != null && !e.scratched)).map((cls) => {
+              const champion = [...cls.entries].filter((e) => e.score != null && !e.scratched).sort((a, b) => b.score - a.score)[0];
+              return (
+                <div key={cls.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>Class {cls.num} · {cls.name}</div>
+                    <div style={{ fontSize: 13, color: "var(--quiet)" }}>1st: #{champion.back_number} {champion.horse} · {champion.exhibitor}</div>
+                  </div>
+                  <div className="display" style={{ fontWeight: 700, color: "var(--brass)", fontSize: 20, whiteSpace: "nowrap" }}>{champion.score}</div>
+                </div>
+              );
+            })}
+            {!classes.some((cls) => cls.entries.some((e) => e.score != null && !e.scratched)) && (
+              <p style={{ color: "var(--quiet)", margin: 0 }}>No scored results recorded.</p>
+            )}
+          </section>
         ) : (
           <section className="card" style={{ background: "var(--sand)", border: "none", padding: 22, textAlign: "center" }}>
             <span className="display" style={{ fontSize: 18 }}>
@@ -95,6 +160,7 @@ export default function EventPage() {
           </section>
         )}
 
+        {/* ---- Per-class scoreboards ---- */}
         {classes.map((cls) => {
           const placed = cls.entries.filter((e) => e.score != null && !e.scratched).sort((a, b) => b.score - a.score);
           const pending = cls.entries.filter((e) => e.score == null && !e.scratched);
@@ -121,7 +187,12 @@ export default function EventPage() {
               </div>
               <table>
                 <thead>
-                  <tr><th style={{ width: 50 }}>{cls.status === "upcoming" ? "Draw" : "Pl"}</th><th>Back · Horse</th><th>Exhibitor</th><th style={{ textAlign: "right" }}>Score</th></tr>
+                  <tr>
+                    <th style={{ width: 50 }}>{cls.status === "upcoming" ? "Draw" : "Pl"}</th>
+                    <th>Back · Horse</th>
+                    <th>Exhibitor</th>
+                    <th style={{ textAlign: "right" }}>Score</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {placed.map((e, i) => (
