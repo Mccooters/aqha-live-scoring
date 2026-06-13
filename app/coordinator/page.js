@@ -36,6 +36,7 @@ export default function Coordinator() {
   const [form, setForm] = useState({});
   const [formError, setFormError] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [horseSuggestion, setHorseSuggestion] = useState(null);
 
   // ---- auth ----
   useEffect(() => {
@@ -171,12 +172,30 @@ export default function Coordinator() {
       const cls = classes.find((c) => c.id === extra.classId);
       initialForm = { pattern_url: cls?.pattern_url ?? "" };
     }
+    if (type === "editEntry" && extra.entry) {
+      const e = extra.entry;
+      initialForm = { back: String(e.back_number), horse: e.horse, exhibitor: e.exhibitor };
+    }
+    if (type === "editClass" && extra.cls) {
+      const c = extra.cls;
+      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", day: String(c.day ?? 1) };
+    }
     setModal({ type, ...extra });
     setForm(initialForm);
     setFormError("");
+    setHorseSuggestion(null);
   };
-  const closeModal = () => { setModal(null); setForm({}); setFormError(""); };
+  const closeModal = () => { setModal(null); setForm({}); setFormError(""); setHorseSuggestion(null); };
   const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const lookupHorse = async (backNum) => {
+    if (!backNum) { setHorseSuggestion(null); return; }
+    try {
+      const { data } = await supabase.from("horses").select("name, owner").eq("back_number", parseInt(backNum, 10)).maybeSingle();
+      setHorseSuggestion(data ?? false);
+      if (data) setForm((f) => ({ ...f, horse: f.horse || data.name, exhibitor: f.exhibitor || (data.owner ?? "") }));
+    } catch { setHorseSuggestion(null); }
+  };
 
   const submitEvent = async () => {
     if (!form.name?.trim()) { setFormError("Event name is required"); return; }
@@ -224,6 +243,29 @@ export default function Coordinator() {
       exhibitor: form.exhibitor.trim(),
       draw_order: maxDraw + 1,
     });
+    closeModal();
+  };
+
+  const submitEditEntry = async () => {
+    if (!form.back || !form.horse?.trim() || !form.exhibitor?.trim()) {
+      setFormError("Back number, horse, and exhibitor are required");
+      return;
+    }
+    const { error } = await supabase.from("entries").update({
+      back_number: parseInt(form.back, 10),
+      horse: form.horse.trim(),
+      exhibitor: form.exhibitor.trim(),
+    }).eq("id", modal.entry.id);
+    if (error) { setFormError(error.message); return; }
+    closeModal();
+  };
+
+  const submitEditClass = async () => {
+    if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
+    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "" };
+    if (modal.cls.day !== undefined) updateData.day = parseInt(form.day ?? "1", 10) || 1;
+    const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
+    if (error) { setFormError(error.message); return; }
     closeModal();
   };
 
@@ -409,6 +451,7 @@ export default function Coordinator() {
                   <button className="btn-ghost" style={cls.pattern_url ? { borderColor: "var(--brass)", color: "var(--brass)" } : {}} onClick={() => openModal("pattern", { classId: cls.id })}>
                     {cls.pattern_url ? "✓ Pattern" : "Pattern"}
                   </button>
+                  <button className="btn-ghost" onClick={() => openModal("editClass", { cls })}>Edit</button>
                   <button className="btn-ghost" onClick={() => openModal("entry", { classId: cls.id })}>+ Entry</button>
                   <span className={`badge ${cls.status}`}>{cls.status}</span>
                 </div>
@@ -420,7 +463,7 @@ export default function Coordinator() {
                       <td className="display" style={{ width: 50, fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
                       <td style={{ fontWeight: 600 }}>#{e.back_number} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td className="display" style={{ textAlign: "right", fontWeight: 700, width: 70 }}>{e.score}</td>
-                      <td style={{ width: 1 }}></td>
+                      <td style={{ width: 1, textAlign: "right" }}><button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => openModal("editEntry", { entry: e })}>Edit</button></td>
                     </tr>
                   ))}
                   {pending.map((e, i) => (
@@ -434,6 +477,7 @@ export default function Coordinator() {
                           <button className="btn-ghost" onClick={() => movePending(cls, e, -1)} aria-label="Move earlier">▲</button>
                           <button className="btn-ghost" onClick={() => movePending(cls, e, 1)} aria-label="Move later">▼</button>
                           <button className="btn-ghost danger" onClick={() => toggleScratch(e)}>Scratch</button>
+                          <button className="btn-ghost" onClick={() => openModal("editEntry", { entry: e })}>Edit</button>
                         </span>
                       </td>
                     </tr>
@@ -442,8 +486,11 @@ export default function Coordinator() {
                     <tr key={e.id} style={{ opacity: 0.6 }}>
                       <td style={{ width: 50, color: "var(--clay)", fontSize: 10.5, fontWeight: 700 }}>SCR</td>
                       <td style={{ fontWeight: 600, textDecoration: "line-through" }}>#{e.back_number} {e.horse}</td>
-                      <td colSpan={2} style={{ textAlign: "right" }}>
-                        {cls.status !== "completed" && <button className="btn-ghost" onClick={() => toggleScratch(e)}>Restore</button>}
+                      <td colSpan={2} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <span style={{ display: "inline-flex", gap: 5 }}>
+                          {cls.status !== "completed" && <button className="btn-ghost" onClick={() => toggleScratch(e)}>Restore</button>}
+                          <button className="btn-ghost" onClick={() => openModal("editEntry", { entry: e })}>Edit</button>
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -528,7 +575,12 @@ export default function Coordinator() {
                 <h2 className="display modal-title">Add entry</h2>
                 {(() => { const cls = classes.find((c) => c.id === modal.classId); return cls && <p style={{ marginTop: 0, color: "var(--quiet)", fontSize: 13 }}>Class {cls.num} · {cls.name}</p>; })()}
                 <label className="modal-label">Back number *</label>
-                <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""} onChange={setField("back")} placeholder="e.g. 301" autoFocus />
+                <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""}
+                  onChange={setField("back")}
+                  onBlur={(e) => lookupHorse(e.target.value)}
+                  placeholder="e.g. 301" autoFocus />
+                {horseSuggestion === false && <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>Not in registry — fill in manually below</p>}
+                {horseSuggestion && <p style={{ fontSize: 12, color: "var(--green)", margin: "4px 0 0" }}>Found in registry: {horseSuggestion.name}{horseSuggestion.owner ? ` · ${horseSuggestion.owner}` : ""}</p>}
                 <label className="modal-label">Horse name *</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} placeholder="e.g. Machine Made Lady" />
                 <label className="modal-label">Exhibitor *</label>
@@ -567,6 +619,52 @@ export default function Coordinator() {
                 classes={classes}
                 onDone={() => { closeModal(); loadClasses(); }}
               />
+            )}
+
+            {modal.type === "editEntry" && (
+              <>
+                <h2 className="display modal-title">Edit entry</h2>
+                <label className="modal-label">Back number *</label>
+                <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""} onChange={setField("back")} autoFocus />
+                <label className="modal-label">Horse name *</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} />
+                <label className="modal-label">Exhibitor *</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.exhibitor ?? ""} onChange={setField("exhibitor")} />
+                {formError && <p className="modal-error">{formError}</p>}
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEditEntry}>Save changes</button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                </div>
+              </>
+            )}
+
+            {modal.type === "editClass" && (
+              <>
+                <h2 className="display modal-title">Edit class</h2>
+                <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 10 }}>
+                  <div>
+                    <label className="modal-label">Class # *</label>
+                    <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.num ?? ""} onChange={setField("num")} autoFocus />
+                  </div>
+                  <div>
+                    <label className="modal-label">Class name *</label>
+                    <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} />
+                  </div>
+                </div>
+                <label className="modal-label">Judge</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge ?? ""} onChange={setField("judge")} />
+                {modal.cls?.day !== undefined && (
+                  <>
+                    <label className="modal-label">Show day</label>
+                    <input className="field" type="number" min="1" max="10" style={{ width: 80, fontSize: 16 }} value={form.day ?? "1"} onChange={setField("day")} />
+                  </>
+                )}
+                {formError && <p className="modal-error">{formError}</p>}
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEditClass}>Save changes</button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                </div>
+              </>
             )}
 
           </div>
