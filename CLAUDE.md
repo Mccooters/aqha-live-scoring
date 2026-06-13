@@ -78,6 +78,7 @@ PR with a clear plain-English description.
 - Rail classes (western pleasure) have no pattern.
 - Vocabulary: exhibitor (not "rider" in halter/showmanship), back number,
   draw order, scratch (SCR), go-rounds, ROM, high point.
+- Full rule book text is at docs/aqha-rule-book-2024.txt — search it when implementing any scoring or points logic.
 
 ## Results export ("⇩ Export results", SheetJS, client-side)
 
