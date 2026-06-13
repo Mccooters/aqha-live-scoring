@@ -180,9 +180,10 @@ export default function Coordinator() {
 
   const submitEvent = async () => {
     if (!form.name?.trim()) { setFormError("Event name is required"); return; }
-    const { data } = await supabase.from("events")
-      .insert({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: "upcoming" })
+    const { data, error } = await supabase.from("events")
+      .insert({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: form.status ?? "live" })
       .select().single();
+    if (error) { setFormError(error.message); return; }
     await loadEvents();
     if (data) setEventId(data.id);
     closeModal();
@@ -191,7 +192,7 @@ export default function Coordinator() {
   const submitClass = async () => {
     if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
     const maxOrder = Math.max(0, ...classes.map((c) => c.sort_order));
-    await supabase.from("classes").insert({
+    const { error } = await supabase.from("classes").insert({
       event_id: eventId,
       num: parseInt(form.num, 10),
       name: form.name.trim(),
@@ -200,6 +201,11 @@ export default function Coordinator() {
       sort_order: maxOrder + 1,
       day: parseInt(form.day ?? "1", 10) || 1,
     });
+    if (error) {
+      const msg = error.message?.includes("day") ? 'Database migration needed. Please run "schema-v2-horses.sql" in your Supabase SQL Editor first.' : error.message;
+      setFormError(msg);
+      return;
+    }
     closeModal();
   };
 
@@ -467,6 +473,11 @@ export default function Coordinator() {
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} placeholder="e.g. Hunter Valley Winter Circuit" autoFocus />
                 <label className="modal-label">Venue / location</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.location ?? ""} onChange={setField("location")} placeholder="e.g. Tamworth Showground" />
+                <label className="modal-label">Status</label>
+                <select className="field" style={{ width: "100%", fontSize: 16 }} value={form.status ?? "live"} onChange={setField("status")}>
+                  <option value="live">Live — happening now</option>
+                  <option value="upcoming">Upcoming — future show</option>
+                </select>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
                     <label className="modal-label">Start date</label>
