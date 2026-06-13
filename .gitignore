@@ -1,0 +1,17 @@
+# Dependencies — never commit these, Vercel installs them automatically
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Environment variables — keep secrets off GitHub
+.env
+.env.local
+.env.*.local
+
+# Mac junk
+.DS_Store
+
+# Logs
+npm-debug.log*
