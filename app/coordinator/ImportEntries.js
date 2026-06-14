@@ -32,7 +32,7 @@ export default function ImportEntries({ eventId, classes, onDone }) {
     try {
       const XLSX = (await import("xlsx")).default;
       const ab = await file.arrayBuffer();
-      const wb = XLSX.read(ab, { type: "array" });
+      const wb = XLSX.read(new Uint8Array(ab), { type: "array" });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
       if (raw.length < 2) { setError("Spreadsheet appears to be empty."); return; }
@@ -76,7 +76,12 @@ export default function ImportEntries({ eventId, classes, onDone }) {
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Entries");
-    XLSX.writeFile(wb, "entry-import-template.xlsx");
+    const bytes = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "entry-import-template.xlsx";
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
   };
 
   const commit = async () => {
