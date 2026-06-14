@@ -19,12 +19,13 @@ export default function BottomNav() {
 
   return (
     <nav style={{
-      position: "fixed", bottom: 0, left: 0, right: 0,
+      position: "sticky",
+      top: 0,
       background: "var(--leather-deep)",
-      borderTop: "1px solid rgba(168,132,60,.35)",
+      borderBottom: "2px solid rgba(168,132,60,.25)",
       display: "flex",
-      paddingBottom: "env(safe-area-inset-bottom)",
       zIndex: 150,
+      paddingTop: "env(safe-area-inset-top)",
     }}>
       {NAV.map(({ href, label }) => {
         const active = isActive(href);
@@ -34,16 +35,16 @@ export default function BottomNav() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: "14px 4px",
+            padding: "13px 6px",
             textDecoration: "none",
             fontFamily: "'Archivo', sans-serif",
-            fontSize: 11,
+            fontSize: 11.5,
             fontWeight: 700,
-            letterSpacing: ".1em",
+            letterSpacing: ".09em",
             textTransform: "uppercase",
-            color: active ? "var(--brass-soft)" : "rgba(242,234,219,0.4)",
-            borderTop: active ? "2px solid var(--brass-soft)" : "2px solid transparent",
-            marginTop: "-1px",
+            color: active ? "var(--brass-soft)" : "rgba(242,234,219,0.45)",
+            borderBottom: active ? "2px solid var(--brass-soft)" : "2px solid transparent",
+            marginBottom: "-2px",
           }}>
             {label}
           </Link>

@@ -16,9 +16,9 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body style={{ paddingBottom: "calc(60px + env(safe-area-inset-bottom))" }}>
-        {children}
+      <body>
         <BottomNav />
+        {children}
       </body>
     </html>
   );

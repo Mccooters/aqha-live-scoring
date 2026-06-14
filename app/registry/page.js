@@ -5,6 +5,10 @@ import { supabase } from "../../lib/supabaseClient";
 
 const fmtBack = (n) => String(n).padStart(3, "0");
 
+const RIDER_CATEGORIES = [
+  "Open", "Amateur", "Novice Amateur", "Select", "Beginner", "Youth", "EWD", "Leadline", "Non Pro",
+];
+
 const HORSE_ALIASES = {
   back_number: ["back no", "back#", "back number", "back num", "backnumber", "backno", "back"],
   name: ["horse", "horse name", "name", "horsename"],
@@ -23,12 +27,25 @@ function mapHorseHeader(h) {
 
 export default function Registry() {
   const [session, setSession] = useState(null);
+  const [tab, setTab] = useState("horses");
+
+  // ---- horses ----
   const [horses, setHorses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+
+  // ---- riders ----
+  const [riders, setRiders] = useState([]);
+  const [ridersLoading, setRidersLoading] = useState(false);
+  const [riderSearch, setRiderSearch] = useState("");
+  const [ridersError, setRidersError] = useState("");
+
+  // ---- shared modal ----
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
   const [formError, setFormError] = useState("");
+
+  // ---- horse import ----
   const [importRows, setImportRows] = useState(null);
   const [importWarnings, setImportWarnings] = useState([]);
   const [importing, setImporting] = useState(false);
@@ -41,6 +58,7 @@ export default function Registry() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // ---- load horses ----
   const loadHorses = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
@@ -53,14 +71,46 @@ export default function Registry() {
 
   useEffect(() => { loadHorses(); }, [loadHorses]);
 
-  const openModal = (type, horse = null) => {
-    setModal({ type, horse });
-    setForm(horse ? { back_number: String(horse.back_number), name: horse.name, owner: horse.owner ?? "" } : {});
+  // ---- load riders ----
+  const loadRiders = useCallback(async () => {
+    setRidersLoading(true);
+    setRidersError("");
+    const { data, error } = await supabase.from("riders").select("*").order("name");
+    if (error) {
+      setRidersError(error.message.includes("does not exist") || error.message.includes("relation")
+        ? "The riders table hasn't been set up yet. Run supabase/schema-v4-riders.sql in your Supabase SQL Editor, then expose the riders table in Data API settings."
+        : error.message);
+    }
+    setRiders(data ?? []);
+    setRidersLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (tab === "riders") loadRiders();
+  }, [tab, loadRiders]);
+
+  // ---- modal helpers ----
+  const openModal = (type, entity = null) => {
+    if (type === "rider") {
+      setModal({ type, rider: entity });
+      setForm(entity
+        ? { name: entity.name, member_number: entity.member_number ?? "", category: entity.category ?? "", notes: entity.notes ?? "" }
+        : { name: "", member_number: "", category: "", notes: "" });
+    } else if (type === "horse") {
+      setModal({ type, horse: entity });
+      setForm(entity ? { back_number: String(entity.back_number), name: entity.name, owner: entity.owner ?? "" } : {});
+    } else if (type === "reg") {
+      setModal({ type, horse: entity });
+      setForm({});
+    } else if (type === "import") {
+      setModal({ type });
+    }
     setFormError("");
   };
   const closeModal = () => { setModal(null); setForm({}); setFormError(""); };
   const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  // ---- horse CRUD ----
   const submitHorse = async () => {
     if (!form.back_number || !form.name?.trim()) { setFormError("Back number and horse name are required"); return; }
     const back = parseInt(form.back_number, 10);
@@ -91,7 +141,33 @@ export default function Registry() {
     await loadHorses();
   };
 
-  // ---- bulk import ----
+  // ---- rider CRUD ----
+  const submitRider = async () => {
+    if (!form.name?.trim()) { setFormError("Rider name is required"); return; }
+    const payload = {
+      name: form.name.trim(),
+      member_number: form.member_number?.trim() || null,
+      category: form.category?.trim() || null,
+      notes: form.notes?.trim() || null,
+    };
+    if (modal.rider) {
+      const { error } = await supabase.from("riders").update(payload).eq("id", modal.rider.id);
+      if (error) { setFormError(error.message); return; }
+    } else {
+      const { error } = await supabase.from("riders").insert(payload);
+      if (error) { setFormError(error.message); return; }
+    }
+    await loadRiders();
+    closeModal();
+  };
+
+  const deleteRider = async (id) => {
+    if (!confirm("Remove this rider from the registry?")) return;
+    await supabase.from("riders").delete().eq("id", id);
+    await loadRiders();
+  };
+
+  // ---- horse import ----
   const handleImportFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -163,10 +239,29 @@ export default function Registry() {
     }
   };
 
-
-  const filtered = search.trim()
+  // ---- filtered lists ----
+  const filteredHorses = search.trim()
     ? horses.filter((h) => h.name.toLowerCase().includes(search.toLowerCase()) || String(h.back_number).includes(search) || (h.owner ?? "").toLowerCase().includes(search.toLowerCase()))
     : horses;
+
+  const filteredRiders = riderSearch.trim()
+    ? riders.filter((r) => r.name.toLowerCase().includes(riderSearch.toLowerCase()) || (r.member_number ?? "").toLowerCase().includes(riderSearch.toLowerCase()) || (r.category ?? "").toLowerCase().includes(riderSearch.toLowerCase()))
+    : riders;
+
+  const tabStyle = (t) => ({
+    padding: "9px 20px",
+    fontFamily: "'Archivo', sans-serif",
+    fontSize: 13,
+    fontWeight: 700,
+    letterSpacing: ".06em",
+    textTransform: "uppercase",
+    cursor: "pointer",
+    border: "none",
+    background: "none",
+    color: tab === t ? "var(--leather)" : "var(--quiet)",
+    borderBottom: tab === t ? "2.5px solid var(--brass)" : "2.5px solid transparent",
+    marginBottom: -1,
+  });
 
   return (
     <>
@@ -174,10 +269,12 @@ export default function Registry() {
         <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
           <div>
             <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)" }}>Registry</div>
-            <h1 className="display" style={{ fontWeight: 700, fontSize: 22, margin: "2px 0", color: "#F2EADB" }}>Horse Registry</h1>
+            <h1 className="display" style={{ fontWeight: 700, fontSize: 22, margin: "2px 0", color: "#F2EADB" }}>
+              {tab === "horses" ? "Horse Registry" : "Rider Registry"}
+            </h1>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {session && (
+            {session && tab === "horses" && (
               <>
                 <button className="btn-ghost" style={{ borderColor: "var(--brass-soft)", color: "var(--brass-soft)", background: "transparent", padding: "6px 12px" }}
                   onClick={() => { setImportRows(null); setImportDone(false); setImportError(""); openModal("import"); }}>
@@ -189,79 +286,166 @@ export default function Registry() {
                 </button>
               </>
             )}
+            {session && tab === "riders" && (
+              <button className="btn-ghost" style={{ borderColor: "var(--brass-soft)", color: "var(--brass-soft)", background: "transparent", padding: "6px 12px" }}
+                onClick={() => openModal("rider")}>
+                + Add rider
+              </button>
+            )}
           </div>
         </div>
       </header>
 
+      {/* Tab switcher */}
+      <div style={{ background: "var(--paper)", borderBottom: "1px solid var(--line)" }}>
+        <div style={{ maxWidth: 860, margin: "0 auto", display: "flex" }}>
+          <button style={tabStyle("horses")} onClick={() => setTab("horses")}>Horses</button>
+          <button style={tabStyle("riders")} onClick={() => setTab("riders")}>Riders</button>
+        </div>
+      </div>
+
       <main className="wrap">
         {!session && (
           <p style={{ fontSize: 13, color: "var(--quiet)", marginBottom: 16 }}>
-            Read-only view. <Link href="/coordinator" style={{ color: "var(--brass)" }}>Sign in as staff</Link> to add or edit horses.
+            Read-only view. <Link href="/coordinator" style={{ color: "var(--brass)" }}>Sign in as staff</Link> to add or edit records.
           </p>
         )}
 
-        <input className="field" style={{ width: "100%", fontSize: 15, marginBottom: 16 }}
-          placeholder="Search by back number, name, or owner…"
-          value={search} onChange={(e) => setSearch(e.target.value)} />
+        {/* ===== HORSES TAB ===== */}
+        {tab === "horses" && (
+          <>
+            <input className="field" style={{ width: "100%", fontSize: 15, marginBottom: 16 }}
+              placeholder="Search by back number, name, or owner…"
+              value={search} onChange={(e) => setSearch(e.target.value)} />
 
-        {loading && <p style={{ color: "var(--quiet)" }}>Loading…</p>}
+            {loading && <p style={{ color: "var(--quiet)" }}>Loading…</p>}
 
-        {!loading && filtered.length === 0 && (
-          <p style={{ color: "var(--quiet)" }}>
-            {search ? "No horses match your search." : `No horses registered yet.${session ? ' Click "+ Add horse" to get started.' : ""}`}
-          </p>
-        )}
+            {!loading && filteredHorses.length === 0 && (
+              <p style={{ color: "var(--quiet)" }}>
+                {search ? "No horses match your search." : `No horses registered yet.${session ? ' Click "+ Add horse" to get started.' : ""}`}
+              </p>
+            )}
 
-        {filtered.length > 0 && (
-          <section className="card">
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: 70 }}>Back #</th>
-                  <th>Horse</th>
-                  <th>Owner</th>
-                  <th>Club registrations</th>
-                  {session && <th style={{ width: 1 }}></th>}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((h) => (
-                  <tr key={h.id}>
-                    <td className="display" style={{ fontWeight: 700, color: "var(--brass)" }}>#{fmtBack(h.back_number)}</td>
-                    <td style={{ fontWeight: 600 }}>{h.name}</td>
-                    <td style={{ color: "var(--quiet)" }}>{h.owner ?? "—"}</td>
-                    <td>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                        {h.horse_registrations?.map((r) => (
-                          <span key={r.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "var(--sand)", border: "1px solid var(--line)", borderRadius: 20, padding: "2px 9px", fontSize: 12 }}>
-                            <strong>{r.club}</strong>{r.registration_number ? ` · ${r.registration_number}` : ""}
+            {filteredHorses.length > 0 && (
+              <section className="card">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 70 }}>Back #</th>
+                      <th>Horse</th>
+                      <th>Owner</th>
+                      <th>Club registrations</th>
+                      {session && <th style={{ width: 1 }}></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredHorses.map((h) => (
+                      <tr key={h.id}>
+                        <td className="display" style={{ fontWeight: 700, color: "var(--brass)" }}>#{fmtBack(h.back_number)}</td>
+                        <td style={{ fontWeight: 600 }}>{h.name}</td>
+                        <td style={{ color: "var(--quiet)" }}>{h.owner ?? "—"}</td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                            {h.horse_registrations?.map((r) => (
+                              <span key={r.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "var(--sand)", border: "1px solid var(--line)", borderRadius: 20, padding: "2px 9px", fontSize: 12 }}>
+                                <strong>{r.club}</strong>{r.registration_number ? ` · ${r.registration_number}` : ""}
+                                {session && (
+                                  <button onClick={() => deleteReg(r.id)} aria-label="Remove registration"
+                                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)", fontSize: 11, padding: "0 2px", lineHeight: 1 }}>✕</button>
+                                )}
+                              </span>
+                            ))}
                             {session && (
-                              <button onClick={() => deleteReg(r.id)} aria-label="Remove registration"
-                                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)", fontSize: 11, padding: "0 2px", lineHeight: 1 }}>✕</button>
+                              <button className="btn-ghost" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => openModal("reg", h)}>+ Club</button>
                             )}
-                          </span>
-                        ))}
+                            {!h.horse_registrations?.length && !session && <span style={{ color: "var(--quiet)", fontSize: 13 }}>—</span>}
+                          </div>
+                        </td>
                         {session && (
-                          <button className="btn-ghost" style={{ fontSize: 11, padding: "2px 8px" }} onClick={() => openModal("reg", h)}>+ Club</button>
+                          <td><button className="btn-ghost" onClick={() => openModal("horse", h)}>Edit</button></td>
                         )}
-                        {!h.horse_registrations?.length && !session && <span style={{ color: "var(--quiet)", fontSize: 13 }}>—</span>}
-                      </div>
-                    </td>
-                    {session && (
-                      <td><button className="btn-ghost" onClick={() => openModal("horse", h)}>Edit</button></td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
+
+            <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
+              {horses.length} horse{horses.length !== 1 ? "s" : ""} registered
+            </p>
+          </>
         )}
 
-        <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
-          {horses.length} horse{horses.length !== 1 ? "s" : ""} registered
-        </p>
+        {/* ===== RIDERS TAB ===== */}
+        {tab === "riders" && (
+          <>
+            {ridersError ? (
+              <div style={{ background: "#FFF8EC", border: "1px solid var(--brass)", borderRadius: 10, padding: "16px 18px", fontSize: 13.5, color: "var(--leather)" }}>
+                <strong>Setup required:</strong> {ridersError}
+              </div>
+            ) : (
+              <>
+                <input className="field" style={{ width: "100%", fontSize: 15, marginBottom: 16 }}
+                  placeholder="Search by name, member number, or category…"
+                  value={riderSearch} onChange={(e) => setRiderSearch(e.target.value)} />
+
+                {ridersLoading && <p style={{ color: "var(--quiet)" }}>Loading…</p>}
+
+                {!ridersLoading && filteredRiders.length === 0 && (
+                  <p style={{ color: "var(--quiet)" }}>
+                    {riderSearch ? "No riders match your search." : `No riders registered yet.${session ? ' Click "+ Add rider" to get started.' : ""}`}
+                  </p>
+                )}
+
+                {filteredRiders.length > 0 && (
+                  <section className="card">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Member #</th>
+                          <th>Category</th>
+                          <th>Notes</th>
+                          {session && <th style={{ width: 1 }}></th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRiders.map((r) => (
+                          <tr key={r.id}>
+                            <td style={{ fontWeight: 600 }}>{r.name}</td>
+                            <td style={{ color: "var(--quiet)", fontFamily: "monospace" }}>{r.member_number ?? "—"}</td>
+                            <td>
+                              {r.category ? (
+                                <span style={{ background: "var(--sand)", border: "1px solid var(--line)", borderRadius: 20, padding: "2px 9px", fontSize: 12, fontWeight: 600 }}>
+                                  {r.category}
+                                </span>
+                              ) : <span style={{ color: "var(--quiet)" }}>—</span>}
+                            </td>
+                            <td style={{ color: "var(--quiet)", fontSize: 13 }}>{r.notes ?? "—"}</td>
+                            {session && (
+                              <td style={{ display: "flex", gap: 6 }}>
+                                <button className="btn-ghost" onClick={() => openModal("rider", r)}>Edit</button>
+                                <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)" }} onClick={() => deleteRider(r.id)}>Delete</button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+                )}
+
+                <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
+                  {riders.length} rider{riders.length !== 1 ? "s" : ""} registered
+                </p>
+              </>
+            )}
+          </>
+        )}
       </main>
 
+      {/* ===== MODALS ===== */}
       {modal && (
         <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
           <div className="modal-sheet">
@@ -297,6 +481,28 @@ export default function Registry() {
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitReg}>Save registration</button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                </div>
+              </>
+            )}
+
+            {modal.type === "rider" && (
+              <>
+                <h2 className="display modal-title">{modal.rider ? "Edit rider" : "Add rider"}</h2>
+                <label className="modal-label">Name *</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} placeholder="e.g. Sarah O'Brien" />
+                <label className="modal-label">Member number</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.member_number ?? ""} onChange={setField("member_number")} placeholder="e.g. 12345" />
+                <label className="modal-label">Category</label>
+                <select className="field" style={{ width: "100%", fontSize: 16 }} value={form.category ?? ""} onChange={setField("category")}>
+                  <option value="">— Select category —</option>
+                  {RIDER_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <label className="modal-label">Notes</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.notes ?? ""} onChange={setField("notes")} placeholder="e.g. Junior rider, second year" />
+                {formError && <p className="modal-error">{formError}</p>}
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitRider}>{modal.rider ? "Save changes" : "Add rider"}</button>
                   <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
                 </div>
               </>
