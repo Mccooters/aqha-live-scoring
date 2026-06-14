@@ -28,6 +28,7 @@ export default function Home() {
               </h1>
             </div>
             <div style={{ display: "flex", gap: 14, alignItems: "center", paddingTop: 4 }}>
+              <Link href="/highpoints" style={{ color: "var(--brass-soft)", fontSize: 13, textDecoration: "none" }}>High Points</Link>
               <Link href="/registry" style={{ color: "var(--brass-soft)", fontSize: 13, textDecoration: "none" }}>Registry</Link>
               <Link href="/coordinator" style={{ color: "var(--brass-soft)", fontSize: 13, textDecoration: "none" }}>Staff →</Link>
             </div>
