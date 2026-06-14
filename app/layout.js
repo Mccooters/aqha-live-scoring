@@ -2,8 +2,8 @@ import "./globals.css";
 import BottomNav from "./components/BottomNav";
 
 export const metadata = {
-  title: "AQHA Live Scoring",
-  description: "Live class tracking and scoring for AQHA events",
+  title: "HCQHA Live Scoring",
+  description: "Live class tracking and scoring for Hunter Coast Quarter Horse Association events",
 };
 
 export default function RootLayout({ children }) {

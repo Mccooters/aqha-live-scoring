@@ -475,7 +475,7 @@ export default function Registry() {
                 <h2 className="display modal-title">Add club registration</h2>
                 <p style={{ marginTop: 0, color: "var(--quiet)", fontSize: 13 }}>#{fmtBack(modal.horse?.back_number ?? 0)} {modal.horse?.name}</p>
                 <label className="modal-label">Club / association *</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.club ?? ""} onChange={setField("club")} placeholder="e.g. AQHA · PHAA Paint" />
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.club ?? ""} onChange={setField("club")} placeholder="e.g. HCQHA · PHAA Paint" />
                 <label className="modal-label">Registration number</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.reg_number ?? ""} onChange={setField("reg_number")} placeholder="e.g. 1234567" />
                 {formError && <p className="modal-error">{formError}</p>}

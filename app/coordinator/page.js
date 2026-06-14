@@ -9,7 +9,7 @@ const firstPending = (entries) =>
 
 // Points scale: max(0, competing_entries - placing).
 // With 5 entries: 1st=4pts, 2nd=3pts, 3rd=2pts, 4th=1pt, 5th=0pts.
-// Verify this against the current AQHA Australia rule book before use.
+// Verify this against the current HCQHA rule book before use.
 function calcPoints(placing, competingEntries) {
   if (competingEntries < 2) return 0;
   return Math.max(0, competingEntries - placing);
@@ -201,8 +201,9 @@ export default function Coordinator() {
 
   const submitEvent = async () => {
     if (!form.name?.trim()) { setFormError("Event name is required"); return; }
+    const feeCents = form.fee ? Math.round(parseFloat(form.fee) * 100) : 0;
     const { data, error } = await supabase.from("events")
-      .insert({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: form.status ?? "live" })
+      .insert({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: form.status ?? "live", entry_fee_cents: feeCents })
       .select().single();
     if (error) { setFormError(error.message); return; }
     await loadEvents();
@@ -398,9 +399,13 @@ export default function Coordinator() {
             {eventId && <>
               Share: <Link href={`/event/${eventId}`} style={{ color: "var(--brass)" }}>Live view</Link>
               {" · "}<Link href={`/event/${eventId}/schedule`} style={{ color: "var(--brass)" }}>Schedule</Link>
+              {" · "}<Link href={`/event/${eventId}/register`} style={{ color: "var(--brass)" }}>Entry form</Link>
             </>}
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Link href="/coordinator/registrations" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
+              Registrations
+            </Link>
             <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
             <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
             {currentEvent?.status !== "completed" && eventId && (
@@ -537,6 +542,15 @@ export default function Coordinator() {
                     <input className="field" type="date" style={{ width: "100%", fontSize: 15 }} value={form.ends ?? ""} onChange={setField("ends")} />
                   </div>
                 </div>
+                <label className="modal-label">Entry fee per class (AUD)</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18, fontWeight: 600 }}>$</span>
+                  <input className="field" type="number" min="0" step="0.50" style={{ width: 120, fontSize: 16 }}
+                    value={form.fee ?? ""} onChange={setField("fee")} placeholder="0.00" />
+                </div>
+                <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                  Set to $0 for free entry. This is what exhibitors pay per class when registering online.
+                </p>
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEvent}>Create event</button>

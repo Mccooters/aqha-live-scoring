@@ -158,6 +158,14 @@ export default function EventPage() {
             <span className="display" style={{ fontSize: 18 }}>
               {classes.length ? "No class in the arena right now." : "Class list coming soon."}
             </span>
+            {event.status === "upcoming" && (
+              <div style={{ marginTop: 16 }}>
+                <Link href={`/event/${id}/register`} className="btn"
+                  style={{ display: "inline-block", background: "var(--leather)", textDecoration: "none", fontSize: 15 }}>
+                  Register entries →
+                </Link>
+              </div>
+            )}
           </section>
         )}
 
