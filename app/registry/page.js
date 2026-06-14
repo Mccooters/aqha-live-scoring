@@ -123,8 +123,8 @@ export default function Registry() {
 
       setImportRows(parsed);
       setImportWarnings(warns);
-    } catch {
-      setImportError("Could not read the file. Please use .xlsx or .csv format.");
+    } catch (err) {
+      setImportError("Could not read file: " + (err?.message ?? String(err)));
     }
   };
 
@@ -161,23 +161,6 @@ export default function Registry() {
     }
   };
 
-  const downloadTemplate = async () => {
-    const XLSX = (await import("xlsx")).default;
-    const ws = XLSX.utils.aoa_to_sheet([
-      ["Back No", "Horse Name", "Owner", "Club", "Registration Number"],
-      [301, "Machine Made Lady", "J. Santos", "AQHA", "1234567"],
-      [301, "Machine Made Lady", "J. Santos", "PHAA Paint", "PA-890123"],
-      [287, "Willy Be Invited", "D. Kowalski", "AQHA", "7654321"],
-    ]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Horses");
-    const bytes = XLSX.write(wb, { type: "array", bookType: "xlsx" });
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = "horse-registry-template.xlsx";
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
-  };
 
   const filtered = search.trim()
     ? horses.filter((h) => h.name.toLowerCase().includes(search.toLowerCase()) || String(h.back_number).includes(search) || (h.owner ?? "").toLowerCase().includes(search.toLowerCase()))
@@ -331,9 +314,9 @@ export default function Registry() {
                     <p style={{ marginTop: 0, fontSize: 13.5, color: "var(--quiet)" }}>
                       Upload an .xlsx or .csv. Columns: Back No, Horse Name, Owner, Club, Registration Number.
                       One row per club registration (a horse with 2 clubs = 2 rows).{" "}
-                      <button style={{ background: "none", border: "none", color: "var(--brass)", cursor: "pointer", padding: 0, fontSize: 13.5, fontWeight: 700 }} onClick={downloadTemplate}>
+                      <a href="/horse-registry-template.xlsx" download style={{ color: "var(--brass)", fontWeight: 700 }}>
                         Download template
-                      </button>
+                      </a>
                     </p>
                     <input type="file" accept=".xlsx,.xls,.csv" onChange={handleImportFile} />
                     {importError && <p className="modal-error">{importError}</p>}

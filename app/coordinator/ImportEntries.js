@@ -65,28 +65,11 @@ export default function ImportEntries({ eventId, classes, onDone }) {
 
       setRows(parsed);
       setWarnings(warns);
-    } catch {
-      setError("Could not read the file. Please use .xlsx or .csv format.");
+    } catch (err) {
+      setError("Could not read file: " + (err?.message ?? String(err)));
     }
   };
 
-  const downloadTemplate = async () => {
-    const XLSX = (await import("xlsx")).default;
-    const ws = XLSX.utils.aoa_to_sheet([
-      ["Back No", "Horse Name", "Exhibitor", "Class Name", "Draw Order"],
-      [301, "Machine Made Lady", "P. Santos", "Senior Western Pleasure", 1],
-      [287, "Willy Be Invited", "D. Kowalski", "Senior Western Pleasure", 2],
-      [412, "Smooth Talkin Te", "G. Holloway", "Amateur Trail", 1],
-    ]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Entries");
-    const bytes = XLSX.write(wb, { type: "array", bookType: "xlsx" });
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = "entry-import-template.xlsx";
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
-  };
 
   const commit = async () => {
     if (!rows?.length) return;
@@ -159,9 +142,9 @@ export default function ImportEntries({ eventId, classes, onDone }) {
       <h2 className="display modal-title">Import entries</h2>
       <p style={{ marginTop: 0, fontSize: 13.5, color: "var(--quiet)" }}>
         Upload an .xlsx or .csv file with columns: Back No, Horse Name, Exhibitor, Class Name (optional), Draw Order (optional).{" "}
-        <button style={{ background: "none", border: "none", color: "var(--brass)", cursor: "pointer", padding: 0, fontSize: 13.5, fontWeight: 700 }} onClick={downloadTemplate}>
+        <a href="/entry-import-template.xlsx" download style={{ color: "var(--brass)", fontWeight: 700 }}>
           Download template
-        </button>
+        </a>
       </p>
 
       {!rows ? (
