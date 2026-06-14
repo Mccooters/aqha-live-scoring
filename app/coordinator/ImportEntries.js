@@ -31,8 +31,12 @@ export default function ImportEntries({ eventId, classes, onDone }) {
     setError("");
     try {
       const XLSX = (await import("xlsx")).default;
-      const ab = await file.arrayBuffer();
-      const wb = XLSX.read(new Uint8Array(ab), { type: "array" });
+      let wb;
+      if (file.name.toLowerCase().endsWith(".csv")) {
+        wb = XLSX.read(await file.text(), { type: "string" });
+      } else {
+        wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: "array" });
+      }
       const ws = wb.Sheets[wb.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
       if (raw.length < 2) { setError("Spreadsheet appears to be empty."); return; }
