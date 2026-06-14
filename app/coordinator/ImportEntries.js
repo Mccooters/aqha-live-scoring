@@ -30,7 +30,7 @@ export default function ImportEntries({ eventId, classes, onDone }) {
     if (!file) return;
     setError("");
     try {
-      const XLSX = (await import("xlsx")).default;
+      const mod = await import("xlsx"); const XLSX = mod.default ?? mod;
       let wb;
       if (file.name.toLowerCase().endsWith(".csv")) {
         wb = XLSX.read(await file.text(), { type: "string" });

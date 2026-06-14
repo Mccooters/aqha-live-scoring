@@ -297,7 +297,7 @@ export default function Coordinator() {
     if (!currentEvent) return;
     setExporting(true);
     try {
-      const XLSX = (await import("xlsx")).default;
+      const mod = await import("xlsx"); const XLSX = mod.default ?? mod;
 
       const { data: entries } = await supabase.from("entries")
         .select("*").in("class_id", classes.map((c) => c.id));
