@@ -3,6 +3,8 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 
+const fmtBack = (n) => String(n).padStart(3, "0");
+
 const HORSE_ALIASES = {
   back_number: ["back no", "back#", "back number", "back num", "backnumber", "backno", "back"],
   name: ["horse", "horse name", "name", "horsename"],
@@ -226,7 +228,7 @@ export default function Registry() {
               <tbody>
                 {filtered.map((h) => (
                   <tr key={h.id}>
-                    <td className="display" style={{ fontWeight: 700, color: "var(--brass)" }}>#{h.back_number}</td>
+                    <td className="display" style={{ fontWeight: 700, color: "var(--brass)" }}>#{fmtBack(h.back_number)}</td>
                     <td style={{ fontWeight: 600 }}>{h.name}</td>
                     <td style={{ color: "var(--quiet)" }}>{h.owner ?? "—"}</td>
                     <td>
@@ -288,7 +290,7 @@ export default function Registry() {
             {modal.type === "reg" && (
               <>
                 <h2 className="display modal-title">Add club registration</h2>
-                <p style={{ marginTop: 0, color: "var(--quiet)", fontSize: 13 }}>#{modal.horse?.back_number} {modal.horse?.name}</p>
+                <p style={{ marginTop: 0, color: "var(--quiet)", fontSize: 13 }}>#{fmtBack(modal.horse?.back_number ?? 0)} {modal.horse?.name}</p>
                 <label className="modal-label">Club / association *</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.club ?? ""} onChange={setField("club")} placeholder="e.g. AQHA · PHAA Paint" />
                 <label className="modal-label">Registration number</label>
