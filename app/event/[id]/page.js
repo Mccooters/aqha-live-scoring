@@ -9,6 +9,8 @@ const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 const firstPending = (entries) =>
   entries.find((e) => e.score == null && !e.scratched) ?? null;
 
+const fmtBack = (n) => String(n).padStart(3, "0");
+
 function urlBase64ToUint8Array(base64) {
   const pad = "=".repeat((4 - (base64.length % 4)) % 4);
   const b64 = (base64 + pad).replace(/-/g, "+").replace(/_/g, "/");
@@ -116,7 +118,7 @@ export default function EventPage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
               <div>
                 <div className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,5vw,32px)", lineHeight: 1.1 }}>
-                  #{current.back_number} {current.horse}
+                  #{fmtBack(current.back_number)} {current.horse}
                 </div>
                 <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 3 }}>
                   {current.exhibitor} · Judge {liveClass.judge}
@@ -142,7 +144,7 @@ export default function EventPage() {
                 <div key={cls.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", gap: 10 }}>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 13.5 }}>Class {cls.num} · {cls.name}</div>
-                    <div style={{ fontSize: 13, color: "var(--quiet)" }}>1st: #{champion.back_number} {champion.horse} · {champion.exhibitor}</div>
+                    <div style={{ fontSize: 13, color: "var(--quiet)" }}>1st: #{fmtBack(champion.back_number)} {champion.horse} · {champion.exhibitor}</div>
                   </div>
                   <div className="display" style={{ fontWeight: 700, color: "var(--brass)", fontSize: 20, whiteSpace: "nowrap" }}>{champion.score}</div>
                 </div>
@@ -198,7 +200,7 @@ export default function EventPage() {
                   {placed.map((e, i) => (
                     <tr key={e.id} style={i === 0 ? { background: "#FBF4E4" } : {}}>
                       <td className="display" style={{ fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
-                      <td style={{ fontWeight: 600 }}>#{e.back_number} {e.horse}</td>
+                      <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                       <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
                       <td className="display" style={{ textAlign: "right", fontWeight: 700 }}>{e.score}</td>
                     </tr>
@@ -208,7 +210,7 @@ export default function EventPage() {
                       <td style={isLive && i === 0 ? { color: "var(--clay)", fontSize: 11, fontWeight: 700 } : { color: "var(--quiet)" }}>
                         {isLive && i === 0 ? "NOW" : placed.length + i + 1}
                       </td>
-                      <td style={{ fontWeight: 600 }}>#{e.back_number} {e.horse}</td>
+                      <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                       <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
                       <td style={{ textAlign: "right", color: "var(--quiet)" }}>·</td>
                     </tr>
@@ -216,7 +218,7 @@ export default function EventPage() {
                   {scratchedRows.map((e) => (
                     <tr key={e.id} style={{ opacity: 0.55 }}>
                       <td style={{ color: "var(--clay)", fontSize: 10.5, fontWeight: 700 }}>SCR</td>
-                      <td style={{ fontWeight: 600, textDecoration: "line-through" }}>#{e.back_number} {e.horse}</td>
+                      <td style={{ fontWeight: 600, textDecoration: "line-through" }}>#{fmtBack(e.back_number)} {e.horse}</td>
                       <td style={{ color: "var(--quiet)", textDecoration: "line-through" }}>{e.exhibitor}</td>
                       <td style={{ textAlign: "right", color: "var(--quiet)" }}>·</td>
                     </tr>

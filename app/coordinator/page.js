@@ -15,6 +15,8 @@ function calcPoints(placing, competingEntries) {
   return Math.max(0, competingEntries - placing);
 }
 
+const fmtBack = (n) => String(n).padStart(3, "0");
+
 async function triggerPush(title, body, tag) {
   try { await supabase.functions.invoke("send-push", { body: { title, body, tag } }); } catch {}
 }
@@ -95,7 +97,7 @@ export default function Coordinator() {
       await completeClass(liveClass);
     } else {
       const next = remaining[0];
-      triggerPush(`Now showing: #${next.back_number} ${next.horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
+      triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
     }
     setScoreInput("");
     setBusy(false);
@@ -127,7 +129,7 @@ export default function Coordinator() {
     if (liveClass) await supabase.from("classes").update({ status: "completed" }).eq("id", liveClass.id);
     await supabase.from("classes").update({ status: "live" }).eq("id", cls.id);
     const next = firstPending(cls.entries);
-    if (next) triggerPush(`Now showing: #${next.back_number} ${next.horse}`, `Class ${cls.num} · ${cls.name}`, "now-showing");
+    if (next) triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${cls.num} · ${cls.name}`, "now-showing");
   };
 
   const completeClass = async (cls) => {
@@ -136,7 +138,7 @@ export default function Coordinator() {
     if (placed.length > 0) {
       triggerPush(
         `Class ${cls.num} complete — ${cls.name}`,
-        `1st: #${placed[0].back_number} ${placed[0].horse}${placed[0].score != null ? ` (${placed[0].score})` : ""}`,
+        `1st: #${fmtBack(placed[0].back_number)} ${placed[0].horse}${placed[0].score != null ? ` (${placed[0].score})` : ""}`,
         "results"
       );
     }
@@ -144,7 +146,7 @@ export default function Coordinator() {
     if (nextUp) {
       await supabase.from("classes").update({ status: "live" }).eq("id", nextUp.id);
       const nextEntry = firstPending(nextUp.entries);
-      if (nextEntry) triggerPush(`Now showing: #${nextEntry.back_number} ${nextEntry.horse}`, `Class ${nextUp.num} · ${nextUp.name}`, "now-showing");
+      if (nextEntry) triggerPush(`Now showing: #${fmtBack(nextEntry.back_number)} ${nextEntry.horse}`, `Class ${nextUp.num} · ${nextUp.name}`, "now-showing");
     }
   };
 
@@ -410,7 +412,7 @@ export default function Coordinator() {
         {liveClass && current && (
           <section className="card" style={{ padding: 20, borderColor: "var(--brass)" }}>
             <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 10 }}>
-              Class {liveClass.num} · Enter score — #{current.back_number} {current.horse}
+              Class {liveClass.num} · Enter score — #{fmtBack(current.back_number)} {current.horse}
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <input className="field display" style={{ flex: "1 1 140px", fontSize: 22, fontWeight: 600 }}
@@ -461,7 +463,7 @@ export default function Coordinator() {
                   {placed.map((e, i) => (
                     <tr key={e.id}>
                       <td className="display" style={{ width: 50, fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
-                      <td style={{ fontWeight: 600 }}>#{e.back_number} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
+                      <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td className="display" style={{ textAlign: "right", fontWeight: 700, width: 70 }}>{e.score}</td>
                       <td style={{ width: 1, textAlign: "right" }}><button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => openModal("editEntry", { entry: e })}>Edit</button></td>
                     </tr>
@@ -471,7 +473,7 @@ export default function Coordinator() {
                       <td style={{ width: 50, color: isLive && i === 0 ? "var(--clay)" : "var(--quiet)", fontWeight: 700, fontSize: isLive && i === 0 ? 11 : 13 }}>
                         {isLive && i === 0 ? "NOW" : placed.length + i + 1}
                       </td>
-                      <td style={{ fontWeight: 600 }}>#{e.back_number} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
+                      <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td colSpan={2} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <span style={{ display: "inline-flex", gap: 5 }}>
                           <button className="btn-ghost" onClick={() => movePending(cls, e, -1)} aria-label="Move earlier">▲</button>
@@ -485,7 +487,7 @@ export default function Coordinator() {
                   {scratchedRows.map((e) => (
                     <tr key={e.id} style={{ opacity: 0.6 }}>
                       <td style={{ width: 50, color: "var(--clay)", fontSize: 10.5, fontWeight: 700 }}>SCR</td>
-                      <td style={{ fontWeight: 600, textDecoration: "line-through" }}>#{e.back_number} {e.horse}</td>
+                      <td style={{ fontWeight: 600, textDecoration: "line-through" }}>#{fmtBack(e.back_number)} {e.horse}</td>
                       <td colSpan={2} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <span style={{ display: "inline-flex", gap: 5 }}>
                           {cls.status !== "completed" && <button className="btn-ghost" onClick={() => toggleScratch(e)}>Restore</button>}
