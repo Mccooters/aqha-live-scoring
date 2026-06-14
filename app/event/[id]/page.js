@@ -86,7 +86,6 @@ export default function EventPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
             <div>
               <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-                <Link href="/" style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>← All events</Link>
                 <Link href={`/event/${id}/schedule`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>Schedule →</Link>
               </div>
               <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,4vw,30px)", margin: "0 0 2px" }}>{event.name}</h1>

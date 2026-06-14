@@ -243,8 +243,7 @@ export default function HighPoints() {
   // ---- render: migration needed ----
   if (tableError) return (
     <main className="wrap" style={{ maxWidth: 640 }}>
-      <Link href="/" style={{ fontSize: 13, color: "var(--brass)" }}>← All events</Link>
-      <h1 className="display" style={{ fontWeight: 700, fontSize: 24, margin: "12px 0" }}>High Points</h1>
+      <h1 className="display" style={{ fontWeight: 700, fontSize: 24, margin: "0 0 12px" }}>High Points</h1>
       <div className="card" style={{ padding: 20 }}>
         <p style={{ color: "var(--clay)", fontWeight: 700, margin: "0 0 8px" }}>One-time database setup required</p>
         <p style={{ fontSize: 13.5, margin: "0 0 12px" }}>Go to <strong>Supabase → SQL Editor → New query</strong>, paste this, and click Run:</p>
@@ -280,11 +279,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
       <header className="header">
         <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
           <div>
-            <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-              <Link href="/" style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>← Events</Link>
-              <Link href="/registry" style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>Registry</Link>
-            </div>
-            <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", margin: "0 0 2px", color: "#F2EADB" }}>
+              <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", margin: "0 0 2px", color: "#F2EADB" }}>
               High Points
               {seasons.length > 1 ? (
                 <select value={season} onChange={e => { setSeason(e.target.value); setActiveCategory(""); }}

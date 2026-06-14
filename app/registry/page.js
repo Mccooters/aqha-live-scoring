@@ -189,7 +189,6 @@ export default function Registry() {
                 </button>
               </>
             )}
-            <Link href="/" style={{ color: "var(--brass-soft)", fontSize: 13, textDecoration: "none" }}>← All events</Link>
           </div>
         </div>
       </header>

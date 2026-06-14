@@ -1,4 +1,5 @@
 import "./globals.css";
+import BottomNav from "./components/BottomNav";
 
 export const metadata = {
   title: "AQHA Live Scoring",
@@ -15,7 +16,10 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body style={{ paddingBottom: "calc(60px + env(safe-area-inset-bottom))" }}>
+        {children}
+        <BottomNav />
+      </body>
     </html>
   );
 }
