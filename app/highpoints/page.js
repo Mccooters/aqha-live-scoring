@@ -217,8 +217,18 @@ export default function HighPoints() {
       const text = await file.text();
       const { entries, season: importedSeason } = parseHighPointsCSV(text);
       if (!entries.length) { setImportError("No data found in file."); setImporting(false); return; }
+
+      // Deduplicate — if the same name+show appears twice, sum the points
+      const dedupeMap = {};
+      entries.forEach(e => {
+        const key = `${e.season}||${e.category}||${e.entity_name}||${e.show_name}`;
+        if (dedupeMap[key]) { dedupeMap[key].points += e.points; }
+        else { dedupeMap[key] = { ...e }; }
+      });
+      const deduped = Object.values(dedupeMap);
+
       await supabase.from("high_points").delete().eq("season", importedSeason);
-      const { error } = await supabase.from("high_points").insert(entries);
+      const { error } = await supabase.from("high_points").upsert(deduped, { onConflict: "season,category,entity_name,show_name" });
       if (error) throw error;
       await load();
       setSeason(importedSeason);
