@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import ImportEntries from "./ImportEntries";
+import ImportClasses from "./ImportClasses";
 
 const firstPending = (entries) =>
   entries.find((e) => e.score == null && !e.scratched) ?? null;
@@ -406,6 +407,7 @@ export default function Coordinator() {
             <Link href="/coordinator/registrations" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
               Registrations
             </Link>
+            <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
             <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
             {currentEvent?.status !== "completed" && eventId && (
@@ -627,6 +629,13 @@ export default function Coordinator() {
                   <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
                 </div>
               </>
+            )}
+
+            {modal.type === "importClasses" && (
+              <ImportClasses
+                eventId={eventId}
+                onDone={() => { closeModal(); loadClasses(); }}
+              />
             )}
 
             {modal.type === "import" && (

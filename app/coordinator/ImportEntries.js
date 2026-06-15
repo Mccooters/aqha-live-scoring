@@ -142,8 +142,12 @@ export default function ImportEntries({ eventId, classes, onDone }) {
       <h2 className="display modal-title">Import entries</h2>
       <p style={{ marginTop: 0, fontSize: 13.5, color: "var(--quiet)" }}>
         Upload an .xlsx or .csv file with columns: Back No, Horse Name, Exhibitor, Class Name (optional), Draw Order (optional).{" "}
+        <a href="/hcqha-a-show-template.xlsx" download style={{ color: "var(--brass)", fontWeight: 700 }}>
+          Download A Show template
+        </a>
+        {" · "}
         <a href="/entry-import-template.xlsx" download style={{ color: "var(--brass)", fontWeight: 700 }}>
-          Download template
+          Blank template
         </a>
       </p>
 
