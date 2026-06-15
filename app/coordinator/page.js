@@ -173,21 +173,27 @@ export default function Coordinator() {
     ]);
   };
 
+  const setEventStatus = async (newStatus) => {
+    await supabase.from("events").update({ status: newStatus }).eq("id", eventId);
+    await loadEvents();
+  };
+
   const endEvent = async () => {
     if (!window.confirm("Mark this event as completed? This cannot be undone.")) return;
-    await supabase.from("events").update({ status: "completed" }).eq("id", eventId);
-    await loadEvents();
+    await setEventStatus("completed");
   };
 
   const closeEntries = async () => {
-    if (!window.confirm("Close entries for this event?\n\nExhibitors will no longer be able to register online. You can reopen entries if needed.")) return;
-    await supabase.from("events").update({ entries_open: false }).eq("id", eventId);
-    await loadEvents();
-  };
-
-  const reopenEntries = async () => {
-    await supabase.from("events").update({ entries_open: true }).eq("id", eventId);
-    await loadEvents();
+    const emptyClasses = classes.filter((c) => c.entries.length === 0);
+    const emptyNote = emptyClasses.length > 0
+      ? `\n\n${emptyClasses.length} class${emptyClasses.length !== 1 ? "es" : ""} with no entries will be removed:\n${emptyClasses.slice(0, 8).map((c) => `  · Class ${c.num} · ${c.name}`).join("\n")}${emptyClasses.length > 8 ? `\n  · …and ${emptyClasses.length - 8} more` : ""}`
+      : "";
+    if (!window.confirm(`Close entries for this event?${emptyNote}\n\nExhibitors will no longer be able to register online. You can reopen entries if needed.`)) return;
+    if (emptyClasses.length > 0) {
+      await supabase.from("classes").delete().in("id", emptyClasses.map((c) => c.id));
+    }
+    await setEventStatus("closed");
+    await loadClasses();
   };
 
   const randomiseDraw = async () => {
@@ -274,7 +280,7 @@ export default function Coordinator() {
     if (!form.name?.trim()) { setFormError("Event name is required"); return; }
     const feeCents = form.fee ? Math.round(parseFloat(form.fee) * 100) : 0;
     const { data, error } = await supabase.from("events")
-      .insert({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: form.status ?? "live", entry_fee_cents: feeCents })
+      .insert({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: form.status ?? "pre_open", entry_fee_cents: feeCents })
       .select().single();
     if (error) { setFormError(error.message); return; }
     await loadEvents();
@@ -513,17 +519,16 @@ export default function Coordinator() {
               Share: <Link href={`/event/${eventId}`} style={{ color: "var(--brass)" }}>Live view</Link>
               {" · "}<Link href={`/event/${eventId}/schedule`} style={{ color: "var(--brass)" }}>Schedule</Link>
               {" · "}<Link href={`/event/${eventId}/register`} style={{ color: "var(--brass)" }}>Entry form</Link>
-              {currentEvent && (
-                <span style={{
-                  marginLeft: 10,
-                  background: currentEvent.entries_open === false ? "#FFF0F0" : "#F0FBF0",
-                  color: currentEvent.entries_open === false ? "var(--clay)" : "var(--green)",
-                  border: `1px solid ${currentEvent.entries_open === false ? "var(--clay)" : "var(--green)"}`,
-                  borderRadius: 10, padding: "2px 10px", fontSize: 11.5, fontWeight: 700,
-                }}>
-                  {currentEvent.entries_open === false ? "Entries closed" : "Entries open"}
-                </span>
-              )}
+              {currentEvent && (() => {
+                const s = currentEvent.status;
+                const LABEL = { pre_open: "Pre-open", open: "Entries open", upcoming: "Entries open", closed: "Entries closed", live: "Live", completed: "Completed", archived: "Archived" };
+                const COLOR = { pre_open: "#7A6E8A", open: "#2D7A52", upcoming: "#2D7A52", closed: "#9A6A1A", live: "var(--clay)", completed: "var(--green)", archived: "#9A9A9A" };
+                return (
+                  <span style={{ marginLeft: 10, background: COLOR[s] ?? "var(--quiet)", color: "#fff", borderRadius: 10, padding: "2px 10px", fontSize: 11.5, fontWeight: 700 }}>
+                    {LABEL[s] ?? s}
+                  </span>
+                );
+              })()}
             </>}
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -533,26 +538,47 @@ export default function Coordinator() {
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
             <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
-            {currentEvent?.status !== "completed" && eventId && (
-              <>
-                {currentEvent?.entries_open === false ? (
-                  <>
+            {eventId && (() => {
+              const s = currentEvent?.status;
+              return (
+                <>
+                  {s === "pre_open" && (
                     <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
-                      onClick={reopenEntries} disabled={busy}>
-                      Reopen entries
+                      onClick={() => setEventStatus("open")} disabled={busy}>
+                      Open entries
                     </button>
-                    <button className="btn-ghost" onClick={randomiseDraw} disabled={busy}>
-                      🔀 Randomise draw
+                  )}
+                  {(s === "open" || s === "upcoming") && (
+                    <button className="btn-ghost danger" onClick={closeEntries} disabled={busy}>
+                      Close entries
                     </button>
-                  </>
-                ) : (
-                  <button className="btn-ghost danger" onClick={closeEntries} disabled={busy}>
-                    Close entries
-                  </button>
-                )}
-                <button className="btn-ghost danger" onClick={endEvent}>End event</button>
-              </>
-            )}
+                  )}
+                  {s === "closed" && (
+                    <>
+                      <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
+                        onClick={() => setEventStatus("open")} disabled={busy}>
+                        Reopen entries
+                      </button>
+                      <button className="btn-ghost" onClick={randomiseDraw} disabled={busy}>
+                        🔀 Randomise draw
+                      </button>
+                      <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
+                        onClick={() => setEventStatus("live")} disabled={busy}>
+                        Go live
+                      </button>
+                    </>
+                  )}
+                  {s === "live" && (
+                    <button className="btn-ghost danger" onClick={endEvent}>End event</button>
+                  )}
+                  {s === "completed" && (
+                    <button className="btn-ghost" onClick={() => {
+                      if (window.confirm("Archive this event? It will be hidden from the public home page but results remain accessible via its URL.")) setEventStatus("archived");
+                    }}>Archive</button>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
 
@@ -768,9 +794,10 @@ export default function Coordinator() {
                 <label className="modal-label">Venue / location</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.location ?? ""} onChange={setField("location")} placeholder="e.g. Tamworth Showground" />
                 <label className="modal-label">Status</label>
-                <select className="field" style={{ width: "100%", fontSize: 16 }} value={form.status ?? "live"} onChange={setField("status")}>
+                <select className="field" style={{ width: "100%", fontSize: 16 }} value={form.status ?? "pre_open"} onChange={setField("status")}>
+                  <option value="pre_open">Pre-open — setting up, entries not yet open</option>
+                  <option value="open">Open — accepting entries now</option>
                   <option value="live">Live — happening now</option>
-                  <option value="upcoming">Upcoming — future show</option>
                 </select>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>

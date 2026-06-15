@@ -198,16 +198,32 @@ export default function EventPage() {
           </section>
         ) : (
           <section className="card" style={{ background: "var(--sand)", border: "none", padding: 22, textAlign: "center" }}>
-            <span className="display" style={{ fontSize: 18 }}>
-              {classes.length ? "No class in the arena right now." : "Class list coming soon."}
-            </span>
-            {event.status === "upcoming" && (
-              <div style={{ marginTop: 16 }}>
-                <Link href={`/event/${id}/register`} className="btn"
-                  style={{ display: "inline-block", background: "var(--leather)", textDecoration: "none", fontSize: 15 }}>
-                  Register entries →
-                </Link>
-              </div>
+            {event.status === "pre_open" ? (
+              <>
+                <span className="display" style={{ fontSize: 18 }}>Entries opening soon.</span>
+                <p style={{ color: "var(--quiet)", fontSize: 14, marginBottom: 0 }}>
+                  This event is being set up. Check back when entries open.
+                </p>
+              </>
+            ) : (event.status === "open" || event.status === "upcoming") ? (
+              <>
+                <span className="display" style={{ fontSize: 18 }}>Entries are open.</span>
+                <div style={{ marginTop: 16 }}>
+                  <Link href={`/event/${id}/register`} className="btn"
+                    style={{ display: "inline-block", background: "var(--leather)", textDecoration: "none", fontSize: 15 }}>
+                    Register entries →
+                  </Link>
+                </div>
+              </>
+            ) : event.status === "closed" ? (
+              <>
+                <span className="display" style={{ fontSize: 18 }}>Draw being finalised.</span>
+                <p style={{ color: "var(--quiet)", fontSize: 14, marginBottom: 0 }}>Entries are closed. The show starts soon.</p>
+              </>
+            ) : (
+              <span className="display" style={{ fontSize: 18 }}>
+                {classes.length ? "No class in the arena right now." : "Class list coming soon."}
+              </span>
             )}
           </section>
         )}

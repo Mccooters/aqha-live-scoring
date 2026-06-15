@@ -140,7 +140,17 @@ export default function RegisterPage() {
     </main>
   );
 
-  if (event.entries_open === false) return (
+  const entriesOpen = event.status === "open" || event.status === "upcoming";
+
+  if (event.status === "pre_open") return (
+    <main className="wrap" style={{ maxWidth: 500, textAlign: "center", paddingTop: 40 }}>
+      <div className="display" style={{ fontSize: 22, fontWeight: 700, marginBottom: 10 }}>Entries not yet open</div>
+      <p style={{ color: "var(--quiet)" }}>Online entry for this event hasn't opened yet. Check back soon.</p>
+      <Link href={`/event/${eventId}`} style={{ color: "var(--brass)", fontSize: 14 }}>← View event</Link>
+    </main>
+  );
+
+  if (!entriesOpen) return (
     <main className="wrap" style={{ maxWidth: 500, paddingTop: 40 }}>
       <header className="header" style={{ marginLeft: -16, marginRight: -16, marginTop: -40, marginBottom: 32, padding: "20px 24px" }}>
         <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)", marginBottom: 4 }}>Online entry</div>
