@@ -6,8 +6,10 @@ import { supabase } from "../../../lib/supabaseClient";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
-const firstPending = (entries) =>
-  entries.find((e) => e.score == null && !e.scratched) ?? null;
+const firstPending = (entries, mode) =>
+  mode === "tbc"
+    ? entries.find((e) => !e.called && !e.scratched) ?? null
+    : entries.find((e) => e.score == null && !e.scratched) ?? null;
 
 const fmtBack = (n) => String(n).padStart(3, "0");
 
@@ -78,10 +80,10 @@ export default function EventPage() {
   };
 
   const liveClass = classes.find((c) => c.status === "live");
-  const current = liveClass ? firstPending(liveClass.entries) : null;
+  const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
   const active = liveClass ? liveClass.entries.filter((e) => !e.scratched) : [];
   const drawPos = current ? active.findIndex((e) => e.id === current.id) + 1 : 0;
-  const scored = active.filter((e) => e.score != null).length;
+  const scored = active.filter((e) => liveClass?.scoring_mode === "tbc" ? e.called : e.score != null).length;
 
   if (!event) return <main className="wrap"><p style={{ color: "var(--quiet)" }}>Loading…</p></main>;
 
@@ -112,7 +114,7 @@ export default function EventPage() {
 
       <main className="wrap">
         {/* ---- Live banner / completed summary / idle ---- */}
-        {liveClass && liveClass.scoring_mode === "tbc" ? (
+        {liveClass && liveClass.scoring_mode === "tbc_class" ? (
           <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
@@ -231,7 +233,8 @@ export default function EventPage() {
         {/* ---- Per-class scoreboards ---- */}
         {classes.map((cls) => {
           const mode = cls.scoring_mode ?? "score";
-          const isPlacingMode = mode === "placing" || mode === "class_only" || mode === "tbc";
+          const isTbcDraw = mode === "tbc";
+          const isPlacingMode = mode === "placing" || mode === "class_only" || mode === "tbc_class";
           const twoJudges = !!cls.judge2;
           const placed = cls.entries
             .filter((e) => e.score != null && !e.scratched)
@@ -239,7 +242,10 @@ export default function EventPage() {
               const d = isPlacingMode ? a.score - b.score : b.score - a.score;
               return d !== 0 ? d : isPlacingMode ? (a.score2 ?? 99) - (b.score2 ?? 99) : (b.score2 ?? 0) - (a.score2 ?? 0);
             });
-          const pending = cls.entries.filter((e) => e.score == null && !e.scratched);
+          const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && e.score == null && !e.scratched) : [];
+          const pending = isTbcDraw
+            ? cls.entries.filter((e) => !e.called && !e.scratched)
+            : cls.entries.filter((e) => e.score == null && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
           const isClassOnly = mode === "class_only";
@@ -272,7 +278,7 @@ export default function EventPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {placed.length === 0 && mode === "tbc" && cls.status !== "upcoming" && (
+                  {placed.length === 0 && (mode === "tbc" || mode === "tbc_class") && cls.status !== "upcoming" && (
                     <tr>
                       <td colSpan={4} style={{ textAlign: "center", color: "var(--quiet)", fontStyle: "italic", padding: "18px 0" }}>
                         Results pending — will be posted once received from the judge
@@ -291,10 +297,18 @@ export default function EventPage() {
                       </td>
                     </tr>
                   ))}
+                  {calledRows.map((e) => (
+                    <tr key={e.id} style={{ opacity: 0.75 }}>
+                      <td style={{ color: "var(--quiet)", fontStyle: "italic", fontSize: 11, fontWeight: 600 }}>TBC</td>
+                      <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
+                      <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
+                      <td style={{ textAlign: "right", color: "var(--quiet)", fontStyle: "italic", fontSize: 12 }}>result pending</td>
+                    </tr>
+                  ))}
                   {pending.map((e, i) => (
-                    <tr key={e.id} style={{ opacity: isLive && !isClassOnly && i > 0 ? 0.7 : 1 }}>
+                    <tr key={e.id} style={{ opacity: isLive && !isClassOnly && !isTbcDraw && i > 0 ? 0.7 : 1 }}>
                       <td style={isLive && !isClassOnly && i === 0 ? { color: "var(--clay)", fontSize: 11, fontWeight: 700 } : { color: "var(--quiet)" }}>
-                        {isLive && !isClassOnly && i === 0 ? "NOW" : placed.length + i + 1}
+                        {isLive && !isClassOnly && i === 0 ? "NOW" : placed.length + calledRows.length + i + 1}
                       </td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                       <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>

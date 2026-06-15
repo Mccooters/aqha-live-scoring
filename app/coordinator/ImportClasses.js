@@ -13,7 +13,8 @@ const MODE_MAP = {
   score:      ["score", "70pt", "70 pt", "70point", "70 point", "points", "scored", "70"],
   placing:    ["placing", "placings", "place", "places", "1st2nd3rd", "1st/2nd/3rd", "ribbon", "ribbons"],
   class_only: ["class only", "class_only", "classonly", "rail", "rail class", "together", "group", "no draw"],
-  tbc:        ["tbc", "to be confirmed", "confirmed later", "paperwork", "paper", "judge paper", "results later"],
+  tbc:        ["tbc draw", "tbc-draw", "draw tbc", "tbc individual", "individual tbc"],
+  tbc_class:  ["tbc", "tbc class", "tbc_class", "tbc whole class", "to be confirmed", "confirmed later", "paperwork", "paper", "judge paper", "results later", "whole class tbc"],
 };
 
 function normaliseMode(raw) {
@@ -167,7 +168,7 @@ export default function ImportClasses({ eventId, onDone }) {
         <>
           <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 0 }}>
             Columns: <strong>Class #</strong>, <strong>Class Name</strong>, Judge (optional),
-            Type (optional — <em>Score</em>, <em>Placing</em>, or <em>Class Only</em>; defaults to Score)
+            Type (optional — <em>Score</em>, <em>Placing</em>, <em>Class Only</em>, <em>TBC (draw)</em>, or <em>TBC (whole class)</em>; defaults to Score)
           </p>
           <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ marginBottom: 12 }} />
           {error && <p className="modal-error">{error}</p>}
@@ -199,11 +200,11 @@ export default function ImportClasses({ eventId, onDone }) {
                     <td style={{ color: "var(--quiet)", fontSize: 12 }}>{r.judge || "—"}</td>
                     <td style={{ fontSize: 12 }}>
                       <span style={{
-                        background: r.scoring_mode === "placing" ? "#EEF4FF" : r.scoring_mode === "class_only" ? "#F3F0FF" : r.scoring_mode === "tbc" ? "#FFF3E0" : "#F0FBF0",
-                        color: r.scoring_mode === "placing" ? "#2255CC" : r.scoring_mode === "class_only" ? "#5533AA" : r.scoring_mode === "tbc" ? "#A05000" : "#226622",
+                        background: r.scoring_mode === "placing" ? "#EEF4FF" : r.scoring_mode === "class_only" ? "#F3F0FF" : (r.scoring_mode === "tbc" || r.scoring_mode === "tbc_class") ? "#FFF3E0" : "#F0FBF0",
+                        color: r.scoring_mode === "placing" ? "#2255CC" : r.scoring_mode === "class_only" ? "#5533AA" : (r.scoring_mode === "tbc" || r.scoring_mode === "tbc_class") ? "#A05000" : "#226622",
                         borderRadius: 10, padding: "2px 8px", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap",
                       }}>
-                        {r.scoring_mode === "placing" ? "Placing" : r.scoring_mode === "class_only" ? "Class only" : r.scoring_mode === "tbc" ? "TBC" : "Score"}
+                        {r.scoring_mode === "placing" ? "Placing" : r.scoring_mode === "class_only" ? "Class only" : r.scoring_mode === "tbc" ? "TBC (draw)" : r.scoring_mode === "tbc_class" ? "TBC (whole class)" : "Score"}
                       </span>
                     </td>
                   </tr>

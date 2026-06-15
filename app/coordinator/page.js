@@ -5,8 +5,10 @@ import { supabase } from "../../lib/supabaseClient";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 
-const firstPending = (entries) =>
-  entries.find((e) => e.score == null && !e.scratched) ?? null;
+const firstPending = (entries, mode) =>
+  mode === "tbc"
+    ? entries.find((e) => !e.called && !e.scratched) ?? null
+    : entries.find((e) => e.score == null && !e.scratched) ?? null;
 
 // Points scale: max(0, competing_entries - placing).
 // With 5 entries: 1st=4pts, 2nd=3pts, 3rd=2pts, 4th=1pt, 5th=0pts.
@@ -86,7 +88,7 @@ export default function Coordinator() {
   }, [session, eventId, loadClasses]);
 
   const liveClass = classes.find((c) => c.status === "live");
-  const current = liveClass ? firstPending(liveClass.entries) : null;
+  const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
   const currentEvent = events.find((e) => e.id === eventId);
 
   // ---- scoring actions ----
@@ -113,19 +115,38 @@ export default function Coordinator() {
     setBusy(false);
   };
 
+  const callNext = async () => {
+    if (!current || busy) return;
+    setBusy(true);
+    await supabase.from("entries").update({ called: true }).eq("id", current.id);
+    const remaining = liveClass.entries.filter((e) => e.id !== current.id && !e.called && !e.scratched);
+    if (remaining.length === 0) {
+      await completeClass(liveClass);
+    } else {
+      triggerPush(`Now showing: #${fmtBack(remaining[0].back_number)} ${remaining[0].horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
+    }
+    setBusy(false);
+  };
+
   const toggleScratch = async (entry) => {
     await supabase.from("entries").update({ scratched: !entry.scratched }).eq("id", entry.id);
     if (!entry.scratched) {
       triggerPush(`Scratch: #${entry.back_number} ${entry.horse}`, "This entry has been scratched.", "scratch");
       if (liveClass) {
-        const remaining = liveClass.entries.filter((e) => e.id !== entry.id && e.score == null && !e.scratched);
+        const liveMode = liveClass.scoring_mode ?? "score";
+        const remaining = liveMode === "tbc"
+          ? liveClass.entries.filter((e) => e.id !== entry.id && !e.called && !e.scratched)
+          : liveClass.entries.filter((e) => e.id !== entry.id && e.score == null && !e.scratched);
         if (remaining.length === 0) await completeClass(liveClass);
       }
     }
   };
 
   const movePending = async (cls, entry, dir) => {
-    const pending = cls.entries.filter((e) => e.score == null && !e.scratched);
+    const clsMode = cls.scoring_mode ?? "score";
+    const pending = clsMode === "tbc"
+      ? cls.entries.filter((e) => !e.called && !e.scratched)
+      : cls.entries.filter((e) => e.score == null && !e.scratched);
     const pos = pending.findIndex((e) => e.id === entry.id);
     const other = pending[pos + dir];
     if (!other) return;
@@ -138,13 +159,13 @@ export default function Coordinator() {
   const startClass = async (cls) => {
     if (liveClass) await supabase.from("classes").update({ status: "completed" }).eq("id", liveClass.id);
     await supabase.from("classes").update({ status: "live" }).eq("id", cls.id);
-    const next = firstPending(cls.entries);
+    const next = firstPending(cls.entries, cls.scoring_mode);
     if (next) triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${cls.num} · ${cls.name}`, "now-showing");
   };
 
   const completeClass = async (cls) => {
     await supabase.from("classes").update({ status: "completed" }).eq("id", cls.id);
-    const isPlacingMode = cls.scoring_mode === "placing" || cls.scoring_mode === "class_only" || cls.scoring_mode === "tbc";
+    const isPlacingMode = cls.scoring_mode === "placing" || cls.scoring_mode === "class_only" || cls.scoring_mode === "tbc_class";
     const placed = [...cls.entries].filter((e) => e.score != null && !e.scratched)
       .sort((a, b) => isPlacingMode ? a.score - b.score : b.score - a.score);
     if (placed.length > 0) {
@@ -157,7 +178,7 @@ export default function Coordinator() {
     const nextUp = classes.find((c) => c.status === "upcoming" && c.id !== cls.id);
     if (nextUp) {
       await supabase.from("classes").update({ status: "live" }).eq("id", nextUp.id);
-      const nextEntry = firstPending(nextUp.entries);
+      const nextEntry = firstPending(nextUp.entries, nextUp.scoring_mode);
       if (nextEntry) triggerPush(`Now showing: #${fmtBack(nextEntry.back_number)} ${nextEntry.horse}`, `Class ${nextUp.num} · ${nextUp.name}`, "now-showing");
     }
   };
@@ -197,7 +218,10 @@ export default function Coordinator() {
   };
 
   const randomiseDraw = async () => {
-    const pending = classes.flatMap((c) => c.entries.filter((e) => !e.scratched && e.score == null));
+    const pending = classes.flatMap((c) => {
+      const m = c.scoring_mode ?? "score";
+      return c.entries.filter((e) => !e.scratched && (m === "tbc" ? !e.called : e.score == null));
+    });
     if (!pending.length) { window.alert("No pending entries to randomise."); return; }
     if (!window.confirm(
       `Randomise the draw order for all classes in this event?\n\n${pending.length} pending ${pending.length === 1 ? "entry" : "entries"} across ${classes.length} ${classes.length === 1 ? "class" : "classes"} will be shuffled into a random order.`
@@ -205,7 +229,8 @@ export default function Coordinator() {
     setBusy(true);
     try {
       for (const cls of classes) {
-        const pendingInClass = cls.entries.filter((e) => !e.scratched && e.score == null);
+        const m = cls.scoring_mode ?? "score";
+        const pendingInClass = cls.entries.filter((e) => !e.scratched && (m === "tbc" ? !e.called : e.score == null));
         if (pendingInClass.length < 2) continue;
         const orders = pendingInClass.map((e) => e.draw_order);
         for (let i = orders.length - 1; i > 0; i--) {
@@ -228,6 +253,8 @@ export default function Coordinator() {
       ? `Delete Class ${cls.num} · ${cls.name}?\n\nThis will also delete ${n} entr${n === 1 ? "y" : "ies"}. This cannot be undone.`
       : `Delete Class ${cls.num} · ${cls.name}? This cannot be undone.`;
     if (!window.confirm(msg)) return;
+    // Clean up registration_entries referencing this class (cascade handles it in DB too)
+    await supabase.from("registration_entries").delete().eq("class_id", cls.id);
     if (n > 0) await supabase.from("entries").delete().in("id", cls.entries.map((e) => e.id));
     await supabase.from("classes").delete().eq("id", cls.id);
   };
@@ -409,7 +436,7 @@ export default function Coordinator() {
         const ce = (entries ?? []).filter((e) => e.class_id === cls.id);
         const competing = ce.filter((e) => !e.scratched).length;
         const mode = cls.scoring_mode ?? "score";
-        const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc";
+        const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc_class";
         const placed = ce.filter((e) => e.score != null && !e.scratched)
           .sort((a, b) => {
             const d = isPlacing ? a.score - b.score : b.score - a.score;
@@ -446,7 +473,7 @@ export default function Coordinator() {
         const ce = (entries ?? []).filter((e) => e.class_id === cls.id);
         const competing = ce.filter((e) => !e.scratched).length;
         const mode = cls.scoring_mode ?? "score";
-        const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc";
+        const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc_class";
         const scored = ce.filter((e) => e.score != null && !e.scratched);
 
         if (cls.judge2) {
@@ -549,9 +576,16 @@ export default function Coordinator() {
                     </button>
                   )}
                   {(s === "open" || s === "upcoming") && (
-                    <button className="btn-ghost danger" onClick={closeEntries} disabled={busy}>
-                      Close entries
-                    </button>
+                    <>
+                      <button className="btn-ghost" style={{ fontSize: 13 }}
+                        onClick={() => { if (window.confirm("Revert to pre-open? Entries will be closed and the event will show as 'Coming soon' again.")) setEventStatus("pre_open"); }}
+                        disabled={busy}>
+                        ← Back to pre-open
+                      </button>
+                      <button className="btn-ghost danger" onClick={closeEntries} disabled={busy}>
+                        Close entries
+                      </button>
+                    </>
                   )}
                   {s === "closed" && (
                     <>
@@ -569,7 +603,14 @@ export default function Coordinator() {
                     </>
                   )}
                   {s === "live" && (
-                    <button className="btn-ghost danger" onClick={endEvent}>End event</button>
+                    <>
+                      <button className="btn-ghost" style={{ fontSize: 13 }}
+                        onClick={() => { if (window.confirm("Revert to closed? The event will go back to the 'Entries closed' state. Any scoring in progress will not be affected.")) setEventStatus("closed"); }}
+                        disabled={busy}>
+                        ← Back to closed
+                      </button>
+                      <button className="btn-ghost danger" onClick={endEvent}>End event</button>
+                    </>
                   )}
                   {s === "completed" && (
                     <button className="btn-ghost" onClick={() => {
@@ -582,7 +623,7 @@ export default function Coordinator() {
           </div>
         </div>
 
-        {liveClass && current && liveClass.scoring_mode !== "class_only" && liveClass.scoring_mode !== "tbc" && (
+        {liveClass && current && liveClass.scoring_mode !== "class_only" && liveClass.scoring_mode !== "tbc_class" && liveClass.scoring_mode !== "tbc" && (
           <section className="card" style={{ padding: 20, borderColor: "var(--brass)" }}>
             <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 10 }}>
               Class {liveClass.num} · {liveClass.scoring_mode === "placing" ? "Set placing" : "Enter score"} — #{fmtBack(current.back_number)} {current.horse}
@@ -658,13 +699,32 @@ export default function Coordinator() {
           </section>
         )}
 
-        {liveClass && liveClass.scoring_mode === "tbc" && (
+        {liveClass && current && liveClass.scoring_mode === "tbc" && (
+          <section className="card" style={{ padding: 20, borderColor: "var(--brass)" }}>
+            <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 10 }}>
+              Class {liveClass.num} · TBC draw — #{fmtBack(current.back_number)} {current.horse}
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 13.5, color: "var(--quiet)" }}>
+              Tap <strong>Next entry →</strong> as each horse enters the ring. Results will be entered later from the judge's paperwork.
+            </p>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button className="btn" style={{ flex: "1 1 180px" }} disabled={busy} onClick={callNext}>
+                Next entry →
+              </button>
+              <button className="btn-ghost danger" style={{ padding: "10px 16px", fontSize: 14, borderRadius: 10 }} onClick={() => toggleScratch(current)}>
+                Scratch this entry
+              </button>
+            </div>
+          </section>
+        )}
+
+        {liveClass && liveClass.scoring_mode === "tbc_class" && (
           <section className="card" style={{ padding: 20, borderColor: "var(--brass)", background: "#FBF4E4" }}>
             <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 8 }}>
               Class {liveClass.num} · {liveClass.name} — results to be confirmed
             </div>
             <p style={{ margin: "0 0 12px", fontSize: 13.5, color: "var(--quiet)" }}>
-              Scores will be entered later from the judge's paperwork. Click <strong>Complete</strong> when all horses have ridden, then come back to enter results via the Edit button on each entry.
+              Everyone is in the ring together. Click <strong>Complete</strong> when done, then use the Edit button on each entry to enter results from the judge's paperwork.
             </p>
             <button className="btn" style={{ background: "var(--leather)" }} onClick={() => completeClass(liveClass)}>
               Complete class
@@ -674,15 +734,19 @@ export default function Coordinator() {
 
         {classes.map((cls) => {
           const mode = cls.scoring_mode ?? "score";
+          const isTbcDraw = mode === "tbc";
           const twoJudges = !!cls.judge2;
-          const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc";
+          const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc_class";
           const placed = cls.entries.filter((e) => e.score != null && !e.scratched)
             .sort((a, b) => {
               const d = isPlacing ? a.score - b.score : b.score - a.score;
               if (d !== 0) return d;
               return isPlacing ? (a.score2 ?? 99) - (b.score2 ?? 99) : (b.score2 ?? 0) - (a.score2 ?? 0);
             });
-          const pending = cls.entries.filter((e) => e.score == null && !e.scratched);
+          const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && e.score == null && !e.scratched) : [];
+          const pending = isTbcDraw
+            ? cls.entries.filter((e) => !e.called && !e.scratched)
+            : cls.entries.filter((e) => e.score == null && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
           return (
@@ -737,10 +801,22 @@ export default function Coordinator() {
                       </td>
                     </tr>
                   ))}
+                  {calledRows.map((e, i) => (
+                    <tr key={e.id} style={{ opacity: 0.75 }}>
+                      <td style={{ width: 50, color: "var(--quiet)", fontStyle: "italic", fontSize: 11, fontWeight: 600 }}>TBC</td>
+                      <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
+                      <td colSpan={2} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <span style={{ display: "inline-flex", gap: 5 }}>
+                          <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => openModal("editEntry", { entry: e })}>Edit</button>
+                          <button className="btn-ghost danger" style={{ fontSize: 11 }} onClick={() => deleteEntry(e)}>Delete</button>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
                   {pending.map((e, i) => (
                     <tr key={e.id}>
                       <td style={{ width: 50, color: isLive && i === 0 ? "var(--clay)" : "var(--quiet)", fontWeight: 700, fontSize: isLive && i === 0 ? 11 : 13 }}>
-                        {isLive && i === 0 ? "NOW" : placed.length + i + 1}
+                        {isLive && i === 0 ? "NOW" : placed.length + calledRows.length + i + 1}
                       </td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td colSpan={2} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
@@ -852,7 +928,8 @@ export default function Coordinator() {
                   <option value="score">Score — 70pt scale, one horse at a time</option>
                   <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
                   <option value="class_only">Class only — everyone together, no live draw</option>
-                  <option value="tbc">TBC — results confirmed from judge's paperwork later</option>
+                  <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
+                  <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
                 </select>
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
@@ -1003,7 +1080,8 @@ export default function Coordinator() {
                   <option value="score">Score — 70pt scale, one horse at a time</option>
                   <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
                   <option value="class_only">Class only — everyone together, no live draw</option>
-                  <option value="tbc">TBC — results confirmed from judge's paperwork later</option>
+                  <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
+                  <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
                 </select>
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
