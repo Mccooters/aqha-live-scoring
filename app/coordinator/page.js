@@ -34,6 +34,7 @@ export default function Coordinator() {
   const [classes, setClasses] = useState([]);
 
   const [scoreInput, setScoreInput] = useState("");
+  const [scoreInput2, setScoreInput2] = useState("");
   const [busy, setBusy] = useState(false);
 
   const [modal, setModal] = useState(null);
@@ -92,8 +93,14 @@ export default function Coordinator() {
   const saveScore = async () => {
     const val = parseFloat(scoreInput);
     if (isNaN(val) || !current || busy) return;
+    const updateData = { score: val };
+    if (liveClass?.judge2) {
+      const val2 = parseFloat(scoreInput2);
+      if (isNaN(val2)) return;
+      updateData.score2 = val2;
+    }
     setBusy(true);
-    await supabase.from("entries").update({ score: val }).eq("id", current.id);
+    await supabase.from("entries").update(updateData).eq("id", current.id);
     const remaining = liveClass.entries.filter((e) => e.id !== current.id && e.score == null && !e.scratched);
     if (remaining.length === 0) {
       await completeClass(liveClass);
@@ -102,6 +109,7 @@ export default function Coordinator() {
       triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
     }
     setScoreInput("");
+    setScoreInput2("");
     setBusy(false);
   };
 
@@ -136,7 +144,9 @@ export default function Coordinator() {
 
   const completeClass = async (cls) => {
     await supabase.from("classes").update({ status: "completed" }).eq("id", cls.id);
-    const placed = [...cls.entries].filter((e) => e.score != null && !e.scratched).sort((a, b) => b.score - a.score);
+    const isPlacingMode = cls.scoring_mode === "placing" || cls.scoring_mode === "class_only" || cls.scoring_mode === "tbc";
+    const placed = [...cls.entries].filter((e) => e.score != null && !e.scratched)
+      .sort((a, b) => isPlacingMode ? a.score - b.score : b.score - a.score);
     if (placed.length > 0) {
       triggerPush(
         `Class ${cls.num} complete — ${cls.name}`,
@@ -169,6 +179,43 @@ export default function Coordinator() {
     await loadEvents();
   };
 
+  const closeEntries = async () => {
+    if (!window.confirm("Close entries for this event?\n\nExhibitors will no longer be able to register online. You can reopen entries if needed.")) return;
+    await supabase.from("events").update({ entries_open: false }).eq("id", eventId);
+    await loadEvents();
+  };
+
+  const reopenEntries = async () => {
+    await supabase.from("events").update({ entries_open: true }).eq("id", eventId);
+    await loadEvents();
+  };
+
+  const randomiseDraw = async () => {
+    const pending = classes.flatMap((c) => c.entries.filter((e) => !e.scratched && e.score == null));
+    if (!pending.length) { window.alert("No pending entries to randomise."); return; }
+    if (!window.confirm(
+      `Randomise the draw order for all classes in this event?\n\n${pending.length} pending ${pending.length === 1 ? "entry" : "entries"} across ${classes.length} ${classes.length === 1 ? "class" : "classes"} will be shuffled into a random order.`
+    )) return;
+    setBusy(true);
+    try {
+      for (const cls of classes) {
+        const pendingInClass = cls.entries.filter((e) => !e.scratched && e.score == null);
+        if (pendingInClass.length < 2) continue;
+        const orders = pendingInClass.map((e) => e.draw_order);
+        for (let i = orders.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [orders[i], orders[j]] = [orders[j], orders[i]];
+        }
+        await Promise.all(pendingInClass.map((e, i) =>
+          supabase.from("entries").update({ draw_order: orders[i] }).eq("id", e.id)
+        ));
+      }
+      await loadClasses();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteClass = async (cls) => {
     const n = cls.entries.length;
     const msg = n > 0
@@ -196,11 +243,15 @@ export default function Coordinator() {
     }
     if (type === "editEntry" && extra.entry) {
       const e = extra.entry;
-      initialForm = { back: String(e.back_number), horse: e.horse, exhibitor: e.exhibitor };
+      initialForm = {
+        back: String(e.back_number), horse: e.horse, exhibitor: e.exhibitor,
+        score: e.score != null ? String(e.score) : "",
+        score2: e.score2 != null ? String(e.score2) : "",
+      };
     }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
-      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score" };
+      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score" };
     }
     setModal({ type, ...extra });
     setForm(initialForm);
@@ -239,6 +290,7 @@ export default function Coordinator() {
       num: parseInt(form.num, 10),
       name: form.name.trim(),
       judge: form.judge ?? "",
+      judge2: form.judge2?.trim() || null,
       pattern_url: form.pattern_url?.trim() || null,
       sort_order: maxOrder + 1,
       day: parseInt(form.day ?? "1", 10) || 1,
@@ -275,18 +327,24 @@ export default function Coordinator() {
       setFormError("Back number, horse, and exhibitor are required");
       return;
     }
-    const { error } = await supabase.from("entries").update({
+    const entryClass = classes.find((c) => c.entries.some((e) => e.id === modal.entry?.id));
+    const updateData = {
       back_number: parseInt(form.back, 10),
       horse: form.horse.trim(),
       exhibitor: form.exhibitor.trim(),
-    }).eq("id", modal.entry.id);
+      score: form.score !== "" && form.score != null ? parseFloat(form.score) : null,
+    };
+    if (entryClass?.judge2) {
+      updateData.score2 = form.score2 !== "" && form.score2 != null ? parseFloat(form.score2) : null;
+    }
+    const { error } = await supabase.from("entries").update(updateData).eq("id", modal.entry.id);
     if (error) { setFormError(error.message); return; }
     closeModal();
   };
 
   const submitEditClass = async () => {
     if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
-    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", scoring_mode: form.scoring_mode ?? "score" };
+    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", judge2: form.judge2?.trim() || null, scoring_mode: form.scoring_mode ?? "score" };
     if (modal.cls.day !== undefined) updateData.day = parseInt(form.day ?? "1", 10) || 1;
     const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
     if (error) { setFormError(error.message); return; }
@@ -339,37 +397,71 @@ export default function Coordinator() {
         ["Exported", new Date().toLocaleString("en-AU")],
       ]), "Event");
 
-      // Results sheet
-      const resRows = [["Class #", "Class Name", "Judge", "Placing", "Back #", "Horse", "Exhibitor", "Score", "Entries in Class", "Registrations"]];
+      // Results sheet — one row per entry (two score columns for two-judge classes)
+      const resRows = [["Class #", "Class Name", "Judge 1", "Judge 2", "Pl (J1)", "Back #", "Horse", "Exhibitor", "Score (J1)", "Score (J2)", "Entries in Class", "Registrations"]];
       classes.forEach((cls) => {
         const ce = (entries ?? []).filter((e) => e.class_id === cls.id);
         const competing = ce.filter((e) => !e.scratched).length;
-        const placed = ce.filter((e) => e.score != null && !e.scratched).sort((a, b) => b.score - a.score);
+        const mode = cls.scoring_mode ?? "score";
+        const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc";
+        const placed = ce.filter((e) => e.score != null && !e.scratched)
+          .sort((a, b) => {
+            const d = isPlacing ? a.score - b.score : b.score - a.score;
+            return d !== 0 ? d : isPlacing ? (a.score2 ?? 99) - (b.score2 ?? 99) : (b.score2 ?? 0) - (a.score2 ?? 0);
+          });
         const scratched = ce.filter((e) => e.scratched);
         placed.forEach((e, i) => {
           const regs = (horseMap[e.back_number]?.horse_registrations ?? []).map((r) => `${r.club}${r.registration_number ? " " + r.registration_number : ""}`).join(", ");
-          resRows.push([cls.num, cls.name, cls.judge ?? "", i + 1, e.back_number, e.horse, e.exhibitor, e.score, competing, regs]);
+          resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", i + 1, e.back_number, e.horse, e.exhibitor, e.score, cls.judge2 ? (e.score2 ?? "") : "", competing, regs]);
         });
-        scratched.forEach((e) => resRows.push([cls.num, cls.name, cls.judge ?? "", "SCR", e.back_number, e.horse, e.exhibitor, "", competing, ""]));
+        scratched.forEach((e) => resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", "SCR", e.back_number, e.horse, e.exhibitor, "", "", competing, ""]));
       });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resRows), "Results");
 
-      // Club Points sheet — one row per placing per club registration
-      const ptRows = [["Class #", "Class Name", "Placing", "Back #", "Horse", "Exhibitor", "Score", "Entries in Class", "Points", "Club", "Registration #"]];
+      // Club Points sheet — for two-judge classes: separate rows per judge (each judge's placings are independent)
+      const ptRows = [["Class #", "Class Name", "Judge", "Placing", "Back #", "Horse", "Exhibitor", "Score", "Entries in Class", "Points", "Club", "Registration #"]];
+
+      const pushPtRows = (clsNum, clsName, judgeName, sortedEntries, getPlacing, getScore, competing) => {
+        sortedEntries.forEach((e) => {
+          const placing = getPlacing(e);
+          if (placing == null) return;
+          const pts = calcPoints(placing, competing);
+          const regs = horseMap[e.back_number]?.horse_registrations ?? [];
+          const score = getScore(e);
+          if (regs.length === 0) {
+            ptRows.push([clsNum, clsName, judgeName, placing, e.back_number, e.horse, e.exhibitor, score, competing, pts, "", ""]);
+          } else {
+            regs.forEach((r) => ptRows.push([clsNum, clsName, judgeName, placing, e.back_number, e.horse, e.exhibitor, score, competing, pts, r.club, r.registration_number ?? ""]));
+          }
+        });
+      };
+
       classes.forEach((cls) => {
         const ce = (entries ?? []).filter((e) => e.class_id === cls.id);
         const competing = ce.filter((e) => !e.scratched).length;
-        const placed = ce.filter((e) => e.score != null && !e.scratched).sort((a, b) => b.score - a.score);
-        placed.forEach((e, i) => {
-          const placing = i + 1;
-          const pts = calcPoints(placing, competing);
-          const regs = horseMap[e.back_number]?.horse_registrations ?? [];
-          if (regs.length === 0) {
-            ptRows.push([cls.num, cls.name, placing, e.back_number, e.horse, e.exhibitor, e.score, competing, pts, "", ""]);
-          } else {
-            regs.forEach((r) => ptRows.push([cls.num, cls.name, placing, e.back_number, e.horse, e.exhibitor, e.score, competing, pts, r.club, r.registration_number ?? ""]));
-          }
-        });
+        const mode = cls.scoring_mode ?? "score";
+        const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc";
+        const scored = ce.filter((e) => e.score != null && !e.scratched);
+
+        if (cls.judge2) {
+          // Two judges — each judge's results generate independent point rows
+          const j1Sorted = [...scored].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score);
+          pushPtRows(cls.num, cls.name, cls.judge || "Judge 1", j1Sorted,
+            (e) => isPlacing ? e.score : j1Sorted.findIndex((x) => x.id === e.id) + 1,
+            (e) => e.score, competing);
+
+          const j2Scored = scored.filter((e) => e.score2 != null);
+          const j2Sorted = [...j2Scored].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2);
+          pushPtRows(cls.num, cls.name, cls.judge2, j2Sorted,
+            (e) => isPlacing ? e.score2 : j2Sorted.findIndex((x) => x.id === e.id) + 1,
+            (e) => e.score2, competing);
+        } else {
+          // Single judge
+          const j1Sorted = [...scored].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score);
+          pushPtRows(cls.num, cls.name, cls.judge ?? "", j1Sorted,
+            (e) => isPlacing ? e.score : j1Sorted.findIndex((x) => x.id === e.id) + 1,
+            (e) => e.score, competing);
+        }
       });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ptRows), "Club Points");
 
@@ -421,6 +513,17 @@ export default function Coordinator() {
               Share: <Link href={`/event/${eventId}`} style={{ color: "var(--brass)" }}>Live view</Link>
               {" · "}<Link href={`/event/${eventId}/schedule`} style={{ color: "var(--brass)" }}>Schedule</Link>
               {" · "}<Link href={`/event/${eventId}/register`} style={{ color: "var(--brass)" }}>Entry form</Link>
+              {currentEvent && (
+                <span style={{
+                  marginLeft: 10,
+                  background: currentEvent.entries_open === false ? "#FFF0F0" : "#F0FBF0",
+                  color: currentEvent.entries_open === false ? "var(--clay)" : "var(--green)",
+                  border: `1px solid ${currentEvent.entries_open === false ? "var(--clay)" : "var(--green)"}`,
+                  borderRadius: 10, padding: "2px 10px", fontSize: 11.5, fontWeight: 700,
+                }}>
+                  {currentEvent.entries_open === false ? "Entries closed" : "Entries open"}
+                </span>
+              )}
             </>}
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -431,35 +534,84 @@ export default function Coordinator() {
             <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
             <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
             {currentEvent?.status !== "completed" && eventId && (
-              <button className="btn-ghost danger" onClick={endEvent}>End event</button>
+              <>
+                {currentEvent?.entries_open === false ? (
+                  <>
+                    <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
+                      onClick={reopenEntries} disabled={busy}>
+                      Reopen entries
+                    </button>
+                    <button className="btn-ghost" onClick={randomiseDraw} disabled={busy}>
+                      🔀 Randomise draw
+                    </button>
+                  </>
+                ) : (
+                  <button className="btn-ghost danger" onClick={closeEntries} disabled={busy}>
+                    Close entries
+                  </button>
+                )}
+                <button className="btn-ghost danger" onClick={endEvent}>End event</button>
+              </>
             )}
           </div>
         </div>
 
-        {liveClass && current && liveClass.scoring_mode !== "class_only" && (
+        {liveClass && current && liveClass.scoring_mode !== "class_only" && liveClass.scoring_mode !== "tbc" && (
           <section className="card" style={{ padding: 20, borderColor: "var(--brass)" }}>
             <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 10 }}>
               Class {liveClass.num} · {liveClass.scoring_mode === "placing" ? "Set placing" : "Enter score"} — #{fmtBack(current.back_number)} {current.horse}
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {liveClass.scoring_mode === "placing" ? (
-                <select className="field display" style={{ flex: "1 1 160px", fontSize: 20, fontWeight: 600 }}
-                  value={scoreInput} onChange={(e) => setScoreInput(e.target.value)}>
-                  <option value="">Select placing…</option>
-                  {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
-                    <option key={n} value={n}>{ordinal(n)}</option>
-                  ))}
-                </select>
-              ) : (
-                <input className="field display" style={{ flex: "1 1 140px", fontSize: 22, fontWeight: 600 }}
-                  type="number" step="0.5" inputMode="decimal" placeholder="e.g. 72.5"
-                  value={scoreInput} onChange={(e) => setScoreInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && saveScore()} />
+              {/* Judge 1 input */}
+              <div style={{ flex: "1 1 140px" }}>
+                {liveClass.judge2 && (
+                  <div style={{ fontSize: 11, color: "var(--quiet)", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: ".1em" }}>
+                    {liveClass.judge || "Judge 1"}
+                  </div>
+                )}
+                {liveClass.scoring_mode === "placing" ? (
+                  <select className="field display" style={{ width: "100%", fontSize: 20, fontWeight: 600 }}
+                    value={scoreInput} onChange={(e) => setScoreInput(e.target.value)}>
+                    <option value="">Select placing…</option>
+                    {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                      <option key={n} value={n}>{ordinal(n)}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input className="field display" style={{ width: "100%", fontSize: 22, fontWeight: 600 }}
+                    type="number" step="0.5" inputMode="decimal" placeholder="e.g. 72.5"
+                    value={scoreInput} onChange={(e) => setScoreInput(e.target.value)}
+                    onKeyDown={(e) => !liveClass.judge2 && e.key === "Enter" && saveScore()} />
+                )}
+              </div>
+              {/* Judge 2 input — only when two judges */}
+              {liveClass.judge2 && (
+                <div style={{ flex: "1 1 140px" }}>
+                  <div style={{ fontSize: 11, color: "var(--quiet)", fontWeight: 600, marginBottom: 4, textTransform: "uppercase", letterSpacing: ".1em" }}>
+                    {liveClass.judge2}
+                  </div>
+                  {liveClass.scoring_mode === "placing" ? (
+                    <select className="field display" style={{ width: "100%", fontSize: 20, fontWeight: 600 }}
+                      value={scoreInput2} onChange={(e) => setScoreInput2(e.target.value)}>
+                      <option value="">Select placing…</option>
+                      {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>{ordinal(n)}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input className="field display" style={{ width: "100%", fontSize: 22, fontWeight: 600 }}
+                      type="number" step="0.5" inputMode="decimal" placeholder="e.g. 71.0"
+                      value={scoreInput2} onChange={(e) => setScoreInput2(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && saveScore()} />
+                  )}
+                </div>
               )}
-              <button className="btn" style={{ flex: "1 1 180px" }} disabled={scoreInput === "" || busy} onClick={saveScore}>
+              <button className="btn" style={{ flex: "1 1 180px", alignSelf: "flex-end" }}
+                disabled={(scoreInput === "" || (liveClass.judge2 && scoreInput2 === "")) || busy}
+                onClick={saveScore}>
                 {liveClass.scoring_mode === "placing" ? "Save placing & call next →" : "Save score & call next →"}
               </button>
-              <button className="btn-ghost danger" style={{ padding: "10px 16px", fontSize: 14, borderRadius: 10 }} onClick={() => toggleScratch(current)}>
+              <button className="btn-ghost danger" style={{ padding: "10px 16px", fontSize: 14, borderRadius: 10, alignSelf: "flex-end" }} onClick={() => toggleScratch(current)}>
                 Scratch this entry
               </button>
             </div>
@@ -472,7 +624,21 @@ export default function Coordinator() {
               Class {liveClass.num} · {liveClass.name} — in progress
             </div>
             <p style={{ margin: "0 0 12px", fontSize: 13.5, color: "var(--quiet)" }}>
-              Everyone is in the ring together. Use the <strong>Complete</strong> button on the class card when done, then edit individual entries to enter placings.
+              Everyone is in the ring together. Use <strong>Complete</strong> when done, then edit individual entries to enter placings.
+            </p>
+            <button className="btn" style={{ background: "var(--leather)" }} onClick={() => completeClass(liveClass)}>
+              Complete class
+            </button>
+          </section>
+        )}
+
+        {liveClass && liveClass.scoring_mode === "tbc" && (
+          <section className="card" style={{ padding: 20, borderColor: "var(--brass)", background: "#FBF4E4" }}>
+            <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 8 }}>
+              Class {liveClass.num} · {liveClass.name} — results to be confirmed
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 13.5, color: "var(--quiet)" }}>
+              Scores will be entered later from the judge's paperwork. Click <strong>Complete</strong> when all horses have ridden, then come back to enter results via the Edit button on each entry.
             </p>
             <button className="btn" style={{ background: "var(--leather)" }} onClick={() => completeClass(liveClass)}>
               Complete class
@@ -482,8 +648,14 @@ export default function Coordinator() {
 
         {classes.map((cls) => {
           const mode = cls.scoring_mode ?? "score";
+          const twoJudges = !!cls.judge2;
+          const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc";
           const placed = cls.entries.filter((e) => e.score != null && !e.scratched)
-            .sort((a, b) => mode === "placing" ? a.score - b.score : b.score - a.score);
+            .sort((a, b) => {
+              const d = isPlacing ? a.score - b.score : b.score - a.score;
+              if (d !== 0) return d;
+              return isPlacing ? (a.score2 ?? 99) - (b.score2 ?? 99) : (b.score2 ?? 0) - (a.score2 ?? 0);
+            });
           const pending = cls.entries.filter((e) => e.score == null && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
@@ -492,7 +664,13 @@ export default function Coordinator() {
               <div className="card-head" style={{ flexWrap: "nowrap", ...(isLive ? { background: "#FBF4E4" } : {}) }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div className="display" style={{ fontWeight: 600, fontSize: 16.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Class {cls.num} · {cls.name}</div>
-                  {cls.judge && <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 1 }}>Judge: {cls.judge}</div>}
+                  {(cls.judge || cls.judge2) && (
+                    <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 1 }}>
+                      {cls.judge2
+                        ? `Judges: ${cls.judge || "—"} · ${cls.judge2}`
+                        : `Judge: ${cls.judge}`}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
                   {cls.status === "upcoming" && (
@@ -520,8 +698,10 @@ export default function Coordinator() {
                     <tr key={e.id}>
                       <td className="display" style={{ width: 50, fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
-                      <td className="display" style={{ textAlign: "right", fontWeight: 700, width: 70 }}>
-                        {mode === "placing" ? ordinal(e.score) : e.score}
+                      <td className="display" style={{ textAlign: "right", fontWeight: 700, width: twoJudges ? 120 : 70 }}>
+                        {mode === "placing"
+                          ? (twoJudges ? `${ordinal(e.score)} / ${ordinal(e.score2 ?? "?")}` : ordinal(e.score))
+                          : (twoJudges && e.score2 != null ? `${e.score} / ${e.score2}` : e.score)}
                       </td>
                       <td style={{ width: 1, textAlign: "right", whiteSpace: "nowrap" }}>
                         <span style={{ display: "inline-flex", gap: 5 }}>
@@ -632,8 +812,10 @@ export default function Coordinator() {
                     <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} placeholder="e.g. Senior Western Pleasure" />
                   </div>
                 </div>
-                <label className="modal-label">Judge</label>
+                <label className="modal-label">Judge 1</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge ?? ""} onChange={setField("judge")} placeholder="e.g. K. Maddox" />
+                <label className="modal-label">Judge 2 (leave blank for single-judge class)</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge2 ?? ""} onChange={setField("judge2")} placeholder="e.g. L. Smith" />
                 <label className="modal-label">Pattern URL (optional)</label>
                 <input className="field" style={{ width: "100%", fontSize: 15 }} value={form.pattern_url ?? ""} onChange={setField("pattern_url")} placeholder="Link to pattern image or PDF" />
                 <label className="modal-label">Show day (1 for single-day events)</label>
@@ -643,6 +825,7 @@ export default function Coordinator() {
                   <option value="score">Score — 70pt scale, one horse at a time</option>
                   <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
                   <option value="class_only">Class only — everyone together, no live draw</option>
+                  <option value="tbc">TBC — results confirmed from judge's paperwork later</option>
                 </select>
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
@@ -713,6 +896,23 @@ export default function Coordinator() {
             {modal.type === "editEntry" && (() => {
               const entryClass = classes.find((c) => c.entries.some((e) => e.id === modal.entry?.id));
               const eMode = entryClass?.scoring_mode ?? "score";
+              const twoJ = !!entryClass?.judge2;
+              const j1 = entryClass?.judge || "Judge 1";
+              const j2 = entryClass?.judge2 || "Judge 2";
+              const isPlacing = eMode === "placing" || eMode === "class_only";
+              const scoreLabel = isPlacing ? "Placing" : "Score";
+              const scorePlaceholder = isPlacing ? null : "e.g. 72.5";
+              const ScoreInput = ({ field, label }) => isPlacing ? (
+                <select className="field" style={{ width: "100%", fontSize: 16 }} value={form[field] ?? ""} onChange={setField(field)}>
+                  <option value="">— Not placed —</option>
+                  {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>{ordinal(n)}</option>
+                  ))}
+                </select>
+              ) : (
+                <input className="field" type="number" step="0.5" style={{ width: "100%", fontSize: 16 }}
+                  value={form[field] ?? ""} onChange={setField(field)} placeholder={scorePlaceholder} />
+              );
               return (
                 <>
                   <h2 className="display modal-title">Edit entry</h2>
@@ -722,21 +922,21 @@ export default function Coordinator() {
                   <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} />
                   <label className="modal-label">Exhibitor *</label>
                   <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.exhibitor ?? ""} onChange={setField("exhibitor")} />
-                  {eMode === "score" && (
+                  {twoJ ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div>
+                        <label className="modal-label">{scoreLabel} — {j1} (blank = not yet set)</label>
+                        <ScoreInput field="score" />
+                      </div>
+                      <div>
+                        <label className="modal-label">{scoreLabel} — {j2} (blank = not yet set)</label>
+                        <ScoreInput field="score2" />
+                      </div>
+                    </div>
+                  ) : (
                     <>
-                      <label className="modal-label">Score (leave blank if not yet scored)</label>
-                      <input className="field" type="number" step="0.5" style={{ width: "100%", fontSize: 16 }} value={form.score ?? ""} onChange={setField("score")} placeholder="e.g. 72.5" />
-                    </>
-                  )}
-                  {(eMode === "placing" || eMode === "class_only") && (
-                    <>
-                      <label className="modal-label">Placing (leave blank if not yet placed)</label>
-                      <select className="field" style={{ width: "100%", fontSize: 16 }} value={form.score ?? ""} onChange={setField("score")}>
-                        <option value="">— Not placed —</option>
-                        {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
-                          <option key={n} value={n}>{ordinal(n)}</option>
-                        ))}
-                      </select>
+                      <label className="modal-label">{scoreLabel} (leave blank if not yet set)</label>
+                      <ScoreInput field="score" />
                     </>
                   )}
                   {formError && <p className="modal-error">{formError}</p>}
@@ -761,8 +961,10 @@ export default function Coordinator() {
                     <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} />
                   </div>
                 </div>
-                <label className="modal-label">Judge</label>
+                <label className="modal-label">Judge 1</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge ?? ""} onChange={setField("judge")} />
+                <label className="modal-label">Judge 2 (leave blank for single-judge class)</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge2 ?? ""} onChange={setField("judge2")} placeholder="e.g. L. Smith" />
                 {modal.cls?.day !== undefined && (
                   <>
                     <label className="modal-label">Show day</label>
@@ -774,6 +976,7 @@ export default function Coordinator() {
                   <option value="score">Score — 70pt scale, one horse at a time</option>
                   <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
                   <option value="class_only">Class only — everyone together, no live draw</option>
+                  <option value="tbc">TBC — results confirmed from judge's paperwork later</option>
                 </select>
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>

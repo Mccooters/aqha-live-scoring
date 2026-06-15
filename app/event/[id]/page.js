@@ -112,7 +112,22 @@ export default function EventPage() {
 
       <main className="wrap">
         {/* ---- Live banner / completed summary / idle ---- */}
-        {liveClass && liveClass.scoring_mode === "class_only" ? (
+        {liveClass && liveClass.scoring_mode === "tbc" ? (
+          <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
+              <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
+                Live · Class {liveClass.num} — {liveClass.name}
+              </span>
+            </div>
+            <div className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", lineHeight: 1.2 }}>
+              Class in progress
+            </div>
+            <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 4 }}>
+              Results will be posted once the judge's paperwork is received.
+            </div>
+          </section>
+        ) : liveClass && liveClass.scoring_mode === "class_only" ? (
           <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
@@ -141,7 +156,10 @@ export default function EventPage() {
                   #{fmtBack(current.back_number)} {current.horse}
                 </div>
                 <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 3 }}>
-                  {current.exhibitor}{liveClass.judge ? ` · Judge ${liveClass.judge}` : ""}
+                  {current.exhibitor}
+                  {liveClass.judge2
+                    ? ` · Judges: ${liveClass.judge} · ${liveClass.judge2}`
+                    : liveClass.judge ? ` · Judge ${liveClass.judge}` : ""}
                 </div>
               </div>
               {liveClass.scoring_mode !== "placing" && (
@@ -197,10 +215,14 @@ export default function EventPage() {
         {/* ---- Per-class scoreboards ---- */}
         {classes.map((cls) => {
           const mode = cls.scoring_mode ?? "score";
-          const isPlacingMode = mode === "placing" || mode === "class_only";
+          const isPlacingMode = mode === "placing" || mode === "class_only" || mode === "tbc";
+          const twoJudges = !!cls.judge2;
           const placed = cls.entries
             .filter((e) => e.score != null && !e.scratched)
-            .sort((a, b) => isPlacingMode ? a.score - b.score : b.score - a.score);
+            .sort((a, b) => {
+              const d = isPlacingMode ? a.score - b.score : b.score - a.score;
+              return d !== 0 ? d : isPlacingMode ? (a.score2 ?? 99) - (b.score2 ?? 99) : (b.score2 ?? 0) - (a.score2 ?? 0);
+            });
           const pending = cls.entries.filter((e) => e.score == null && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
@@ -230,17 +252,26 @@ export default function EventPage() {
                     <th style={{ width: 50 }}>{cls.status === "upcoming" ? "Draw" : "Pl"}</th>
                     <th>Back · Horse</th>
                     <th>Exhibitor</th>
-                    <th style={{ textAlign: "right" }}>{isPlacingMode ? "Placing" : "Score"}</th>
+                    <th style={{ textAlign: "right" }}>{isPlacingMode ? "Placing" : (twoJudges ? "J1 / J2" : "Score")}</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {placed.length === 0 && mode === "tbc" && cls.status !== "upcoming" && (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: "center", color: "var(--quiet)", fontStyle: "italic", padding: "18px 0" }}>
+                        Results pending — will be posted once received from the judge
+                      </td>
+                    </tr>
+                  )}
                   {placed.map((e, i) => (
                     <tr key={e.id} style={i === 0 ? { background: "#FBF4E4" } : {}}>
                       <td className="display" style={{ fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                       <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
                       <td className="display" style={{ textAlign: "right", fontWeight: 700 }}>
-                        {isPlacingMode ? ordinal(e.score) : e.score}
+                        {isPlacingMode
+                          ? (twoJudges ? `${ordinal(e.score)} / ${ordinal(e.score2 ?? "?")}` : ordinal(e.score))
+                          : (twoJudges && e.score2 != null ? `${e.score} / ${e.score2}` : e.score)}
                       </td>
                     </tr>
                   ))}

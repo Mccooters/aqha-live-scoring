@@ -135,8 +135,25 @@ export default function RegisterPage() {
 
   if (event.status === "completed") return (
     <main className="wrap" style={{ textAlign: "center", paddingTop: 40 }}>
-      <div className="display" style={{ fontSize: 20, marginBottom: 12 }}>Entries for this event are closed.</div>
+      <div className="display" style={{ fontSize: 20, marginBottom: 12 }}>This event has concluded.</div>
       <Link href={`/event/${eventId}`} style={{ color: "var(--brass)" }}>← View results</Link>
+    </main>
+  );
+
+  if (event.entries_open === false) return (
+    <main className="wrap" style={{ maxWidth: 500, paddingTop: 40 }}>
+      <header className="header" style={{ marginLeft: -16, marginRight: -16, marginTop: -40, marginBottom: 32, padding: "20px 24px" }}>
+        <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)", marginBottom: 4 }}>Online entry</div>
+        <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(18px,4vw,26px)", margin: "0 0 2px" }}>{event.name}</h1>
+        <div style={{ fontSize: 13, color: "#CBBFA9" }}>{event.location}</div>
+      </header>
+      <section className="card" style={{ textAlign: "center", padding: "32px 24px" }}>
+        <div className="display" style={{ fontSize: 22, fontWeight: 700, marginBottom: 10 }}>Entries are now closed</div>
+        <p style={{ color: "var(--quiet)", marginTop: 0 }}>
+          Online entry for this event has closed. Please contact the show secretary if you have any questions.
+        </p>
+        <Link href={`/event/${eventId}`} style={{ color: "var(--brass)", fontSize: 14 }}>← View event</Link>
+      </section>
     </main>
   );
 

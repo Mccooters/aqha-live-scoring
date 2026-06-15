@@ -17,14 +17,18 @@ export async function POST(req) {
 
     const db = adminClient();
 
-    // Load event to get the per-class fee
+    // Load event to get the per-class fee and entries status
     const { data: event, error: evErr } = await db
       .from("events")
-      .select("id, name, entry_fee_cents")
+      .select("id, name, entry_fee_cents, entries_open")
       .eq("id", event_id)
       .single();
     if (evErr || !event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+
+    if (event.entries_open === false) {
+      return NextResponse.json({ error: "Entries for this event are now closed. Please contact the show secretary." }, { status: 400 });
     }
 
     // Load classes to build Square line items

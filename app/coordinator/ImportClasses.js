@@ -3,10 +3,27 @@ import { useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
 const ALIASES = {
-  num:   ["class #", "class no", "class number", "class num", "num", "#", "number", "no"],
-  name:  ["class name", "name", "class"],
-  judge: ["judge", "judge name", "judged by"],
+  num:          ["class #", "class no", "class number", "class num", "num", "#", "number", "no"],
+  name:         ["class name", "name", "class"],
+  judge:        ["judge", "judge name", "judged by"],
+  scoring_mode: ["type", "scoring", "scoring mode", "scoring type", "mode", "score type", "class type"],
 };
+
+const MODE_MAP = {
+  score:      ["score", "70pt", "70 pt", "70point", "70 point", "points", "scored", "70"],
+  placing:    ["placing", "placings", "place", "places", "1st2nd3rd", "1st/2nd/3rd", "ribbon", "ribbons"],
+  class_only: ["class only", "class_only", "classonly", "rail", "rail class", "together", "group", "no draw"],
+  tbc:        ["tbc", "to be confirmed", "confirmed later", "paperwork", "paper", "judge paper", "results later"],
+};
+
+function normaliseMode(raw) {
+  const v = String(raw ?? "").toLowerCase().replace(/[^a-z0-9]/g, " ").trim();
+  if (!v) return null;
+  for (const [mode, aliases] of Object.entries(MODE_MAP)) {
+    if (aliases.includes(v)) return mode;
+  }
+  return null;
+}
 
 function mapHeader(h) {
   const n = String(h ?? "").toLowerCase().replace(/[^a-z0-9]/g, " ").trim();
@@ -43,6 +60,8 @@ export default function ImportClasses({ eventId, onDone }) {
       const parsed = [];
       const warns = [];
 
+      const hasModeCol = headers.includes("scoring_mode");
+
       raw.slice(1).forEach((row, i) => {
         const obj = {};
         headers.forEach((field, j) => { if (field) obj[field] = String(row[j] ?? "").trim(); });
@@ -51,7 +70,12 @@ export default function ImportClasses({ eventId, onDone }) {
         if (obj.num && isNaN(num)) {
           warns.push(`Row ${i + 2}: Class # "${obj.num}" is not a number — will be auto-numbered`);
         }
-        parsed.push({ num: isNaN(num) ? null : num, name: obj.name, judge: obj.judge || "" });
+        let mode = null;
+        if (hasModeCol && obj.scoring_mode) {
+          mode = normaliseMode(obj.scoring_mode);
+          if (!mode) warns.push(`Row ${i + 2}: Unrecognised type "${obj.scoring_mode}" — defaulting to Score`);
+        }
+        parsed.push({ num: isNaN(num) ? null : num, name: obj.name, judge: obj.judge || "", scoring_mode: mode ?? "score" });
       });
 
       if (!parsed.length) { setError("No class names found. Make sure the spreadsheet has a 'Class Name' column."); return; }
@@ -88,12 +112,13 @@ export default function ImportClasses({ eventId, onDone }) {
         maxNum   = Math.max(maxNum, assignedNum);
         maxOrder = maxOrder + 1;
         toInsert.push({
-          event_id:   eventId,
-          num:        assignedNum,
-          name:       r.name,
-          judge:      r.judge,
-          sort_order: maxOrder,
-          status:     "upcoming",
+          event_id:     eventId,
+          num:          assignedNum,
+          name:         r.name,
+          judge:        r.judge,
+          sort_order:   maxOrder,
+          status:       "upcoming",
+          scoring_mode: r.scoring_mode,
         });
         existingNames.add(r.name.toLowerCase());
       }
@@ -141,7 +166,8 @@ export default function ImportClasses({ eventId, onDone }) {
       {!rows ? (
         <>
           <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 0 }}>
-            Columns: <strong>Class #</strong>, <strong>Class Name</strong>, Judge (optional)
+            Columns: <strong>Class #</strong>, <strong>Class Name</strong>, Judge (optional),
+            Type (optional — <em>Score</em>, <em>Placing</em>, or <em>Class Only</em>; defaults to Score)
           </p>
           <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ marginBottom: 12 }} />
           {error && <p className="modal-error">{error}</p>}
@@ -163,7 +189,7 @@ export default function ImportClasses({ eventId, onDone }) {
           <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12 }}>
             <table>
               <thead>
-                <tr><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge</th></tr>
+                <tr><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge</th><th>Type</th></tr>
               </thead>
               <tbody>
                 {rows.slice(0, 60).map((r, i) => (
@@ -171,10 +197,19 @@ export default function ImportClasses({ eventId, onDone }) {
                     <td style={{ color: "var(--quiet)", fontFamily: "monospace" }}>{r.num ?? "auto"}</td>
                     <td style={{ fontWeight: 600 }}>{r.name}</td>
                     <td style={{ color: "var(--quiet)", fontSize: 12 }}>{r.judge || "—"}</td>
+                    <td style={{ fontSize: 12 }}>
+                      <span style={{
+                        background: r.scoring_mode === "placing" ? "#EEF4FF" : r.scoring_mode === "class_only" ? "#F3F0FF" : r.scoring_mode === "tbc" ? "#FFF3E0" : "#F0FBF0",
+                        color: r.scoring_mode === "placing" ? "#2255CC" : r.scoring_mode === "class_only" ? "#5533AA" : r.scoring_mode === "tbc" ? "#A05000" : "#226622",
+                        borderRadius: 10, padding: "2px 8px", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap",
+                      }}>
+                        {r.scoring_mode === "placing" ? "Placing" : r.scoring_mode === "class_only" ? "Class only" : r.scoring_mode === "tbc" ? "TBC" : "Score"}
+                      </span>
+                    </td>
                   </tr>
                 ))}
                 {rows.length > 60 && (
-                  <tr><td colSpan={3} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
+                  <tr><td colSpan={4} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
                 )}
               </tbody>
             </table>
