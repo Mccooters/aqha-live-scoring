@@ -11,6 +11,12 @@ const firstPending = (entries) =>
 
 const fmtBack = (n) => String(n).padStart(3, "0");
 
+const ordinal = (n) => {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
 function urlBase64ToUint8Array(base64) {
   const pad = "=".repeat((4 - (base64.length % 4)) % 4);
   const b64 = (base64 + pad).replace(/-/g, "+").replace(/_/g, "/");
@@ -106,7 +112,22 @@ export default function EventPage() {
 
       <main className="wrap">
         {/* ---- Live banner / completed summary / idle ---- */}
-        {liveClass && current ? (
+        {liveClass && liveClass.scoring_mode === "class_only" ? (
+          <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
+              <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
+                Live · Class {liveClass.num} — {liveClass.name}
+              </span>
+            </div>
+            <div className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", lineHeight: 1.2 }}>
+              Class in progress
+            </div>
+            {liveClass.judge && (
+              <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 4 }}>Judge: {liveClass.judge}</div>
+            )}
+          </section>
+        ) : liveClass && current ? (
           <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
@@ -120,19 +141,23 @@ export default function EventPage() {
                   #{fmtBack(current.back_number)} {current.horse}
                 </div>
                 <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 3 }}>
-                  {current.exhibitor} · Judge {liveClass.judge}
+                  {current.exhibitor}{liveClass.judge ? ` · Judge ${liveClass.judge}` : ""}
                 </div>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <div className="display" style={{ fontWeight: 700, fontSize: 30, color: "var(--brass-soft)" }}>
-                  {drawPos}<span style={{ fontSize: 18, color: "#9c8a6e" }}> / {active.length}</span>
+              {liveClass.scoring_mode !== "placing" && (
+                <div style={{ textAlign: "right" }}>
+                  <div className="display" style={{ fontWeight: 700, fontSize: 30, color: "var(--brass-soft)" }}>
+                    {drawPos}<span style={{ fontSize: 18, color: "#9c8a6e" }}> / {active.length}</span>
+                  </div>
+                  <div style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "#9c8a6e" }}>draw order</div>
                 </div>
-                <div style={{ fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", color: "#9c8a6e" }}>draw order</div>
+              )}
+            </div>
+            {liveClass.scoring_mode !== "placing" && (
+              <div style={{ height: 5, background: "rgba(255,255,255,.12)", borderRadius: 3, marginTop: 14, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${(scored / Math.max(active.length, 1)) * 100}%`, background: "var(--brass)", transition: "width .5s ease" }} />
               </div>
-            </div>
-            <div style={{ height: 5, background: "rgba(255,255,255,.12)", borderRadius: 3, marginTop: 14, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${(scored / Math.max(active.length, 1)) * 100}%`, background: "var(--brass)", transition: "width .5s ease" }} />
-            </div>
+            )}
           </section>
         ) : event.status === "completed" ? (
           <section className="card" style={{ background: "var(--sand)", border: "1px solid var(--line)", padding: "20px 22px" }}>
@@ -171,10 +196,15 @@ export default function EventPage() {
 
         {/* ---- Per-class scoreboards ---- */}
         {classes.map((cls) => {
-          const placed = cls.entries.filter((e) => e.score != null && !e.scratched).sort((a, b) => b.score - a.score);
+          const mode = cls.scoring_mode ?? "score";
+          const isPlacingMode = mode === "placing" || mode === "class_only";
+          const placed = cls.entries
+            .filter((e) => e.score != null && !e.scratched)
+            .sort((a, b) => isPlacingMode ? a.score - b.score : b.score - a.score);
           const pending = cls.entries.filter((e) => e.score == null && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
+          const isClassOnly = mode === "class_only";
           return (
             <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
               <div className="card-head" style={isLive ? { background: "#FBF4E4" } : {}}>
@@ -200,7 +230,7 @@ export default function EventPage() {
                     <th style={{ width: 50 }}>{cls.status === "upcoming" ? "Draw" : "Pl"}</th>
                     <th>Back · Horse</th>
                     <th>Exhibitor</th>
-                    <th style={{ textAlign: "right" }}>Score</th>
+                    <th style={{ textAlign: "right" }}>{isPlacingMode ? "Placing" : "Score"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -209,13 +239,15 @@ export default function EventPage() {
                       <td className="display" style={{ fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                       <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
-                      <td className="display" style={{ textAlign: "right", fontWeight: 700 }}>{e.score}</td>
+                      <td className="display" style={{ textAlign: "right", fontWeight: 700 }}>
+                        {isPlacingMode ? ordinal(e.score) : e.score}
+                      </td>
                     </tr>
                   ))}
                   {pending.map((e, i) => (
-                    <tr key={e.id} style={{ opacity: isLive && i > 0 ? 0.7 : 1 }}>
-                      <td style={isLive && i === 0 ? { color: "var(--clay)", fontSize: 11, fontWeight: 700 } : { color: "var(--quiet)" }}>
-                        {isLive && i === 0 ? "NOW" : placed.length + i + 1}
+                    <tr key={e.id} style={{ opacity: isLive && !isClassOnly && i > 0 ? 0.7 : 1 }}>
+                      <td style={isLive && !isClassOnly && i === 0 ? { color: "var(--clay)", fontSize: 11, fontWeight: 700 } : { color: "var(--quiet)" }}>
+                        {isLive && !isClassOnly && i === 0 ? "NOW" : placed.length + i + 1}
                       </td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                       <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>

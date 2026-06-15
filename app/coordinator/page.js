@@ -17,6 +17,7 @@ function calcPoints(placing, competingEntries) {
 }
 
 const fmtBack = (n) => String(n).padStart(3, "0");
+const ordinal = (n) => { const s = ["th","st","nd","rd"]; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
 
 async function triggerPush(title, body, tag) {
   try { await supabase.functions.invoke("send-push", { body: { title, body, tag } }); } catch {}
@@ -199,7 +200,7 @@ export default function Coordinator() {
     }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
-      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", day: String(c.day ?? 1) };
+      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score" };
     }
     setModal({ type, ...extra });
     setForm(initialForm);
@@ -241,6 +242,7 @@ export default function Coordinator() {
       pattern_url: form.pattern_url?.trim() || null,
       sort_order: maxOrder + 1,
       day: parseInt(form.day ?? "1", 10) || 1,
+      scoring_mode: form.scoring_mode ?? "score",
     });
     if (error) {
       const msg = error.message?.includes("day") ? 'Database migration needed. Please run "schema-v2-horses.sql" in your Supabase SQL Editor first.' : error.message;
@@ -284,7 +286,7 @@ export default function Coordinator() {
 
   const submitEditClass = async () => {
     if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
-    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "" };
+    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", scoring_mode: form.scoring_mode ?? "score" };
     if (modal.cls.day !== undefined) updateData.day = parseInt(form.day ?? "1", 10) || 1;
     const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
     if (error) { setFormError(error.message); return; }
@@ -434,18 +436,28 @@ export default function Coordinator() {
           </div>
         </div>
 
-        {liveClass && current && (
+        {liveClass && current && liveClass.scoring_mode !== "class_only" && (
           <section className="card" style={{ padding: 20, borderColor: "var(--brass)" }}>
             <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 10 }}>
-              Class {liveClass.num} · Enter score — #{fmtBack(current.back_number)} {current.horse}
+              Class {liveClass.num} · {liveClass.scoring_mode === "placing" ? "Set placing" : "Enter score"} — #{fmtBack(current.back_number)} {current.horse}
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <input className="field display" style={{ flex: "1 1 140px", fontSize: 22, fontWeight: 600 }}
-                type="number" step="0.5" inputMode="decimal" placeholder="e.g. 72.5"
-                value={scoreInput} onChange={(e) => setScoreInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && saveScore()} />
+              {liveClass.scoring_mode === "placing" ? (
+                <select className="field display" style={{ flex: "1 1 160px", fontSize: 20, fontWeight: 600 }}
+                  value={scoreInput} onChange={(e) => setScoreInput(e.target.value)}>
+                  <option value="">Select placing…</option>
+                  {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>{ordinal(n)}</option>
+                  ))}
+                </select>
+              ) : (
+                <input className="field display" style={{ flex: "1 1 140px", fontSize: 22, fontWeight: 600 }}
+                  type="number" step="0.5" inputMode="decimal" placeholder="e.g. 72.5"
+                  value={scoreInput} onChange={(e) => setScoreInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && saveScore()} />
+              )}
               <button className="btn" style={{ flex: "1 1 180px" }} disabled={scoreInput === "" || busy} onClick={saveScore}>
-                Save score & call next →
+                {liveClass.scoring_mode === "placing" ? "Save placing & call next →" : "Save score & call next →"}
               </button>
               <button className="btn-ghost danger" style={{ padding: "10px 16px", fontSize: 14, borderRadius: 10 }} onClick={() => toggleScratch(current)}>
                 Scratch this entry
@@ -454,8 +466,24 @@ export default function Coordinator() {
           </section>
         )}
 
+        {liveClass && liveClass.scoring_mode === "class_only" && (
+          <section className="card" style={{ padding: 20, borderColor: "var(--brass)", background: "#FBF4E4" }}>
+            <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 8 }}>
+              Class {liveClass.num} · {liveClass.name} — in progress
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 13.5, color: "var(--quiet)" }}>
+              Everyone is in the ring together. Use the <strong>Complete</strong> button on the class card when done, then edit individual entries to enter placings.
+            </p>
+            <button className="btn" style={{ background: "var(--leather)" }} onClick={() => completeClass(liveClass)}>
+              Complete class
+            </button>
+          </section>
+        )}
+
         {classes.map((cls) => {
-          const placed = cls.entries.filter((e) => e.score != null && !e.scratched).sort((a, b) => b.score - a.score);
+          const mode = cls.scoring_mode ?? "score";
+          const placed = cls.entries.filter((e) => e.score != null && !e.scratched)
+            .sort((a, b) => mode === "placing" ? a.score - b.score : b.score - a.score);
           const pending = cls.entries.filter((e) => e.score == null && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
@@ -492,7 +520,9 @@ export default function Coordinator() {
                     <tr key={e.id}>
                       <td className="display" style={{ width: 50, fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
-                      <td className="display" style={{ textAlign: "right", fontWeight: 700, width: 70 }}>{e.score}</td>
+                      <td className="display" style={{ textAlign: "right", fontWeight: 700, width: 70 }}>
+                        {mode === "placing" ? ordinal(e.score) : e.score}
+                      </td>
                       <td style={{ width: 1, textAlign: "right", whiteSpace: "nowrap" }}>
                         <span style={{ display: "inline-flex", gap: 5 }}>
                           <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => openModal("editEntry", { entry: e })}>Edit</button>
@@ -608,6 +638,12 @@ export default function Coordinator() {
                 <input className="field" style={{ width: "100%", fontSize: 15 }} value={form.pattern_url ?? ""} onChange={setField("pattern_url")} placeholder="Link to pattern image or PDF" />
                 <label className="modal-label">Show day (1 for single-day events)</label>
                 <input className="field" type="number" min="1" max="10" style={{ width: 80, fontSize: 16 }} value={form.day ?? "1"} onChange={setField("day")} />
+                <label className="modal-label">Scoring mode</label>
+                <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.scoring_mode ?? "score"} onChange={setField("scoring_mode")}>
+                  <option value="score">Score — 70pt scale, one horse at a time</option>
+                  <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
+                  <option value="class_only">Class only — everyone together, no live draw</option>
+                </select>
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitClass}>Add class</button>
@@ -674,22 +710,43 @@ export default function Coordinator() {
               />
             )}
 
-            {modal.type === "editEntry" && (
-              <>
-                <h2 className="display modal-title">Edit entry</h2>
-                <label className="modal-label">Back number *</label>
-                <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""} onChange={setField("back")} autoFocus />
-                <label className="modal-label">Horse name *</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} />
-                <label className="modal-label">Exhibitor *</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.exhibitor ?? ""} onChange={setField("exhibitor")} />
-                {formError && <p className="modal-error">{formError}</p>}
-                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEditEntry}>Save changes</button>
-                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
-                </div>
-              </>
-            )}
+            {modal.type === "editEntry" && (() => {
+              const entryClass = classes.find((c) => c.entries.some((e) => e.id === modal.entry?.id));
+              const eMode = entryClass?.scoring_mode ?? "score";
+              return (
+                <>
+                  <h2 className="display modal-title">Edit entry</h2>
+                  <label className="modal-label">Back number *</label>
+                  <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""} onChange={setField("back")} autoFocus />
+                  <label className="modal-label">Horse name *</label>
+                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} />
+                  <label className="modal-label">Exhibitor *</label>
+                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.exhibitor ?? ""} onChange={setField("exhibitor")} />
+                  {eMode === "score" && (
+                    <>
+                      <label className="modal-label">Score (leave blank if not yet scored)</label>
+                      <input className="field" type="number" step="0.5" style={{ width: "100%", fontSize: 16 }} value={form.score ?? ""} onChange={setField("score")} placeholder="e.g. 72.5" />
+                    </>
+                  )}
+                  {(eMode === "placing" || eMode === "class_only") && (
+                    <>
+                      <label className="modal-label">Placing (leave blank if not yet placed)</label>
+                      <select className="field" style={{ width: "100%", fontSize: 16 }} value={form.score ?? ""} onChange={setField("score")}>
+                        <option value="">— Not placed —</option>
+                        {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+                          <option key={n} value={n}>{ordinal(n)}</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                  {formError && <p className="modal-error">{formError}</p>}
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEditEntry}>Save changes</button>
+                    <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                  </div>
+                </>
+              );
+            })()}
 
             {modal.type === "editClass" && (
               <>
@@ -712,6 +769,12 @@ export default function Coordinator() {
                     <input className="field" type="number" min="1" max="10" style={{ width: 80, fontSize: 16 }} value={form.day ?? "1"} onChange={setField("day")} />
                   </>
                 )}
+                <label className="modal-label">Scoring mode</label>
+                <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.scoring_mode ?? "score"} onChange={setField("scoring_mode")}>
+                  <option value="score">Score — 70pt scale, one horse at a time</option>
+                  <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
+                  <option value="class_only">Class only — everyone together, no live draw</option>
+                </select>
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEditClass}>Save changes</button>
