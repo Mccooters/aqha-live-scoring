@@ -168,6 +168,24 @@ export default function Coordinator() {
     await loadEvents();
   };
 
+  const deleteClass = async (cls) => {
+    const n = cls.entries.length;
+    const msg = n > 0
+      ? `Delete Class ${cls.num} · ${cls.name}?\n\nThis will also delete ${n} entr${n === 1 ? "y" : "ies"}. This cannot be undone.`
+      : `Delete Class ${cls.num} · ${cls.name}? This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    if (n > 0) await supabase.from("entries").delete().in("id", cls.entries.map((e) => e.id));
+    await supabase.from("classes").delete().eq("id", cls.id);
+  };
+
+  const deleteEntry = async (entry) => {
+    const msg = entry.score != null
+      ? `Remove #${fmtBack(entry.back_number)} ${entry.horse}?\n\nThis entry has a score of ${entry.score} recorded. Deleting it is permanent.`
+      : `Remove #${fmtBack(entry.back_number)} ${entry.horse} from the draw?`;
+    if (!window.confirm(msg)) return;
+    await supabase.from("entries").delete().eq("id", entry.id);
+  };
+
   // ---- modal ----
   const openModal = (type, extra = {}) => {
     let initialForm = {};
@@ -443,12 +461,12 @@ export default function Coordinator() {
           const isLive = cls.status === "live";
           return (
             <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
-              <div className="card-head" style={isLive ? { background: "#FBF4E4" } : {}}>
-                <div>
-                  <div className="display" style={{ fontWeight: 600, fontSize: 16.5 }}>Class {cls.num} · {cls.name}</div>
+              <div className="card-head" style={{ flexWrap: "nowrap", ...(isLive ? { background: "#FBF4E4" } : {}) }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="display" style={{ fontWeight: 600, fontSize: 16.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Class {cls.num} · {cls.name}</div>
                   {cls.judge && <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 1 }}>Judge: {cls.judge}</div>}
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
                   {cls.status === "upcoming" && (
                     <>
                       <button className="btn-ghost" onClick={() => moveClass(cls, -1)} aria-label="Move earlier">▲</button>
@@ -462,6 +480,9 @@ export default function Coordinator() {
                   </button>
                   <button className="btn-ghost" onClick={() => openModal("editClass", { cls })}>Edit</button>
                   <button className="btn-ghost" onClick={() => openModal("entry", { classId: cls.id })}>+ Entry</button>
+                  {cls.status === "upcoming" && (
+                    <button className="btn-ghost danger" onClick={() => deleteClass(cls)}>Delete</button>
+                  )}
                   <span className={`badge ${cls.status}`}>{cls.status}</span>
                 </div>
               </div>
@@ -472,7 +493,12 @@ export default function Coordinator() {
                       <td className="display" style={{ width: 50, fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td className="display" style={{ textAlign: "right", fontWeight: 700, width: 70 }}>{e.score}</td>
-                      <td style={{ width: 1, textAlign: "right" }}><button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => openModal("editEntry", { entry: e })}>Edit</button></td>
+                      <td style={{ width: 1, textAlign: "right", whiteSpace: "nowrap" }}>
+                        <span style={{ display: "inline-flex", gap: 5 }}>
+                          <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => openModal("editEntry", { entry: e })}>Edit</button>
+                          <button className="btn-ghost danger" style={{ fontSize: 11 }} onClick={() => deleteEntry(e)}>Delete</button>
+                        </span>
+                      </td>
                     </tr>
                   ))}
                   {pending.map((e, i) => (
@@ -487,6 +513,7 @@ export default function Coordinator() {
                           <button className="btn-ghost" onClick={() => movePending(cls, e, 1)} aria-label="Move later">▼</button>
                           <button className="btn-ghost danger" onClick={() => toggleScratch(e)}>Scratch</button>
                           <button className="btn-ghost" onClick={() => openModal("editEntry", { entry: e })}>Edit</button>
+                          <button className="btn-ghost danger" onClick={() => deleteEntry(e)}>Delete</button>
                         </span>
                       </td>
                     </tr>
@@ -499,6 +526,7 @@ export default function Coordinator() {
                         <span style={{ display: "inline-flex", gap: 5 }}>
                           {cls.status !== "completed" && <button className="btn-ghost" onClick={() => toggleScratch(e)}>Restore</button>}
                           <button className="btn-ghost" onClick={() => openModal("editEntry", { entry: e })}>Edit</button>
+                          <button className="btn-ghost danger" onClick={() => deleteEntry(e)}>Delete</button>
                         </span>
                       </td>
                     </tr>
