@@ -33,7 +33,7 @@ export async function approveRegistration(db, registrationId) {
     maxDraws[e.class_id] = (maxDraws[e.class_id] ?? 0) + 1;
     return {
       class_id: e.class_id,
-      back_number: e.back_number,
+      back_number: e.back_number || maxDraws[e.class_id], // clinics: auto-assign sequential number
       horse: e.horse_name,
       exhibitor: e.exhibitor,
       draw_order: maxDraws[e.class_id],

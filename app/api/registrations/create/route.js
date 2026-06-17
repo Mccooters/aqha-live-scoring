@@ -35,13 +35,32 @@ export async function POST(req) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
-    // Load classes to build Square line items
+    // Load classes (with capacity) to build Square line items and enforce spot limits
     const classIds = [...new Set(entries.map((e) => e.class_id))];
     const { data: classes } = await db
       .from("classes")
-      .select("id, num, name")
+      .select("id, num, name, capacity")
       .in("id", classIds);
     const classMap = Object.fromEntries((classes ?? []).map((c) => [c.id, c]));
+
+    // Capacity check — reject if any requested class is full
+    for (const classId of classIds) {
+      const cls = classMap[classId];
+      if (cls?.capacity == null) continue; // no limit set
+      const { count } = await db
+        .from("entries")
+        .select("id", { count: "exact", head: true })
+        .eq("class_id", classId)
+        .eq("scratched", false);
+      const requestedForClass = entries.filter((e) => e.class_id === classId).length;
+      if ((count ?? 0) + requestedForClass > cls.capacity) {
+        const label = cls.name || `Class ${cls.num}`;
+        return NextResponse.json(
+          { error: `Sorry — "${label}" is now full. Please contact the show secretary.` },
+          { status: 409 }
+        );
+      }
+    }
 
     const feePerClass = event.entry_fee_cents ?? 0;
     const totalCents = entries.length * feePerClass;

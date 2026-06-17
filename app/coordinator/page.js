@@ -90,6 +90,7 @@ export default function Coordinator() {
   const liveClass = classes.find((c) => c.status === "live");
   const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
   const currentEvent = events.find((e) => e.id === eventId);
+  const isClinic = currentEvent?.event_type === "clinic";
 
   // ---- scoring actions ----
   const saveScore = async () => {
@@ -284,7 +285,7 @@ export default function Coordinator() {
     }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
-      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score" };
+      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "" };
     }
     setModal({ type, ...extra });
     setForm(initialForm);
@@ -307,7 +308,7 @@ export default function Coordinator() {
     if (!form.name?.trim()) { setFormError("Event name is required"); return; }
     const feeCents = form.fee ? Math.round(parseFloat(form.fee) * 100) : 0;
     const { data, error } = await supabase.from("events")
-      .insert({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: form.status ?? "pre_open", entry_fee_cents: feeCents })
+      .insert({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: form.status ?? "pre_open", entry_fee_cents: feeCents, event_type: form.event_type ?? "show" })
       .select().single();
     if (error) { setFormError(error.message); return; }
     await loadEvents();
@@ -328,6 +329,7 @@ export default function Coordinator() {
       sort_order: maxOrder + 1,
       day: parseInt(form.day ?? "1", 10) || 1,
       scoring_mode: form.scoring_mode ?? "score",
+      capacity: form.capacity ? parseInt(form.capacity, 10) : null,
     });
     if (error) {
       const msg = error.message?.includes("day") ? 'Database migration needed. Please run "schema-v2-horses.sql" in your Supabase SQL Editor first.' : error.message;
@@ -377,7 +379,7 @@ export default function Coordinator() {
 
   const submitEditClass = async () => {
     if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
-    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", judge2: form.judge2?.trim() || null, scoring_mode: form.scoring_mode ?? "score" };
+    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", judge2: form.judge2?.trim() || null, scoring_mode: form.scoring_mode ?? "score", capacity: form.capacity ? parseInt(form.capacity, 10) : null };
     if (modal.cls.day !== undefined) updateData.day = parseInt(form.day ?? "1", 10) || 1;
     const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
     if (error) { setFormError(error.message); return; }
@@ -749,33 +751,48 @@ export default function Coordinator() {
             : cls.entries.filter((e) => e.score == null && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
+          const confirmedSpots = cls.entries.filter((e) => !e.scratched).length;
+          const isFull = cls.capacity != null && confirmedSpots >= cls.capacity;
           return (
             <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
               <div className="card-head" style={{ flexWrap: "nowrap", ...(isLive ? { background: "#FBF4E4" } : {}) }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="display" style={{ fontWeight: 600, fontSize: 16.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Class {cls.num} · {cls.name}</div>
-                  {(cls.judge || cls.judge2) && (
+                  <div className="display" style={{ fontWeight: 600, fontSize: 16.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {isClinic ? cls.name : `Class ${cls.num} · ${cls.name}`}
+                  </div>
+                  {!isClinic && (cls.judge || cls.judge2) && (
                     <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 1 }}>
                       {cls.judge2
                         ? `Judges: ${cls.judge || "—"} · ${cls.judge2}`
                         : `Judge: ${cls.judge}`}
                     </div>
                   )}
+                  {cls.capacity != null && (
+                    <div style={{ fontSize: 12, marginTop: 2 }}>
+                      <span style={{ background: isFull ? "var(--clay)" : confirmedSpots >= cls.capacity * 0.8 ? "#A05000" : "var(--green)", color: "#fff", borderRadius: 8, padding: "1px 8px", fontWeight: 700 }}>
+                        {confirmedSpots} / {cls.capacity} spots
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  {cls.status === "upcoming" && (
+                  {cls.status === "upcoming" && !isClinic && (
                     <>
                       <button className="btn-ghost" onClick={() => moveClass(cls, -1)} aria-label="Move earlier">▲</button>
                       <button className="btn-ghost" onClick={() => moveClass(cls, 1)} aria-label="Move later">▼</button>
                       <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }} onClick={() => startClass(cls)}>Start</button>
                     </>
                   )}
-                  {isLive && <button className="btn-ghost" onClick={() => completeClass(cls)}>Complete</button>}
-                  <button className="btn-ghost" style={cls.pattern_url ? { borderColor: "var(--brass)", color: "var(--brass)" } : {}} onClick={() => openModal("pattern", { classId: cls.id })}>
-                    {cls.pattern_url ? "✓ Pattern" : "Pattern"}
-                  </button>
+                  {isLive && !isClinic && <button className="btn-ghost" onClick={() => completeClass(cls)}>Complete</button>}
+                  {!isClinic && (
+                    <button className="btn-ghost" style={cls.pattern_url ? { borderColor: "var(--brass)", color: "var(--brass)" } : {}} onClick={() => openModal("pattern", { classId: cls.id })}>
+                      {cls.pattern_url ? "✓ Pattern" : "Pattern"}
+                    </button>
+                  )}
                   <button className="btn-ghost" onClick={() => openModal("editClass", { cls })}>Edit</button>
-                  <button className="btn-ghost" onClick={() => openModal("entry", { classId: cls.id })}>+ Entry</button>
+                  <button className="btn-ghost" onClick={() => openModal("entry", { classId: cls.id })}>
+                    {isClinic ? "+ Participant" : "+ Entry"}
+                  </button>
                   {cls.status === "upcoming" && (
                     <button className="btn-ghost danger" onClick={() => deleteClass(cls)}>Delete</button>
                   )}
@@ -850,7 +867,9 @@ export default function Coordinator() {
         })}
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button className="btn" style={{ background: "var(--leather)" }} onClick={() => openModal("class")} disabled={!eventId}>+ Add class</button>
+          <button className="btn" style={{ background: "var(--leather)" }} onClick={() => openModal("class")} disabled={!eventId}>
+            {isClinic ? "+ Add spot type" : "+ Add class"}
+          </button>
           <Link href="/registry" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700 }}>
             Horse registry →
           </Link>
@@ -865,6 +884,16 @@ export default function Coordinator() {
             {modal.type === "event" && (
               <>
                 <h2 className="display modal-title">New event</h2>
+                <label className="modal-label">Event type</label>
+                <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                  {[["show", "Horse show"], ["clinic", "Clinic"]].map(([val, label]) => (
+                    <button key={val} type="button"
+                      onClick={() => setForm((f) => ({ ...f, event_type: val }))}
+                      style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: `2px solid ${(form.event_type ?? "show") === val ? "var(--leather)" : "var(--line)"}`, background: (form.event_type ?? "show") === val ? "var(--sand)" : "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", color: (form.event_type ?? "show") === val ? "var(--leather)" : "var(--quiet)" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 <label className="modal-label">Event name *</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} placeholder="e.g. Hunter Valley Winter Circuit" autoFocus />
                 <label className="modal-label">Venue / location</label>
@@ -923,17 +952,31 @@ export default function Coordinator() {
                 <input className="field" style={{ width: "100%", fontSize: 15 }} value={form.pattern_url ?? ""} onChange={setField("pattern_url")} placeholder="Link to pattern image or PDF" />
                 <label className="modal-label">Show day (1 for single-day events)</label>
                 <input className="field" type="number" min="1" max="10" style={{ width: 80, fontSize: 16 }} value={form.day ?? "1"} onChange={setField("day")} />
-                <label className="modal-label">Scoring mode</label>
-                <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.scoring_mode ?? "score"} onChange={setField("scoring_mode")}>
-                  <option value="score">Score — 70pt scale, one horse at a time</option>
-                  <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
-                  <option value="class_only">Class only — everyone together, no live draw</option>
-                  <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
-                  <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
-                </select>
+                {!isClinic && (
+                  <>
+                    <label className="modal-label">Scoring mode</label>
+                    <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.scoring_mode ?? "score"} onChange={setField("scoring_mode")}>
+                      <option value="score">Score — 70pt scale, one horse at a time</option>
+                      <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
+                      <option value="class_only">Class only — everyone together, no live draw</option>
+                      <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
+                      <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
+                    </select>
+                  </>
+                )}
+                <label className="modal-label">Spot capacity (leave blank for unlimited)</label>
+                <input className="field" type="number" min="1" style={{ width: 120, fontSize: 16 }}
+                  value={form.capacity ?? ""} onChange={setField("capacity")} placeholder="e.g. 20" />
+                {isClinic && (
+                  <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                    Set to limit online registrations for this spot type (e.g. 20 rider spots, 30 fence sitting spots).
+                  </p>
+                )}
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitClass}>Add class</button>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitClass}>
+                    {isClinic ? "Add spot type" : "Add class"}
+                  </button>
                   <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
                 </div>
               </>
@@ -1075,14 +1118,21 @@ export default function Coordinator() {
                     <input className="field" type="number" min="1" max="10" style={{ width: 80, fontSize: 16 }} value={form.day ?? "1"} onChange={setField("day")} />
                   </>
                 )}
-                <label className="modal-label">Scoring mode</label>
-                <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.scoring_mode ?? "score"} onChange={setField("scoring_mode")}>
-                  <option value="score">Score — 70pt scale, one horse at a time</option>
-                  <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
-                  <option value="class_only">Class only — everyone together, no live draw</option>
-                  <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
-                  <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
-                </select>
+                {!isClinic && (
+                  <>
+                    <label className="modal-label">Scoring mode</label>
+                    <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.scoring_mode ?? "score"} onChange={setField("scoring_mode")}>
+                      <option value="score">Score — 70pt scale, one horse at a time</option>
+                      <option value="placing">Placing — 1st/2nd/3rd, one horse at a time</option>
+                      <option value="class_only">Class only — everyone together, no live draw</option>
+                      <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
+                      <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
+                    </select>
+                  </>
+                )}
+                <label className="modal-label">Spot capacity (leave blank for unlimited)</label>
+                <input className="field" type="number" min="1" style={{ width: 120, fontSize: 16 }}
+                  value={form.capacity ?? ""} onChange={setField("capacity")} placeholder="e.g. 20" />
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEditClass}>Save changes</button>

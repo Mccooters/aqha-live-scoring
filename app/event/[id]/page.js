@@ -87,6 +87,82 @@ export default function EventPage() {
 
   if (!event) return <main className="wrap"><p style={{ color: "var(--quiet)" }}>Loading…</p></main>;
 
+  const isClinic = event.event_type === "clinic";
+
+  // ---- Clinic view ----
+  if (isClinic) {
+    const isOpen = event.status === "open" || event.status === "upcoming";
+    const isDone = event.status === "completed" || event.status === "archived";
+    const spotsRows = classes.map((cls) => {
+      const taken = cls.entries.filter((e) => !e.scratched).length;
+      const full = cls.capacity != null && taken >= cls.capacity;
+      const remaining = cls.capacity != null ? cls.capacity - taken : null;
+      return { cls, taken, full, remaining };
+    });
+    const allFull = spotsRows.length > 0 && spotsRows.every((r) => r.full);
+    return (
+      <>
+        <header className="header">
+          <div style={{ maxWidth: 860, margin: "0 auto" }}>
+            <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)", marginBottom: 4 }}>Clinic</div>
+            <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,4vw,30px)", margin: "0 0 2px" }}>{event.name}</h1>
+            <div style={{ fontSize: 13, color: "#CBBFA9" }}>
+              {event.location}{event.starts_on ? ` · ${event.starts_on}` : ""}{event.ends_on && event.ends_on !== event.starts_on ? ` – ${event.ends_on}` : ""}
+            </div>
+          </div>
+        </header>
+        <main className="wrap">
+          {isDone ? (
+            <section className="card" style={{ textAlign: "center", padding: "28px 20px" }}>
+              <div className="display" style={{ fontSize: 20, fontWeight: 700 }}>This clinic has concluded.</div>
+            </section>
+          ) : allFull && !isOpen ? (
+            <section className="card" style={{ textAlign: "center", padding: "28px 20px" }}>
+              <div className="display" style={{ fontSize: 22, fontWeight: 700, color: "var(--clay)" }}>Sold out</div>
+              <p style={{ color: "var(--quiet)", marginBottom: 0 }}>All spots for this clinic are now full. Please contact the organiser.</p>
+            </section>
+          ) : !isOpen ? (
+            <section className="card" style={{ textAlign: "center", padding: "28px 20px" }}>
+              <div className="display" style={{ fontSize: 20, fontWeight: 700 }}>
+                {event.status === "pre_open" ? "Registrations opening soon." : "Registrations are closed."}
+              </div>
+            </section>
+          ) : (
+            <>
+              {allFull ? (
+                <section className="card" style={{ background: "var(--clay)", color: "#fff", padding: "18px 20px", textAlign: "center" }}>
+                  <div className="display" style={{ fontWeight: 700, fontSize: 22 }}>Sold out</div>
+                  <p style={{ margin: "4px 0 0", opacity: .85 }}>All spots are taken. Contact the organiser to be added to a waiting list.</p>
+                </section>
+              ) : (
+                <section className="card" style={{ padding: "18px 20px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                    <div>
+                      <div className="display" style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>Registrations open</div>
+                      {spotsRows.map(({ cls, taken, full, remaining }) => (
+                        <div key={cls.id} style={{ fontSize: 14, color: full ? "var(--clay)" : "var(--quiet)", marginBottom: 2 }}>
+                          <strong>{cls.name}</strong>
+                          {remaining != null
+                            ? full ? " — Full" : ` — ${remaining} spot${remaining === 1 ? "" : "s"} remaining`
+                            : null}
+                        </div>
+                      ))}
+                    </div>
+                    <Link href={`/event/${id}/register`} className="btn"
+                      style={{ background: "var(--leather)", textDecoration: "none", fontSize: 15, whiteSpace: "nowrap" }}>
+                      Register →
+                    </Link>
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+        </main>
+      </>
+    );
+  }
+
+  // ---- Show view ----
   return (
     <>
       <header className="header">
