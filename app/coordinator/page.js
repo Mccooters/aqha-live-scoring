@@ -92,6 +92,10 @@ export default function Coordinator() {
   const currentEvent = events.find((e) => e.id === eventId);
   const isClinic = currentEvent?.event_type === "clinic";
 
+  // Clear score inputs whenever the live class changes (auto-advance after last entry)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setScoreInput(""); setScoreInput2(""); }, [liveClass?.id]);
+
   // ---- scoring actions ----
   const saveScore = async () => {
     const val = parseFloat(scoreInput);
@@ -103,30 +107,36 @@ export default function Coordinator() {
       updateData.score2 = val2;
     }
     setBusy(true);
-    await supabase.from("entries").update(updateData).eq("id", current.id);
-    const remaining = liveClass.entries.filter((e) => e.id !== current.id && e.score == null && !e.scratched);
-    if (remaining.length === 0) {
-      await completeClass(liveClass);
-    } else {
-      const next = remaining[0];
-      triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
+    try {
+      await supabase.from("entries").update(updateData).eq("id", current.id);
+      const remaining = liveClass.entries.filter((e) => e.id !== current.id && e.score == null && !e.scratched);
+      if (remaining.length === 0) {
+        await completeClass(liveClass);
+      } else {
+        const next = remaining[0];
+        triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
+      }
+      setScoreInput("");
+      setScoreInput2("");
+    } finally {
+      setBusy(false);
     }
-    setScoreInput("");
-    setScoreInput2("");
-    setBusy(false);
   };
 
   const callNext = async () => {
     if (!current || busy) return;
     setBusy(true);
-    await supabase.from("entries").update({ called: true }).eq("id", current.id);
-    const remaining = liveClass.entries.filter((e) => e.id !== current.id && !e.called && !e.scratched);
-    if (remaining.length === 0) {
-      await completeClass(liveClass);
-    } else {
-      triggerPush(`Now showing: #${fmtBack(remaining[0].back_number)} ${remaining[0].horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
+    try {
+      await supabase.from("entries").update({ called: true }).eq("id", current.id);
+      const remaining = liveClass.entries.filter((e) => e.id !== current.id && !e.called && !e.scratched);
+      if (remaining.length === 0) {
+        await completeClass(liveClass);
+      } else {
+        triggerPush(`Now showing: #${fmtBack(remaining[0].back_number)} ${remaining[0].horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
+      }
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
   const toggleScratch = async (entry) => {
@@ -340,17 +350,21 @@ export default function Coordinator() {
   };
 
   const submitEntry = async () => {
-    if (!form.back || !form.horse?.trim() || !form.exhibitor?.trim()) {
-      setFormError("Back number, horse, and exhibitor are required");
-      return;
-    }
     const cls = classes.find((c) => c.id === modal.classId);
     if (!cls) return;
+    if (isClinic) {
+      if (!form.exhibitor?.trim()) { setFormError("Participant name is required"); return; }
+    } else {
+      if (!form.back || !form.horse?.trim() || !form.exhibitor?.trim()) {
+        setFormError("Back number, horse, and exhibitor are required");
+        return;
+      }
+    }
     const maxDraw = Math.max(0, ...cls.entries.map((e) => e.draw_order));
     await supabase.from("entries").insert({
       class_id: cls.id,
-      back_number: parseInt(form.back, 10),
-      horse: form.horse.trim(),
+      back_number: isClinic ? maxDraw + 1 : parseInt(form.back, 10),
+      horse: form.horse?.trim() || "",
       exhibitor: form.exhibitor.trim(),
       draw_order: maxDraw + 1,
     });
@@ -358,14 +372,18 @@ export default function Coordinator() {
   };
 
   const submitEditEntry = async () => {
-    if (!form.back || !form.horse?.trim() || !form.exhibitor?.trim()) {
+    if (!form.exhibitor?.trim()) {
+      setFormError(isClinic ? "Participant name is required" : "Back number, horse, and exhibitor are required");
+      return;
+    }
+    if (!isClinic && (!form.back || !form.horse?.trim())) {
       setFormError("Back number, horse, and exhibitor are required");
       return;
     }
     const entryClass = classes.find((c) => c.entries.some((e) => e.id === modal.entry?.id));
     const updateData = {
       back_number: parseInt(form.back, 10),
-      horse: form.horse.trim(),
+      horse: form.horse?.trim() ?? "",
       exhibitor: form.exhibitor.trim(),
       score: form.score !== "" && form.score != null ? parseFloat(form.score) : null,
     };
@@ -984,19 +1002,23 @@ export default function Coordinator() {
 
             {modal.type === "entry" && (
               <>
-                <h2 className="display modal-title">Add entry</h2>
+                <h2 className="display modal-title">{isClinic ? "Add participant" : "Add entry"}</h2>
                 {(() => { const cls = classes.find((c) => c.id === modal.classId); return cls && <p style={{ marginTop: 0, color: "var(--quiet)", fontSize: 13 }}>Class {cls.num} · {cls.name}</p>; })()}
-                <label className="modal-label">Back number *</label>
-                <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""}
-                  onChange={setField("back")}
-                  onBlur={(e) => lookupHorse(e.target.value)}
-                  placeholder="e.g. 301" autoFocus />
-                {horseSuggestion === false && <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>Not in registry — fill in manually below</p>}
-                {horseSuggestion && <p style={{ fontSize: 12, color: "var(--green)", margin: "4px 0 0" }}>Found in registry: {horseSuggestion.name}{horseSuggestion.owner ? ` · ${horseSuggestion.owner}` : ""}</p>}
-                <label className="modal-label">Horse name *</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} placeholder="e.g. Machine Made Lady" />
-                <label className="modal-label">Exhibitor *</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.exhibitor ?? ""} onChange={setField("exhibitor")} placeholder="e.g. P. Santos" />
+                {!isClinic && (
+                  <>
+                    <label className="modal-label">Back number *</label>
+                    <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""}
+                      onChange={setField("back")}
+                      onBlur={(e) => lookupHorse(e.target.value)}
+                      placeholder="e.g. 301" autoFocus />
+                    {horseSuggestion === false && <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>Not in registry — fill in manually below</p>}
+                    {horseSuggestion && <p style={{ fontSize: 12, color: "var(--green)", margin: "4px 0 0" }}>Found in registry: {horseSuggestion.name}{horseSuggestion.owner ? ` · ${horseSuggestion.owner}` : ""}</p>}
+                  </>
+                )}
+                <label className="modal-label">{isClinic ? "Horse name (if participating, optional)" : "Horse name *"}</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} placeholder={isClinic ? "e.g. Machine Made Lady" : "e.g. Machine Made Lady"} autoFocus={isClinic} />
+                <label className="modal-label">{isClinic ? "Participant name *" : "Exhibitor *"}</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.exhibitor ?? ""} onChange={setField("exhibitor")} placeholder={isClinic ? "e.g. Jane Smith" : "e.g. P. Santos"} />
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEntry}>Add entry</button>
@@ -1062,12 +1084,16 @@ export default function Coordinator() {
               );
               return (
                 <>
-                  <h2 className="display modal-title">Edit entry</h2>
-                  <label className="modal-label">Back number *</label>
-                  <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""} onChange={setField("back")} autoFocus />
-                  <label className="modal-label">Horse name *</label>
-                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} />
-                  <label className="modal-label">Exhibitor *</label>
+                  <h2 className="display modal-title">{isClinic ? "Edit participant" : "Edit entry"}</h2>
+                  {!isClinic && (
+                    <>
+                      <label className="modal-label">Back number *</label>
+                      <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""} onChange={setField("back")} autoFocus />
+                    </>
+                  )}
+                  <label className="modal-label">{isClinic ? "Horse name (optional)" : "Horse name *"}</label>
+                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} autoFocus={isClinic} />
+                  <label className="modal-label">{isClinic ? "Participant name *" : "Exhibitor *"}</label>
                   <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.exhibitor ?? ""} onChange={setField("exhibitor")} />
                   {twoJ ? (
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
