@@ -215,9 +215,14 @@ export default function Coordinator() {
     await setEventStatus("completed");
   };
 
-  const cancelEvent = async () => {
-    if (!window.confirm("Cancel this event?\n\nThe event will be hidden from the main list and marked as cancelled. You can reopen it afterwards if needed.")) return;
-    await setEventStatus("cancelled");
+  const cancelEvent = () => {
+    openModal("cancelEvent");
+  };
+
+  const submitCancelEvent = async () => {
+    await supabase.from("events").update({ status: "cancelled", cancellation_reason: form.reason?.trim() || null }).eq("id", eventId);
+    await loadEvents();
+    closeModal();
   };
 
   const closeEntries = async () => {
@@ -576,9 +581,16 @@ export default function Coordinator() {
                 const LABEL = { pre_open: "Pre-open", open: "Entries open", upcoming: "Entries open", closed: "Entries closed", live: "Live", completed: "Completed", archived: "Archived", cancelled: "Cancelled" };
                 const COLOR = { pre_open: "#7A6E8A", open: "#2D7A52", upcoming: "#2D7A52", closed: "#9A6A1A", live: "var(--clay)", completed: "var(--green)", archived: "#9A9A9A", cancelled: "#B03030" };
                 return (
-                  <span style={{ marginLeft: 10, background: COLOR[s] ?? "var(--quiet)", color: "#fff", borderRadius: 10, padding: "2px 10px", fontSize: 11.5, fontWeight: 700 }}>
-                    {LABEL[s] ?? s}
-                  </span>
+                  <>
+                    <span style={{ marginLeft: 10, background: COLOR[s] ?? "var(--quiet)", color: "#fff", borderRadius: 10, padding: "2px 10px", fontSize: 11.5, fontWeight: 700 }}>
+                      {LABEL[s] ?? s}
+                    </span>
+                    {s === "cancelled" && currentEvent.cancellation_reason && (
+                      <span style={{ marginLeft: 8, fontSize: 12.5, color: "#B03030", fontStyle: "italic" }}>
+                        — {currentEvent.cancellation_reason}
+                      </span>
+                    )}
+                  </>
                 );
               })()}
             </>}
@@ -1180,6 +1192,25 @@ export default function Coordinator() {
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEditClass}>Save changes</button>
                   <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                </div>
+              </>
+            )}
+
+            {modal.type === "cancelEvent" && (
+              <>
+                <h2 className="display modal-title" style={{ color: "#B03030" }}>Cancel event</h2>
+                <p style={{ fontSize: 14, color: "var(--quiet)", marginTop: 0 }}>
+                  The event will be hidden from the public home page and marked as cancelled. You can reopen it afterwards if needed.
+                </p>
+                <label className="modal-label">Reason for cancellation (optional)</label>
+                <textarea className="field" rows={3} style={{ width: "100%", fontSize: 15, resize: "vertical" }}
+                  value={form.reason ?? ""} onChange={setField("reason")}
+                  placeholder="e.g. Venue unavailable due to flooding" autoFocus />
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn" style={{ flex: 1, background: "#B03030", color: "#fff" }} onClick={submitCancelEvent}>
+                    Confirm cancellation
+                  </button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Go back</button>
                 </div>
               </>
             )}

@@ -97,6 +97,11 @@ export default function Home() {
                       <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 1 }}>
                         {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}
                       </div>
+                      {ev.cancellation_reason && (
+                        <div style={{ fontSize: 12, color: "#B03030", marginTop: 3, fontStyle: "italic" }}>
+                          {ev.cancellation_reason}
+                        </div>
+                      )}
                     </div>
                     <span className="badge cancelled">Cancelled</span>
                   </div>
