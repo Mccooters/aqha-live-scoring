@@ -25,6 +25,7 @@ input:focus, button:focus-visible { outline: 2px solid var(--brass); outline-off
 .badge.pre_open { background: #7A6E8A; }
 .badge.closed { background: #9A6A1A; }
 .badge.archived { background: #9A9A9A; }
+.badge.cancelled { background: #B03030; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th { padding: 8px 12px; color: var(--quiet); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; text-align: left; }
 td { padding: 9px 12px; border-top: 1px solid var(--line); }

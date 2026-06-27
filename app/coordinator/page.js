@@ -215,6 +215,11 @@ export default function Coordinator() {
     await setEventStatus("completed");
   };
 
+  const cancelEvent = async () => {
+    if (!window.confirm("Cancel this event?\n\nThe event will be hidden from the main list and marked as cancelled. You can reopen it afterwards if needed.")) return;
+    await setEventStatus("cancelled");
+  };
+
   const closeEntries = async () => {
     const emptyClasses = classes.filter((c) => c.entries.length === 0);
     const emptyNote = emptyClasses.length > 0
@@ -568,8 +573,8 @@ export default function Coordinator() {
               {" · "}<Link href={`/event/${eventId}/register`} style={{ color: "var(--brass)" }}>Entry form</Link>
               {currentEvent && (() => {
                 const s = currentEvent.status;
-                const LABEL = { pre_open: "Pre-open", open: "Entries open", upcoming: "Entries open", closed: "Entries closed", live: "Live", completed: "Completed", archived: "Archived" };
-                const COLOR = { pre_open: "#7A6E8A", open: "#2D7A52", upcoming: "#2D7A52", closed: "#9A6A1A", live: "var(--clay)", completed: "var(--green)", archived: "#9A9A9A" };
+                const LABEL = { pre_open: "Pre-open", open: "Entries open", upcoming: "Entries open", closed: "Entries closed", live: "Live", completed: "Completed", archived: "Archived", cancelled: "Cancelled" };
+                const COLOR = { pre_open: "#7A6E8A", open: "#2D7A52", upcoming: "#2D7A52", closed: "#9A6A1A", live: "var(--clay)", completed: "var(--green)", archived: "#9A9A9A", cancelled: "#B03030" };
                 return (
                   <span style={{ marginLeft: 10, background: COLOR[s] ?? "var(--quiet)", color: "#fff", borderRadius: 10, padding: "2px 10px", fontSize: 11.5, fontWeight: 700 }}>
                     {LABEL[s] ?? s}
@@ -636,6 +641,18 @@ export default function Coordinator() {
                     <button className="btn-ghost" onClick={() => {
                       if (window.confirm("Archive this event? It will be hidden from the public home page but results remain accessible via its URL.")) setEventStatus("archived");
                     }}>Archive</button>
+                  )}
+                  {s === "cancelled" && (
+                    <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
+                      onClick={() => { if (window.confirm("Reopen this event? It will be moved back to pre-open so you can set it up again.")) setEventStatus("pre_open"); }}
+                      disabled={busy}>
+                      Reopen event
+                    </button>
+                  )}
+                  {s !== "completed" && s !== "archived" && s !== "cancelled" && (
+                    <button className="btn-ghost danger" onClick={cancelEvent} disabled={busy}>
+                      Cancel event
+                    </button>
                   )}
                 </>
               );

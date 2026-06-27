@@ -11,6 +11,7 @@ const STATUS_LABEL = {
   live:      "Live",
   completed: "Completed",
   archived:  "Archived",
+  cancelled: "Cancelled",
 };
 
 export default function Home() {
@@ -24,8 +25,9 @@ export default function Home() {
       .then(({ data }) => setEvents(data ?? []));
   }, []);
 
-  const active   = events?.filter((e) => e.status !== "archived") ?? [];
-  const archived = events?.filter((e) => e.status === "archived") ?? [];
+  const active    = events?.filter((e) => e.status !== "archived" && e.status !== "cancelled") ?? [];
+  const cancelled = events?.filter((e) => e.status === "cancelled") ?? [];
+  const archived  = events?.filter((e) => e.status === "archived") ?? [];
 
   return (
     <>
@@ -80,6 +82,29 @@ export default function Home() {
             </section>
           );
         })}
+
+        {cancelled.length > 0 && (
+          <details style={{ marginTop: 24 }}>
+            <summary style={{ fontSize: 13, color: "var(--quiet)", cursor: "pointer", fontWeight: 600, letterSpacing: ".05em" }}>
+              Cancelled events ({cancelled.length})
+            </summary>
+            <div style={{ marginTop: 10 }}>
+              {cancelled.map((ev) => (
+                <section key={ev.id} className="card" style={{ marginBottom: 10, overflow: "hidden", opacity: 0.7 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "12px 16px" }}>
+                    <div>
+                      <div className="display" style={{ fontWeight: 700, fontSize: 16, textDecoration: "line-through", color: "var(--quiet)" }}>{ev.name}</div>
+                      <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 1 }}>
+                        {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}
+                      </div>
+                    </div>
+                    <span className="badge cancelled">Cancelled</span>
+                  </div>
+                </section>
+              ))}
+            </div>
+          </details>
+        )}
 
         {archived.length > 0 && (
           <details style={{ marginTop: 24 }}>
