@@ -10,6 +10,13 @@ const firstPending = (entries, mode) =>
     ? entries.find((e) => !e.called && !e.scratched) ?? null
     : entries.find((e) => e.score == null && !e.scratched) ?? null;
 
+// All valid high-points categories in display order.
+const HP_CATEGORIES = [
+  "Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse",
+  "Amateur", "Novice Amateur", "Select", "Beginner", "EWD", "Youth", "Leadline",
+];
+const HP_HORSE_CATS = new Set(["Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse"]);
+
 // Points scale: max(0, competing_entries - placing).
 // With 5 entries: 1st=4pts, 2nd=3pts, 3rd=2pts, 4th=1pt, 5th=0pts.
 // Verify this against the current HCQHA rule book before use.
@@ -186,12 +193,61 @@ export default function Coordinator() {
         "results"
       );
     }
+    await pushToHighPoints(cls);
     const nextUp = classes.find((c) => c.status === "upcoming" && c.id !== cls.id);
     if (nextUp) {
       await supabase.from("classes").update({ status: "live" }).eq("id", nextUp.id);
       const nextEntry = firstPending(nextUp.entries, nextUp.scoring_mode);
       if (nextEntry) triggerPush(`Now showing: #${fmtBack(nextEntry.back_number)} ${nextEntry.horse}`, `Class ${nextUp.num} · ${nextUp.name}`, "now-showing");
     }
+  };
+
+  const pushToHighPoints = async (cls) => {
+    if (!cls.hp_category || !currentEvent?.starts_on) return;
+
+    // Fetch fresh entries — when called from saveScore the last score isn't in
+    // React state yet (realtime hasn't fired back), so we go straight to the DB.
+    const { data: fresh } = await supabase.from("entries").select("*").eq("class_id", cls.id);
+    const entries = (fresh ?? []).filter((e) => e.score != null && !e.scratched);
+    if (!entries.length) return;
+
+    const [y, mo] = currentEvent.starts_on.split("-").map(Number);
+    const season = mo >= 8 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
+    const showName = currentEvent.name;
+    const isHorseCat = HP_HORSE_CATS.has(cls.hp_category);
+    const isPlacing = ["placing", "class_only", "tbc_class"].includes(cls.scoring_mode);
+
+    // Accumulate points across both judges into one total per entity.
+    const pointsMap = {};
+    const applyJudge = (sorted, getScore) => {
+      sorted.forEach((e, i) => {
+        const placing = isPlacing ? Math.round(getScore(e)) : i + 1;
+        const pts = placing === 1 ? 3 : placing === 2 ? 2 : placing === 3 ? 1 : 0;
+        if (!pts) return;
+        const name = isHorseCat ? e.horse : e.exhibitor;
+        pointsMap[name] = (pointsMap[name] ?? 0) + pts;
+      });
+    };
+
+    applyJudge(
+      [...entries].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score),
+      (e) => e.score
+    );
+    if (cls.judge2) {
+      const j2 = entries.filter((e) => e.score2 != null);
+      applyJudge(
+        [...j2].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2),
+        (e) => e.score2
+      );
+    }
+
+    const toUpsert = Object.entries(pointsMap).map(([name, pts]) => ({
+      season, category: cls.hp_category,
+      entity_type: isHorseCat ? "horse" : "rider",
+      entity_name: name, show_name: showName, points: pts,
+    }));
+    if (!toUpsert.length) return;
+    await supabase.from("high_points").upsert(toUpsert, { onConflict: "season,category,entity_name,show_name" });
   };
 
   const moveClass = async (cls, dir) => {
@@ -305,7 +361,7 @@ export default function Coordinator() {
     }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
-      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "" };
+      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "" };
     }
     setModal({ type, ...extra });
     setForm(initialForm);
@@ -350,6 +406,7 @@ export default function Coordinator() {
       day: parseInt(form.day ?? "1", 10) || 1,
       scoring_mode: form.scoring_mode ?? "score",
       capacity: form.capacity ? parseInt(form.capacity, 10) : null,
+      hp_category: form.hp_category || null,
     });
     if (error) {
       const msg = error.message?.includes("day") ? 'Database migration needed. Please run "schema-v2-horses.sql" in your Supabase SQL Editor first.' : error.message;
@@ -407,7 +464,7 @@ export default function Coordinator() {
 
   const submitEditClass = async () => {
     if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
-    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", judge2: form.judge2?.trim() || null, scoring_mode: form.scoring_mode ?? "score", capacity: form.capacity ? parseInt(form.capacity, 10) : null };
+    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", judge2: form.judge2?.trim() || null, scoring_mode: form.scoring_mode ?? "score", capacity: form.capacity ? parseInt(form.capacity, 10) : null, hp_category: form.hp_category || null };
     if (modal.cls.day !== undefined) updateData.day = parseInt(form.day ?? "1", 10) || 1;
     const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
     if (error) { setFormError(error.message); return; }
@@ -814,6 +871,11 @@ export default function Coordinator() {
                         : `Judge: ${cls.judge}`}
                     </div>
                   )}
+                  {cls.hp_category && (
+                    <div style={{ fontSize: 11, color: "var(--brass)", marginTop: 2, fontWeight: 700 }}>
+                      HP: {cls.hp_category}
+                    </div>
+                  )}
                   {cls.capacity != null && (
                     <div style={{ fontSize: 12, marginTop: 2 }}>
                       <span style={{ background: isFull ? "var(--clay)" : confirmedSpots >= cls.capacity * 0.8 ? "#A05000" : "var(--green)", color: "#fff", borderRadius: 8, padding: "1px 8px", fontWeight: 700 }}>
@@ -831,6 +893,12 @@ export default function Coordinator() {
                     </>
                   )}
                   {isLive && !isClinic && <button className="btn-ghost" onClick={() => completeClass(cls)}>Complete</button>}
+                  {cls.status === "completed" && cls.hp_category && !isClinic && (
+                    <button className="btn-ghost" style={{ fontSize: 11, borderColor: "var(--green)", color: "var(--green)" }}
+                      onClick={() => pushToHighPoints(cls)} title="Push results to the High Points leaderboard">
+                      Push HP
+                    </button>
+                  )}
                   {!isClinic && (
                     <button className="btn-ghost" style={cls.pattern_url ? { borderColor: "var(--brass)", color: "var(--brass)" } : {}} onClick={() => openModal("pattern", { classId: cls.id })}>
                       {cls.pattern_url ? "✓ Pattern" : "Pattern"}
@@ -1009,6 +1077,11 @@ export default function Coordinator() {
                       <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
                       <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
                     </select>
+                    <label className="modal-label">High Points category</label>
+                    <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.hp_category ?? ""} onChange={setField("hp_category")}>
+                      <option value="">— Does not count toward High Points —</option>
+                      {HP_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
                   </>
                 )}
                 <label className="modal-label">Spot capacity (leave blank for unlimited)</label>
@@ -1182,6 +1255,11 @@ export default function Coordinator() {
                       <option value="class_only">Class only — everyone together, no live draw</option>
                       <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
                       <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
+                    </select>
+                    <label className="modal-label">High Points category</label>
+                    <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.hp_category ?? ""} onChange={setField("hp_category")}>
+                      <option value="">— Does not count toward High Points —</option>
+                      {HP_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
                     </select>
                   </>
                 )}

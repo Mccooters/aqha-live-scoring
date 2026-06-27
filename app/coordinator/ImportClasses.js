@@ -7,6 +7,7 @@ const ALIASES = {
   name:         ["class name", "name", "class"],
   judge:        ["judge", "judge name", "judged by"],
   scoring_mode: ["type", "scoring", "scoring mode", "scoring type", "mode", "score type", "class type"],
+  hp_category:  ["hp category", "high points category", "high points cat", "hp cat", "high points", "hp"],
 };
 
 const MODE_MAP = {
@@ -76,7 +77,7 @@ export default function ImportClasses({ eventId, onDone }) {
           mode = normaliseMode(obj.scoring_mode);
           if (!mode) warns.push(`Row ${i + 2}: Unrecognised type "${obj.scoring_mode}" — defaulting to Score`);
         }
-        parsed.push({ num: isNaN(num) ? null : num, name: obj.name, judge: obj.judge || "", scoring_mode: mode ?? "score" });
+        parsed.push({ num: isNaN(num) ? null : num, name: obj.name, judge: obj.judge || "", scoring_mode: mode ?? "score", hp_category: obj.hp_category || null });
       });
 
       if (!parsed.length) { setError("No class names found. Make sure the spreadsheet has a 'Class Name' column."); return; }
@@ -120,6 +121,7 @@ export default function ImportClasses({ eventId, onDone }) {
           sort_order:   maxOrder,
           status:       "upcoming",
           scoring_mode: r.scoring_mode,
+          hp_category:  r.hp_category,
         });
         existingNames.add(r.name.toLowerCase());
       }
@@ -168,7 +170,8 @@ export default function ImportClasses({ eventId, onDone }) {
         <>
           <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 0 }}>
             Columns: <strong>Class #</strong>, <strong>Class Name</strong>, Judge (optional),
-            Type (optional — <em>Score</em>, <em>Placing</em>, <em>Class Only</em>, <em>TBC (draw)</em>, or <em>TBC (whole class)</em>; defaults to Score)
+            Type (optional — <em>Score</em>, <em>Placing</em>, <em>Class Only</em>, <em>TBC (draw)</em>, or <em>TBC (whole class)</em>; defaults to Score),
+            <strong> HP Category</strong> (optional — e.g. <em>Amateur</em>, <em>Senior Horse</em>; sets which High Points table this class feeds into)
           </p>
           <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ marginBottom: 12 }} />
           {error && <p className="modal-error">{error}</p>}
@@ -190,7 +193,7 @@ export default function ImportClasses({ eventId, onDone }) {
           <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12 }}>
             <table>
               <thead>
-                <tr><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge</th><th>Type</th></tr>
+                <tr><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge</th><th>Type</th><th>HP Category</th></tr>
               </thead>
               <tbody>
                 {rows.slice(0, 60).map((r, i) => (
@@ -206,6 +209,9 @@ export default function ImportClasses({ eventId, onDone }) {
                       }}>
                         {r.scoring_mode === "placing" ? "Placing" : r.scoring_mode === "class_only" ? "Class only" : r.scoring_mode === "tbc" ? "TBC (draw)" : r.scoring_mode === "tbc_class" ? "TBC (whole class)" : "Score"}
                       </span>
+                    </td>
+                    <td style={{ fontSize: 12, color: r.hp_category ? "var(--brass)" : "var(--line)", fontWeight: r.hp_category ? 700 : 400 }}>
+                      {r.hp_category || "—"}
                     </td>
                   </tr>
                 ))}
