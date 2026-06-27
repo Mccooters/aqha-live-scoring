@@ -259,7 +259,7 @@ export default function Coordinator() {
     const toInsert = Object.entries(pointsMap).map(([name, pts]) => ({
       season, category,
       entity_type: isHorseCat ? "horse" : "rider",
-      entity_name: name, show_name: showName, points: pts,
+      entity_name: name, show_name: showName, show_date: currentEvent.starts_on, points: pts,
     }));
     if (!toInsert.length) return;
     await supabase.from("high_points").insert(toInsert);

@@ -16,27 +16,38 @@ const CANONICAL_CATEGORIES = [
 
 const KNOWN_CATEGORY_NAMES = new Set(CANONICAL_CATEGORIES.map(c => c.toLowerCase()));
 
+const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const SHOW_MONTH_ORDER = [
   "january", "february", "march", "april", "may", "june",
   "july", "august", "september", "october", "november", "december"
 ];
 
 // Season runs August–July. Aug=0 … Dec=4, Jan=5 … Jul=11.
-function seasonMonthIdx(name) {
+function seasonMonthIdxFromDate(dateStr) {
+  const m = new Date(dateStr + "T00:00:00").getMonth(); // 0=Jan
+  return m >= 7 ? m - 7 : m + 5;
+}
+function seasonMonthIdxFromName(name) {
   const i = SHOW_MONTH_ORDER.findIndex(m => name.toLowerCase().includes(m));
   if (i === -1) return 999;
   return i >= 7 ? i - 7 : i + 5;
 }
 
-function sortShows(shows) {
+// dateMap: show_name → show_date (ISO string). Used for reliable sort when available.
+function sortShows(shows, dateMap = {}) {
   return [...shows].sort((a, b) => {
-    const d = seasonMonthIdx(a) - seasonMonthIdx(b);
-    return d !== 0 ? d : a.localeCompare(b);
+    const ia = dateMap[a] ? seasonMonthIdxFromDate(dateMap[a]) : seasonMonthIdxFromName(a);
+    const ib = dateMap[b] ? seasonMonthIdxFromDate(dateMap[b]) : seasonMonthIdxFromName(b);
+    return ia !== ib ? ia - ib : a.localeCompare(b);
   });
 }
 
-// "March" + "2025-2026" → "Mar '26"
-function showLabel(name, season) {
+// Returns "Nov '25" from a stored date; falls back to extracting month from the show name.
+function showLabel(name, season, date) {
+  if (date) {
+    const d = new Date(date + "T00:00:00");
+    return `${MONTH_ABBR[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`;
+  }
   const i = SHOW_MONTH_ORDER.findIndex(m => name.toLowerCase().includes(m));
   const base = name.replace(/ show$/i, "");
   if (i === -1 || !season) return base;
@@ -170,7 +181,10 @@ export default function HighPoints() {
   const effectiveCategory = visibleCategories.includes(activeCategory)
     ? activeCategory : (visibleCategories[0] || "");
 
-  const allShowNames = sortShows([...new Set(seasonRows.map(r => r.show_name))]);
+  // Build show_name → show_date map so labels and sort use the real event date.
+  const showDateMap = {};
+  seasonRows.forEach(r => { if (r.show_date && !showDateMap[r.show_name]) showDateMap[r.show_name] = r.show_date; });
+  const allShowNames = sortShows([...new Set(seasonRows.map(r => r.show_name))], showDateMap);
   const catRows = seasonRows.filter(r => r.category === effectiveCategory);
 
   const buildLeaderboard = (rows) => {
@@ -409,8 +423,8 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                         <th style={{ width: 44 }}>Rank</th>
                         <th>{HORSE_CATEGORIES.has(effectiveCategory) ? "Horse" : "Exhibitor"}</th>
                         {allShowNames.map(s => (
-                          <th key={s} style={{ textAlign: "right", whiteSpace: "nowrap", fontSize: 10, minWidth: 52 }}>
-                            {showLabel(s, season)}
+                          <th key={s} title={s} style={{ textAlign: "right", whiteSpace: "nowrap", fontSize: 10, minWidth: 52 }}>
+                            {showLabel(s, season, showDateMap[s])}
                           </th>
                         ))}
                         <th style={{ textAlign: "right", minWidth: 56 }}>Total</th>
@@ -474,7 +488,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                   {allShowNames.map(show => (
                     <div key={show}>
                       <label style={{ fontSize: 11.5, color: "var(--quiet)", display: "block", marginBottom: 4 }}>
-                        {showLabel(show, season)}
+                        {showLabel(show, season, showDateMap[show])}
                       </label>
                       <input className="field" type="number" step="0.5" min="0"
                         style={{ width: "100%", fontSize: 15 }}
