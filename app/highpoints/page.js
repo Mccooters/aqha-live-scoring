@@ -17,15 +17,34 @@ const SHOW_MONTH_ORDER = [
   "july", "august", "september", "october", "november", "december"
 ];
 
+// Season runs August–July. Aug=0 … Dec=4, Jan=5 … Jul=11.
+function seasonMonthIdx(name) {
+  const i = SHOW_MONTH_ORDER.findIndex(m => name.toLowerCase().includes(m));
+  if (i === -1) return 999;
+  return i >= 7 ? i - 7 : i + 5;
+}
+
 function sortShows(shows) {
   return [...shows].sort((a, b) => {
-    const am = SHOW_MONTH_ORDER.findIndex(m => a.toLowerCase().includes(m));
-    const bm = SHOW_MONTH_ORDER.findIndex(m => b.toLowerCase().includes(m));
-    if (am === -1 && bm === -1) return a.localeCompare(b);
-    if (am === -1) return 1;
-    if (bm === -1) return -1;
-    return am - bm;
+    const d = seasonMonthIdx(a) - seasonMonthIdx(b);
+    return d !== 0 ? d : a.localeCompare(b);
   });
+}
+
+// "March" + "2025-2026" → "Mar '26"
+function showLabel(name, season) {
+  const i = SHOW_MONTH_ORDER.findIndex(m => name.toLowerCase().includes(m));
+  const base = name.replace(/ show$/i, "");
+  if (i === -1 || !season) return base;
+  const parts = season.split("-").map(Number);
+  const year = i >= 7 ? parts[0] : parts[1];
+  return `${base} '${String(year).slice(2)}`;
+}
+
+// Which season we're currently in (Aug 1 → Jul 31 cycle).
+function currentSeasonFromDate(date = new Date()) {
+  const y = date.getFullYear();
+  return date.getMonth() >= 7 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
 }
 
 function parseHighPointsCSV(text) {
@@ -115,9 +134,13 @@ export default function HighPoints() {
 
     const rows = data ?? [];
     setRecords(rows);
+    const computed = currentSeasonFromDate();
     const allSeasons = [...new Set(rows.map(r => r.season))].sort().reverse();
-    setSeasons(allSeasons);
-    setSeason(prev => prev || allSeasons[0] || "");
+    // Always include the current season even if it has no data yet
+    const withCurrent = allSeasons.includes(computed) ? allSeasons : [computed, ...allSeasons];
+    setSeasons(withCurrent);
+    // Default to current season, not just whatever is most recent in the DB
+    setSeason(prev => prev || computed);
     setLoading(false);
   }, []);
 
@@ -284,7 +307,10 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
               {seasons.length > 1 ? (
                 <select value={season} onChange={e => { setSeason(e.target.value); setActiveCategory(""); }}
                   style={{ marginLeft: 10, background: "transparent", border: "none", color: "var(--brass-soft)", fontSize: 18, fontFamily: "inherit", cursor: "pointer" }}>
-                  {seasons.map(s => <option key={s} value={s} style={{ color: "#241A12" }}>{s}</option>)}
+                  {seasons.map(s => {
+                    const isCurrent = s === currentSeasonFromDate();
+                    return <option key={s} value={s} style={{ color: "#241A12" }}>{s}{isCurrent ? " (current)" : " (archived)"}</option>;
+                  })}
                 </select>
               ) : season ? <span style={{ color: "var(--brass-soft)", fontSize: 18, marginLeft: 10 }}>{season}</span> : null}
             </h1>
@@ -329,6 +355,15 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
           </div>
         )}
 
+        {records.length > 0 && seasonRows.length === 0 && (
+          <div className="card" style={{ padding: 24, textAlign: "center" }}>
+            <p className="display" style={{ fontSize: 18, margin: "0 0 8px", color: "var(--quiet)" }}>No results yet for the {season} season.</p>
+            <p style={{ fontSize: 13.5, color: "var(--quiet)", margin: 0 }}>
+              The season runs August to July. {session ? <>Use "⇪ Import CSV" or the + Add button to record the first results.</> : <>Check back once results have been entered.</>}
+            </p>
+          </div>
+        )}
+
         {visibleCategories.length > 0 && (
           <>
             {/* Category tabs */}
@@ -366,7 +401,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                         <th>{HORSE_CATEGORIES.has(effectiveCategory) ? "Horse" : "Exhibitor"}</th>
                         {allShowNames.map(s => (
                           <th key={s} style={{ textAlign: "right", whiteSpace: "nowrap", fontSize: 10, minWidth: 52 }}>
-                            {s.replace(/ show$/i, "")}
+                            {showLabel(s, season)}
                           </th>
                         ))}
                         <th style={{ textAlign: "right", minWidth: 56 }}>Total</th>
@@ -430,7 +465,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                   {allShowNames.map(show => (
                     <div key={show}>
                       <label style={{ fontSize: 11.5, color: "var(--quiet)", display: "block", marginBottom: 4 }}>
-                        {show.replace(/ show$/i, "")}
+                        {showLabel(show, season)}
                       </label>
                       <input className="field" type="number" step="0.5" min="0"
                         style={{ width: "100%", fontSize: 15 }}
