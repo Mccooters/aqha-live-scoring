@@ -7,10 +7,14 @@ const HORSE_CATEGORIES = new Set([
   "Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse"
 ]);
 
-const KNOWN_CATEGORY_NAMES = new Set([
-  "overall halter", "overall 2yo", "overall 3yo", "junior horse", "senior horse",
-  "amateur", "novice amateur", "select", "beginner", "ewd", "youth", "leadline"
-]);
+// All classes that should always appear even if no one has points yet.
+// Any category found in the data but not listed here will still appear at the end.
+const CANONICAL_CATEGORIES = [
+  "Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse",
+  "Amateur", "Novice Amateur", "Select", "Beginner", "EWD", "Youth", "Leadline",
+];
+
+const KNOWN_CATEGORY_NAMES = new Set(CANONICAL_CATEGORIES.map(c => c.toLowerCase()));
 
 const SHOW_MONTH_ORDER = [
   "january", "february", "march", "april", "may", "june",
@@ -151,7 +155,12 @@ export default function HighPoints() {
 
   // ---- derived data ----
   const seasonRows = records.filter(r => !season || r.season === season);
-  const allCategories = [...new Set(seasonRows.map(r => r.category))];
+  // Always show all canonical categories; append any extra ones found in the data.
+  const dataCategories = [...new Set(seasonRows.map(r => r.category))];
+  const allCategories = [
+    ...CANONICAL_CATEGORIES,
+    ...dataCategories.filter(c => !CANONICAL_CATEGORIES.includes(c)),
+  ];
   const visibleCategories = filter === "horse"
     ? allCategories.filter(c => HORSE_CATEGORIES.has(c))
     : filter === "rider"
