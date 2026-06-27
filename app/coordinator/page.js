@@ -291,7 +291,8 @@ export default function Coordinator() {
   };
 
   const submitCancelEvent = async () => {
-    await supabase.from("events").update({ status: "cancelled", cancellation_reason: form.reason?.trim() || null }).eq("id", eventId);
+    const { error } = await supabase.from("events").update({ status: "cancelled", cancellation_reason: form.reason?.trim() || null }).eq("id", eventId);
+    if (error) { setFormError(error.message); return; }
     await loadEvents();
     closeModal();
   };
@@ -1323,6 +1324,7 @@ export default function Coordinator() {
                 <textarea className="field" rows={3} style={{ width: "100%", fontSize: 15, resize: "vertical" }}
                   value={form.reason ?? ""} onChange={setField("reason")}
                   placeholder="e.g. Venue unavailable due to flooding" autoFocus />
+                {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "#B03030", color: "#fff" }} onClick={submitCancelEvent}>
                     Confirm cancellation
