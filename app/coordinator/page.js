@@ -50,6 +50,7 @@ export default function Coordinator() {
   const [form, setForm] = useState({});
   const [formError, setFormError] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [pushingAllHp, setPushingAllHp] = useState(false);
   const [horseSuggestion, setHorseSuggestion] = useState(null);
 
   // ---- auth ----
@@ -591,6 +592,18 @@ export default function Coordinator() {
     }
   };
 
+  // ---- push all HP points ----
+  const pushAllHighPoints = async () => {
+    const eligible = classes.filter((c) => c.hp_category && c.status === "completed");
+    if (!eligible.length) return;
+    setPushingAllHp(true);
+    try {
+      for (const cls of eligible) await pushToHighPoints(cls);
+    } finally {
+      setPushingAllHp(false);
+    }
+  };
+
   // ---- render: login ----
   if (!session) {
     return (
@@ -659,6 +672,12 @@ export default function Coordinator() {
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
             <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
+            {classes.some((c) => c.hp_category && c.status === "completed") && (
+              <button className="btn-ghost" style={{ borderColor: "#2D7A52", color: "#2D7A52" }}
+                onClick={pushAllHighPoints} disabled={pushingAllHp || !eventId}>
+                {pushingAllHp ? "Pushing HP…" : "↑ Push all HP"}
+              </button>
+            )}
             {eventId && (() => {
               const s = currentEvent?.status;
               return (
