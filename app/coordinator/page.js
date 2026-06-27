@@ -206,49 +206,63 @@ export default function Coordinator() {
   const pushToHighPoints = async (cls) => {
     if (!cls.hp_category || !currentEvent?.starts_on) return;
 
-    // Fetch fresh entries — when called from saveScore the last score isn't in
-    // React state yet (realtime hasn't fired back), so we go straight to the DB.
-    const { data: fresh } = await supabase.from("entries").select("*").eq("class_id", cls.id);
-    const entries = (fresh ?? []).filter((e) => e.score != null && !e.scratched);
-    if (!entries.length) return;
-
     const [y, mo] = currentEvent.starts_on.split("-").map(Number);
     const season = mo >= 8 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
     const showName = currentEvent.name;
-    const isHorseCat = HP_HORSE_CATS.has(cls.hp_category);
-    const isPlacing = ["placing", "class_only", "tbc_class"].includes(cls.scoring_mode);
+    const category = cls.hp_category;
+    const isHorseCat = HP_HORSE_CATS.has(category);
 
-    // Accumulate points across both judges into one total per entity.
+    // Recalculate from ALL completed classes in this category so that:
+    // (a) multiple classes sharing a category accumulate correctly, and
+    // (b) pushing twice after a scratch/score change always reflects current reality.
+    const categoryClasses = classes.filter((c) => c.hp_category === category && c.status === "completed");
     const pointsMap = {};
-    const applyJudge = (sorted, getScore) => {
-      sorted.forEach((e, i) => {
-        const placing = isPlacing ? Math.round(getScore(e)) : i + 1;
-        const pts = placing === 1 ? 3 : placing === 2 ? 2 : placing === 3 ? 1 : 0;
-        if (!pts) return;
-        const name = isHorseCat ? e.horse : e.exhibitor;
-        pointsMap[name] = (pointsMap[name] ?? 0) + pts;
-      });
-    };
 
-    applyJudge(
-      [...entries].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score),
-      (e) => e.score
-    );
-    if (cls.judge2) {
-      const j2 = entries.filter((e) => e.score2 != null);
+    for (const c of categoryClasses) {
+      // Fetch fresh — when called from saveScore the last score isn't in React state yet.
+      const { data: fresh } = await supabase.from("entries").select("*").eq("class_id", c.id);
+      const entries = (fresh ?? []).filter((e) => e.score != null && !e.scratched);
+      if (!entries.length) continue;
+
+      const isPlacing = ["placing", "class_only", "tbc_class"].includes(c.scoring_mode);
+      const applyJudge = (sorted, getScore) => {
+        sorted.forEach((e, i) => {
+          const placing = isPlacing ? Math.round(getScore(e)) : i + 1;
+          const pts = placing === 1 ? 3 : placing === 2 ? 2 : placing === 3 ? 1 : 0;
+          if (!pts) return;
+          const name = isHorseCat ? e.horse : e.exhibitor;
+          pointsMap[name] = (pointsMap[name] ?? 0) + pts;
+        });
+      };
+
       applyJudge(
-        [...j2].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2),
-        (e) => e.score2
+        [...entries].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score),
+        (e) => e.score
       );
+      if (c.judge2) {
+        const j2 = entries.filter((e) => e.score2 != null);
+        applyJudge(
+          [...j2].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2),
+          (e) => e.score2
+        );
+      }
     }
 
-    const toUpsert = Object.entries(pointsMap).map(([name, pts]) => ({
-      season, category: cls.hp_category,
+    // Delete any previously pushed rows for this category+show, then insert fresh.
+    // This removes stale rows for entries that dropped out of the top 3 since the last push.
+    await supabase.from("high_points")
+      .delete()
+      .eq("season", season)
+      .eq("category", category)
+      .eq("show_name", showName);
+
+    const toInsert = Object.entries(pointsMap).map(([name, pts]) => ({
+      season, category,
       entity_type: isHorseCat ? "horse" : "rider",
       entity_name: name, show_name: showName, points: pts,
     }));
-    if (!toUpsert.length) return;
-    await supabase.from("high_points").upsert(toUpsert, { onConflict: "season,category,entity_name,show_name" });
+    if (!toInsert.length) return;
+    await supabase.from("high_points").insert(toInsert);
   };
 
   const moveClass = async (cls, dir) => {
@@ -598,7 +612,13 @@ export default function Coordinator() {
     if (!eligible.length) return;
     setPushingAllHp(true);
     try {
-      for (const cls of eligible) await pushToHighPoints(cls);
+      // One push per unique category — each call already recalculates the whole category.
+      const seen = new Set();
+      for (const cls of eligible) {
+        if (seen.has(cls.hp_category)) continue;
+        seen.add(cls.hp_category);
+        await pushToHighPoints(cls);
+      }
     } finally {
       setPushingAllHp(false);
     }
