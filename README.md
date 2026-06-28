@@ -72,13 +72,20 @@ You don't need to write any code to launch this. Budget about 30–45 minutes.
 - **On the day**: score from any phone or laptop. Scratches, draw changes,
   and class reordering all sync live.
 
-## Not included yet (next phases)
+## More documentation
 
-- **Push notifications** ("now showing" alerts) — needs a small extra service
-  (web push); worth adding once the core app is proven at a real show.
-- **Pattern uploads** — the database has a `pattern_url` field ready; the
-  upload button needs Supabase Storage wired up.
-- **Spreadsheet entry import, schedule page, past-event archive pages** —
-  straightforward additions once you've used it once and know what you want.
+The original roadmap (push notifications, pattern uploads, spreadsheet import,
+schedule page, archive) has all shipped. For day-to-day help and details:
+
+- **[docs/COORDINATOR_GUIDE.md](docs/COORDINATOR_GUIDE.md)** — plain-English
+  how-to for running a show (event stages, scoring, High Points, imports,
+  exports). Start here.
+- **[docs/CHANGELOG.md](docs/CHANGELOG.md)** — what's been built recently and
+  how it works, newest first.
+- **[supabase/MIGRATIONS.md](supabase/MIGRATIONS.md)** — the database update
+  files: which to run, in what order, and which are still pending. **Check this
+  if a button seems to do nothing** — it usually means a database update hasn't
+  been run yet.
+- **CLAUDE.md** — full technical reference for anyone changing the code.
 
 When you're ready for any of these, bring this project back to Claude and ask.
