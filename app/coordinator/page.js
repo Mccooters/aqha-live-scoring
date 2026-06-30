@@ -17,12 +17,10 @@ const HP_CATEGORIES = [
 ];
 const HP_HORSE_CATS = new Set(["Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse"]);
 
-// Points scale: max(0, competing_entries - placing).
-// With 5 entries: 1st=4pts, 2nd=3pts, 3rd=2pts, 4th=1pt, 5th=0pts.
-// Verify this against the current HCQHA rule book before use.
+// Points scale: 1st=3, 2nd=2, 3rd=1 with 3+ entries; 1st=2, 2nd=1 with 2 entries; 1st=1 with 1 entry.
 function calcPoints(placing, competingEntries) {
-  if (competingEntries < 2) return 0;
-  return Math.max(0, competingEntries - placing);
+  if (competingEntries < 1) return 0;
+  return Math.max(0, Math.min(competingEntries, 3) - placing + 1);
 }
 
 const fmtBack = (n) => String(n).padStart(3, "0");
@@ -226,9 +224,10 @@ export default function Coordinator() {
 
       const isPlacing = ["placing", "class_only", "tbc_class"].includes(c.scoring_mode);
       const applyJudge = (sorted, getScore) => {
+        const n = sorted.length;
         sorted.forEach((e, i) => {
           const placing = isPlacing ? Math.round(getScore(e)) : i + 1;
-          const pts = placing === 1 ? 3 : placing === 2 ? 2 : placing === 3 ? 1 : 0;
+          const pts = calcPoints(placing, n);
           if (!pts) return;
           const name = isHorseCat ? e.horse : e.exhibitor;
           pointsMap[name] = (pointsMap[name] ?? 0) + pts;

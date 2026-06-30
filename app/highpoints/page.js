@@ -273,7 +273,12 @@ export default function HighPoints() {
       });
       const deduped = Object.values(dedupeMap);
 
-      await supabase.from("high_points").delete().eq("season", importedSeason);
+      // Only delete records for the shows included in this CSV, preserving other shows' data
+      const importedShows = [...new Set(deduped.map(e => e.show_name))];
+      await supabase.from("high_points")
+        .delete()
+        .eq("season", importedSeason)
+        .in("show_name", importedShows);
       const { error } = await supabase.from("high_points").upsert(deduped, { onConflict: "season,category,entity_name,show_name" });
       if (error) throw error;
       await load();
@@ -407,7 +412,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                 <div>
                   <div className="display" style={{ fontWeight: 700, fontSize: 17 }}>{effectiveCategory}</div>
                   <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
-                    {HORSE_CATEGORIES.has(effectiveCategory) ? "Horse" : "Rider"} points · 1st = 3pts · 2nd = 2pts · 3rd = 1pt per judge
+                    {HORSE_CATEGORIES.has(effectiveCategory) ? "Horse" : "Rider"} points · 3+ entries: 1st=3, 2nd=2, 3rd=1 · 2 entries: 1st=2, 2nd=1 · 1 entry: 1pt · per judge
                   </div>
                 </div>
                 {session && <button className="btn-ghost" onClick={openAdd}>+ Add</button>}

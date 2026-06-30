@@ -95,43 +95,52 @@ export default function ImportClasses({ eventId, onDone }) {
       // Find the current max num and sort_order so we don't collide
       const { data: existing } = await supabase
         .from("classes")
-        .select("num, name, sort_order")
+        .select("id, num, name, sort_order")
         .eq("event_id", eventId);
 
-      const existingNames = new Set((existing ?? []).map((c) => c.name.toLowerCase()));
+      const existingByName = Object.fromEntries((existing ?? []).map((c) => [c.name.toLowerCase(), c]));
       let maxNum   = Math.max(0, ...(existing ?? []).map((c) => c.num));
       let maxOrder = Math.max(0, ...(existing ?? []).map((c) => c.sort_order));
 
       const toInsert = [];
-      const skipped  = [];
+      const toUpdate = [];
 
       for (const r of rows) {
-        if (existingNames.has(r.name.toLowerCase())) {
-          skipped.push(r.name);
-          continue;
+        const match = existingByName[r.name.toLowerCase()];
+        if (match) {
+          // Update judge and other fields on the existing class
+          const patch = { judge: r.judge, scoring_mode: r.scoring_mode };
+          if (r.hp_category !== null) patch.hp_category = r.hp_category;
+          if (r.num !== null) patch.num = r.num;
+          toUpdate.push({ id: match.id, ...patch });
+        } else {
+          const assignedNum = r.num ?? (maxNum + 1);
+          maxNum   = Math.max(maxNum, assignedNum);
+          maxOrder = maxOrder + 1;
+          toInsert.push({
+            event_id:     eventId,
+            num:          assignedNum,
+            name:         r.name,
+            judge:        r.judge,
+            sort_order:   maxOrder,
+            status:       "upcoming",
+            scoring_mode: r.scoring_mode,
+            hp_category:  r.hp_category,
+          });
+          existingByName[r.name.toLowerCase()] = true;
         }
-        const assignedNum = r.num ?? (maxNum + 1);
-        maxNum   = Math.max(maxNum, assignedNum);
-        maxOrder = maxOrder + 1;
-        toInsert.push({
-          event_id:     eventId,
-          num:          assignedNum,
-          name:         r.name,
-          judge:        r.judge,
-          sort_order:   maxOrder,
-          status:       "upcoming",
-          scoring_mode: r.scoring_mode,
-          hp_category:  r.hp_category,
-        });
-        existingNames.add(r.name.toLowerCase());
       }
 
       if (toInsert.length) {
         const { error: insErr } = await supabase.from("classes").insert(toInsert);
         if (insErr) throw insErr;
       }
+      for (const { id, ...patch } of toUpdate) {
+        const { error: updErr } = await supabase.from("classes").update(patch).eq("id", id);
+        if (updErr) throw updErr;
+      }
 
-      setDone({ created: toInsert.length, skipped: skipped.length });
+      setDone({ created: toInsert.length, updated: toUpdate.length });
     } catch (err) {
       setError(err.message ?? "Import failed.");
     } finally {
@@ -144,8 +153,8 @@ export default function ImportClasses({ eventId, onDone }) {
       <>
         <h2 className="display modal-title">Classes imported</h2>
         <p style={{ color: "var(--green)", fontWeight: 700 }}>
-          ✓ {done.created} class{done.created !== 1 ? "es" : ""} created.
-          {done.skipped > 0 && ` ${done.skipped} already existed and were skipped.`}
+          ✓ {done.created} class{done.created !== 1 ? "es" : ""} created
+          {done.updated > 0 && `, ${done.updated} updated`}.
         </p>
         <p style={{ fontSize: 13, color: "var(--quiet)", marginTop: 0 }}>
           Classes are now live on the online registration form. Exhibitors can choose from them when they register.
@@ -224,7 +233,7 @@ export default function ImportClasses({ eventId, onDone }) {
           {error && <p className="modal-error">{error}</p>}
           <div style={{ display: "flex", gap: 10 }}>
             <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={commit} disabled={importing}>
-              {importing ? "Creating classes…" : `Create ${rows.length} classes`}
+              {importing ? "Importing…" : `Import ${rows.length} class${rows.length !== 1 ? "es" : ""}`}
             </button>
             <button className="btn-ghost" style={{ padding: "10px 18px" }}
               onClick={() => { setRows(null); setWarnings([]); setError(""); }}>Back</button>
