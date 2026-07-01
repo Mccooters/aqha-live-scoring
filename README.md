@@ -50,6 +50,16 @@ You don't need to write any code to launch this. Budget about 30–45 minutes.
    | `NEXT_PUBLIC_SUPABASE_URL` | your Project URL from Step 2.6 |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | your anon public key from Step 2.6 |
 
+   For online entries and booking confirmation emails, also add:
+
+   | Name | Value |
+   |---|---|
+   | `SUPABASE_SERVICE_ROLE_KEY` | your Supabase service role key |
+   | `NEXT_PUBLIC_BASE_URL` | your live site URL, for example `https://aqha-live-scoring.vercel.app` |
+   | `RESEND_API_KEY` | your Resend API key |
+   | `BOOKING_EMAIL_FROM` | the verified sender, for example `HCQHA <entries@yourdomain.com>` |
+   | `BOOKING_EMAIL_REPLY_TO` | optional reply-to address for exhibitors |
+
 4. Click **Deploy**. Two minutes later you get a live URL like
    `aqha-live-scoring.vercel.app`.
 

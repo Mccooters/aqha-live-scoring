@@ -240,7 +240,9 @@ export default function RegisterPage() {
               value={contactEmail} onChange={(e) => setContactEmail(e.target.value)}
               placeholder="e.g. sarah@example.com" />
             <p style={{ fontSize: 12, color: "var(--quiet)", margin: "6px 0 0" }}>
-              Your payment receipt will be sent to this address.
+              {feePerClass > 0
+                ? "Square will send your payment receipt to this address. We will also email your booking confirmation here."
+                : "We will email your booking confirmation here."}
             </p>
           </div>
         </section>
@@ -335,7 +337,7 @@ export default function RegisterPage() {
                 </div>
                 {feePerClass > 0 && (
                   <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                    Paid securely via Square · receipt emailed to you
+                    Paid securely via Square · receipt and booking confirmation emailed to you
                   </div>
                 )}
               </div>

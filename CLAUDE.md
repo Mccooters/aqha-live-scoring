@@ -43,6 +43,12 @@ PR with a clear plain-English description.
   Free events (entry fee $0) skip Square entirely and auto-approve. Env vars:
   `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID`, `SQUARE_ENVIRONMENT`
   (sandbox|production), `SQUARE_WEBHOOK_SIGNATURE_KEY`, `NEXT_PUBLIC_BASE_URL`.
+- **Booking confirmation email** — after `approveRegistration()` creates the
+  real `entries` rows and marks the registration paid, it sends an app-owned
+  booking confirmation through Resend. This is separate from Square's payment
+  receipt/invoice email. Email failures are logged but do not block entry
+  placement. Env vars: `RESEND_API_KEY`, `BOOKING_EMAIL_FROM`, optional
+  `BOOKING_EMAIL_REPLY_TO`.
 - **Push notifications** — full web-push stack: `public/sw.js` (service
   worker), Supabase Edge Function `supabase/functions/send-push` (Deno +
   `web-push`, VAPID keys as function secrets), `push_subscriptions` table,
@@ -206,7 +212,9 @@ single place that turns `registration_entries` into real `entries` rows —
 called from the webhook, the free-entry path, and the coordinator's manual
 force-approve button. It assigns `draw_order` after the current max per
 class, and auto-assigns sequential `back_number` for clinic entries that
-came in with `back_number = null`.
+came in with `back_number = null`. It also sends the app booking confirmation
+email via Resend after approval; Square remains responsible for the payment
+receipt/invoice email.
 
 ## Domain rules (from the AQHA Australia rule book, 2024 edition)
 
