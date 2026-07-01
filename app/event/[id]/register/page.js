@@ -25,6 +25,7 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
 
   const [spotsTaken, setSpotsTaken] = useState({}); // class_id → number of confirmed entries
+  const [confirmedEntries, setConfirmedEntries] = useState([]);
 
   useEffect(() => {
     async function load() {
@@ -42,12 +43,13 @@ export default function RegisterPage() {
       if (cls?.length) {
         const { data: taken } = await supabase
           .from("entries")
-          .select("class_id")
+          .select("class_id, back_number, horse")
           .in("class_id", cls.map((c) => c.id))
           .eq("scratched", false);
         const counts = {};
         (taken ?? []).forEach((e) => { counts[e.class_id] = (counts[e.class_id] ?? 0) + 1; });
         setSpotsTaken(counts);
+        setConfirmedEntries(taken ?? []);
       }
       setLoading(false);
     }
@@ -68,6 +70,43 @@ export default function RegisterPage() {
   };
   const availableClasses = classes.filter((c) => !classIsFull(c));
   const allFull = classes.length > 0 && availableClasses.length === 0;
+  const normalizeName = (value) => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  const classLabel = (classId) => {
+    const cls = classes.find((c) => c.id === classId);
+    if (!cls) return "this class";
+    return isClinic ? cls.name : `Class ${cls.num}: ${cls.name}`;
+  };
+  const duplicateMessage = (entry, candidates = confirmedEntries) => {
+    if (isClinic || !entry.class_id) return "";
+    const backNumber = entry.back_number ? parseInt(entry.back_number, 10) : null;
+    const horseName = normalizeName(entry.horse_name);
+    if (!backNumber && !horseName) return "";
+    const match = candidates.find((existing) =>
+      existing.class_id === entry.class_id &&
+      (
+        (backNumber != null && existing.back_number === backNumber) ||
+        (horseName && normalizeName(existing.horse) === horseName)
+      )
+    );
+    if (!match) return "";
+    return `${entry.horse_name || `Back #${entry.back_number}`} is already entered in ${classLabel(entry.class_id)}.`;
+  };
+  const duplicateInFormMessage = (validEntries) => {
+    if (isClinic) return "";
+    const seenBackNumbers = new Map();
+    const seenHorses = new Map();
+    for (const entry of validEntries) {
+      const horseName = normalizeName(entry.horse_name);
+      const backKey = entry.back_number ? `${entry.class_id}:${entry.back_number}` : "";
+      const horseKey = horseName ? `${entry.class_id}:${horseName}` : "";
+      if ((backKey && seenBackNumbers.has(backKey)) || (horseKey && seenHorses.has(horseKey))) {
+        return `${entry.horse_name} / back #${entry.back_number} is entered twice for ${classLabel(entry.class_id)}. Please remove the duplicate entry.`;
+      }
+      if (backKey) seenBackNumbers.set(backKey, true);
+      if (horseKey) seenHorses.set(horseKey, true);
+    }
+    return "";
+  };
 
   const updateEntry = (id, field, value) =>
     setEntries((prev) => prev.map((e) => (e._id === id ? { ...e, [field]: value } : e)));
@@ -119,6 +158,10 @@ export default function RegisterPage() {
         : "Some entries are missing details. Please fill in back number, horse name, and exhibitor for each class selected.");
       return;
     }
+    const duplicateInForm = duplicateInFormMessage(valid);
+    if (duplicateInForm) { setError(duplicateInForm); return; }
+    const existingDuplicate = valid.map((entry) => duplicateMessage(entry)).find(Boolean);
+    if (existingDuplicate) { setError(`${existingDuplicate} Please check your details or contact the show secretary.`); return; }
 
     setSubmitting(true);
     try {
@@ -251,6 +294,7 @@ export default function RegisterPage() {
         {entries.map((entry, idx) => {
           const selectedCls = entry.class_id ? classes.find((c) => c.id === entry.class_id) : null;
           const isFull = selectedCls ? classIsFull(selectedCls) : false;
+          const duplicateWarning = duplicateMessage(entry);
           return (
             <section key={entry._id} className="card">
               <div className="card-head">
@@ -311,6 +355,12 @@ export default function RegisterPage() {
                   value={entry.horse_name}
                   onChange={(e) => updateEntry(entry._id, "horse_name", e.target.value)}
                   placeholder={isClinic ? "e.g. Machine Made Lady (optional)" : "e.g. Machine Made Lady"} />
+
+                {duplicateWarning && (
+                  <p style={{ fontSize: 12.5, color: "var(--clay)", marginTop: 4, fontWeight: 600 }}>
+                    {duplicateWarning} Please check your details before submitting.
+                  </p>
+                )}
 
                 <label className="modal-label">{isClinic ? "Your name *" : "Exhibitor name *"}</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }}

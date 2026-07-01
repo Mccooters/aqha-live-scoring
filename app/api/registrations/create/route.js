@@ -7,6 +7,15 @@ const squareBase =
     ? "https://connect.squareupsandbox.com"
     : "https://connect.squareup.com";
 
+function normalizeName(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function classLabel(cls) {
+  if (!cls) return "this class";
+  return cls.num ? `Class ${cls.num}: ${cls.name}` : cls.name;
+}
+
 export async function POST(req) {
   try {
     const { event_id, contact_name, contact_email, entries } = await req.json();
@@ -20,7 +29,7 @@ export async function POST(req) {
     // Load event to get the per-class fee and entries status
     const { data: event, error: evErr } = await db
       .from("events")
-      .select("id, name, entry_fee_cents, status")
+      .select("id, name, entry_fee_cents, status, event_type")
       .eq("id", event_id)
       .single();
     if (evErr || !event) {
@@ -62,8 +71,59 @@ export async function POST(req) {
       }
     }
 
+    const isClinic = event.event_type === "clinic";
+    const normalEntries = entries.map((e) => ({
+      class_id: e.class_id,
+      back_number: e.back_number == null || e.back_number === "" ? null : parseInt(e.back_number, 10),
+      horse_name: String(e.horse_name ?? "").trim(),
+      exhibitor: String(e.exhibitor ?? "").trim(),
+    }));
+
+    if (!isClinic) {
+      const seenBackNumbers = new Map();
+      const seenHorses = new Map();
+      for (const entry of normalEntries) {
+        const horseName = normalizeName(entry.horse_name);
+        const backKey = entry.back_number == null ? "" : `${entry.class_id}:${entry.back_number}`;
+        const horseKey = horseName ? `${entry.class_id}:${horseName}` : "";
+        if ((backKey && seenBackNumbers.has(backKey)) || (horseKey && seenHorses.has(horseKey))) {
+          const cls = classMap[entry.class_id];
+          return NextResponse.json(
+            { error: `${entry.horse_name} / back #${entry.back_number} is entered twice for ${classLabel(cls)}. Please remove the duplicate entry.` },
+            { status: 409 }
+          );
+        }
+        if (backKey) seenBackNumbers.set(backKey, true);
+        if (horseKey) seenHorses.set(horseKey, true);
+      }
+
+      const { data: existingEntries } = await db
+        .from("entries")
+        .select("class_id, back_number, horse, exhibitor")
+        .in("class_id", classIds)
+        .eq("scratched", false);
+
+      for (const entry of normalEntries) {
+        const match = (existingEntries ?? []).find((existing) =>
+          existing.class_id === entry.class_id &&
+          (
+            (entry.back_number != null && existing.back_number === entry.back_number) ||
+            normalizeName(existing.horse) === normalizeName(entry.horse_name)
+          )
+        );
+
+        if (match) {
+          const cls = classMap[entry.class_id];
+          return NextResponse.json(
+            { error: `${entry.horse_name || `Back #${entry.back_number}`} is already entered in ${classLabel(cls)}. Please check the class list or contact the show secretary.` },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     const feePerClass = event.entry_fee_cents ?? 0;
-    const totalCents = entries.length * feePerClass;
+    const totalCents = normalEntries.length * feePerClass;
 
     // Create the registration record (pending)
     const { data: reg, error: regErr } = await db
@@ -81,12 +141,12 @@ export async function POST(req) {
 
     // Store the pending entries
     const { error: entErr } = await db.from("registration_entries").insert(
-      entries.map((e) => ({
+      normalEntries.map((e) => ({
         registration_id: reg.id,
         class_id: e.class_id,
-        back_number: parseInt(e.back_number, 10),
-        horse_name: e.horse_name.trim(),
-        exhibitor: e.exhibitor.trim(),
+        back_number: e.back_number,
+        horse_name: e.horse_name,
+        exhibitor: e.exhibitor,
       }))
     );
     if (entErr) return NextResponse.json({ error: entErr.message }, { status: 500 });
@@ -114,7 +174,7 @@ export async function POST(req) {
       order: {
         location_id: process.env.SQUARE_LOCATION_ID,
         reference_id: reg.id,
-        line_items: entries.map((e) => {
+        line_items: normalEntries.map((e) => {
           const cls = classMap[e.class_id];
           return {
             name: cls ? `Class ${cls.num}: ${cls.name}` : "Class entry",
