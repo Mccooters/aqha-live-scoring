@@ -298,6 +298,32 @@ export default function Coordinator() {
     closeModal();
   };
 
+  const deleteEvent = async () => {
+    if (!currentEvent) return;
+    const classCount = classes.length;
+    const entryCount = classes.reduce((sum, c) => sum + c.entries.length, 0);
+    const detail = classCount > 0
+      ? `\n\nThis will also delete ${classCount} class${classCount === 1 ? "" : "es"} and ${entryCount} entr${entryCount === 1 ? "y" : "ies"}, plus any online registrations for it.`
+      : "";
+    if (!window.confirm(`Delete "${currentEvent.name}"?${detail}\n\nThis cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      const classIds = classes.map((c) => c.id);
+      if (classIds.length) {
+        await supabase.from("registration_entries").delete().in("class_id", classIds);
+        await supabase.from("entries").delete().in("class_id", classIds);
+      }
+      await supabase.from("registrations").delete().eq("event_id", currentEvent.id);
+      await supabase.from("classes").delete().eq("event_id", currentEvent.id);
+      const { error } = await supabase.from("events").delete().eq("id", currentEvent.id);
+      if (error) { window.alert(error.message); return; }
+      setEventId(events.find((e) => e.id !== currentEvent.id)?.id ?? null);
+      await loadEvents();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const closeEntries = async () => {
     const emptyClasses = classes.filter((c) => c.entries.length === 0);
     const emptyNote = emptyClasses.length > 0
@@ -410,6 +436,14 @@ export default function Coordinator() {
       const c = extra.cls;
       initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "" };
     }
+    if (type === "editEvent" && extra.event) {
+      const ev = extra.event;
+      initialForm = {
+        name: ev.name, location: ev.location ?? "",
+        starts: ev.starts_on ?? "", ends: ev.ends_on ?? "",
+        fee: ev.entry_fee_cents ? (ev.entry_fee_cents / 100).toFixed(2) : "",
+      };
+    }
     setModal({ type, ...extra });
     setForm(initialForm);
     setFormError("");
@@ -436,6 +470,18 @@ export default function Coordinator() {
     if (error) { setFormError(error.message); return; }
     await loadEvents();
     if (data) setEventId(data.id);
+    closeModal();
+  };
+
+  const submitEditEvent = async () => {
+    if (!modal?.event) return;
+    if (!form.name?.trim()) { setFormError("Event name is required"); return; }
+    const feeCents = form.fee ? Math.round(parseFloat(form.fee) * 100) : 0;
+    const { error } = await supabase.from("events")
+      .update({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, entry_fee_cents: feeCents })
+      .eq("id", modal.event.id);
+    if (error) { setFormError(error.message); return; }
+    await loadEvents();
     closeModal();
   };
 
@@ -718,6 +764,9 @@ export default function Coordinator() {
             </>}
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>
+              Edit event
+            </button>
             <Link href="/coordinator/registrations" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
               Registrations
             </Link>
@@ -792,6 +841,11 @@ export default function Coordinator() {
                   {s !== "completed" && s !== "archived" && s !== "cancelled" && (
                     <button className="btn-ghost danger" onClick={cancelEvent} disabled={busy}>
                       Cancel event
+                    </button>
+                  )}
+                  {s !== "live" && s !== "completed" && s !== "archived" && (
+                    <button className="btn-ghost danger" onClick={deleteEvent} disabled={busy}>
+                      Delete event
                     </button>
                   )}
                 </>
@@ -1129,6 +1183,40 @@ export default function Coordinator() {
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEvent}>Create event</button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                </div>
+              </>
+            )}
+
+            {modal.type === "editEvent" && (
+              <>
+                <h2 className="display modal-title">Edit event</h2>
+                <label className="modal-label">Event name *</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} autoFocus />
+                <label className="modal-label">Venue / location</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.location ?? ""} onChange={setField("location")} placeholder="e.g. Tamworth Showground" />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label className="modal-label">Start date</label>
+                    <input className="field" type="date" style={{ width: "100%", fontSize: 15 }} value={form.starts ?? ""} onChange={setField("starts")} />
+                  </div>
+                  <div>
+                    <label className="modal-label">End date</label>
+                    <input className="field" type="date" style={{ width: "100%", fontSize: 15 }} value={form.ends ?? ""} onChange={setField("ends")} />
+                  </div>
+                </div>
+                <label className="modal-label">Entry fee per {isClinic ? "spot" : "class"} (AUD)</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18, fontWeight: 600 }}>$</span>
+                  <input className="field" type="number" min="0" step="0.50" style={{ width: 120, fontSize: 16 }}
+                    value={form.fee ?? ""} onChange={setField("fee")} placeholder="0.00" />
+                </div>
+                <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                  Set to $0 for free entry. This only affects new online registrations from now on — anyone who's already paid keeps their original price.
+                </p>
+                {formError && <p className="modal-error">{formError}</p>}
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEditEvent}>Save changes</button>
                   <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
                 </div>
               </>
