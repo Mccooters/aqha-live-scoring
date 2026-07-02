@@ -39,6 +39,7 @@ export default function Coordinator() {
   const [events, setEvents] = useState([]);
   const [eventId, setEventId] = useState(null);
   const [classes, setClasses] = useState([]);
+  const [selectedClassIds, setSelectedClassIds] = useState(new Set());
 
   const [scoreInput, setScoreInput] = useState("");
   const [scoreInput2, setScoreInput2] = useState("");
@@ -82,6 +83,7 @@ export default function Coordinator() {
   }, [eventId]);
 
   useEffect(() => { if (session) loadEvents(); }, [session, loadEvents]);
+  useEffect(() => { setSelectedClassIds(new Set()); }, [eventId]);
   useEffect(() => {
     if (!session || !eventId) return;
     loadClasses();
@@ -349,6 +351,36 @@ export default function Coordinator() {
     await supabase.from("registration_entries").delete().eq("class_id", cls.id);
     if (n > 0) await supabase.from("entries").delete().in("id", cls.entries.map((e) => e.id));
     await supabase.from("classes").delete().eq("id", cls.id);
+  };
+
+  const toggleClassSelect = (id) => {
+    setSelectedClassIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const deleteSelectedClasses = async () => {
+    const selected = classes.filter((c) => selectedClassIds.has(c.id));
+    if (selected.length === 0) return;
+    const totalEntries = selected.reduce((sum, c) => sum + c.entries.length, 0);
+    const names = selected.map((c) => (isClinic ? c.name : `Class ${c.num} · ${c.name}`)).join("\n");
+    const msg = totalEntries > 0
+      ? `Delete ${selected.length} classes?\n\n${names}\n\nThis will also delete ${totalEntries} entr${totalEntries === 1 ? "y" : "ies"}. This cannot be undone.`
+      : `Delete ${selected.length} classes?\n\n${names}\n\nThis cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    setBusy(true);
+    try {
+      const classIds = selected.map((c) => c.id);
+      const entryIds = selected.flatMap((c) => c.entries.map((e) => e.id));
+      await supabase.from("registration_entries").delete().in("class_id", classIds);
+      if (entryIds.length > 0) await supabase.from("entries").delete().in("id", entryIds);
+      await supabase.from("classes").delete().in("id", classIds);
+      setSelectedClassIds(new Set());
+    } finally {
+      setBusy(false);
+    }
   };
 
   const deleteEntry = async (entry) => {
@@ -877,6 +909,18 @@ export default function Coordinator() {
           </section>
         )}
 
+        {selectedClassIds.size > 0 && (
+          <div style={{ position: "sticky", top: 0, zIndex: 5, display: "flex", gap: 10, alignItems: "center", background: "var(--leather)", color: "#fff", borderRadius: 10, padding: "10px 16px" }}>
+            <span style={{ fontWeight: 700, flex: 1 }}>{selectedClassIds.size} class{selectedClassIds.size === 1 ? "" : "es"} selected</span>
+            <button className="btn-ghost" style={{ color: "#fff", borderColor: "#fff" }} onClick={() => setSelectedClassIds(new Set())} disabled={busy}>
+              Clear
+            </button>
+            <button className="btn-ghost danger" style={{ background: "#fff" }} onClick={deleteSelectedClasses} disabled={busy}>
+              Delete selected
+            </button>
+          </div>
+        )}
+
         {classes.map((cls) => {
           const mode = cls.scoring_mode ?? "score";
           const isTbcDraw = mode === "tbc";
@@ -899,6 +943,11 @@ export default function Coordinator() {
           return (
             <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
               <div className="card-head" style={{ flexWrap: "nowrap", ...(isLive ? { background: "#FBF4E4" } : {}) }}>
+                {cls.status === "upcoming" && (
+                  <input type="checkbox" checked={selectedClassIds.has(cls.id)} onChange={() => toggleClassSelect(cls.id)}
+                    aria-label={`Select ${isClinic ? cls.name : `Class ${cls.num} · ${cls.name}`} for deletion`}
+                    style={{ width: 18, height: 18, flexShrink: 0, marginRight: 2, marginTop: 2 }} />
+                )}
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div className="display" style={{ fontWeight: 600, fontSize: 16.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {isClinic ? cls.name : `Class ${cls.num} · ${cls.name}`}
