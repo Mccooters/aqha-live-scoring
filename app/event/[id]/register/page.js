@@ -7,7 +7,15 @@ import { supabase } from "../../../../lib/supabaseClient";
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 
 function blankEntry() {
-  return { _id: Math.random().toString(36).slice(2), class_id: "", back_number: "", horse_name: "", exhibitor: "" };
+  return {
+    _id: Math.random().toString(36).slice(2),
+    class_id: "",
+    back_number: "",
+    horse_name: "",
+    exhibitor: "",
+    registryChecked: false,
+    registryMatched: false,
+  };
 }
 
 export default function RegisterPage() {
@@ -70,47 +78,50 @@ export default function RegisterPage() {
   };
   const availableClasses = classes.filter((c) => !classIsFull(c));
   const allFull = classes.length > 0 && availableClasses.length === 0;
-  const normalizeName = (value) => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
   const classLabel = (classId) => {
     const cls = classes.find((c) => c.id === classId);
     if (!cls) return "this class";
     return isClinic ? cls.name : `Class ${cls.num}: ${cls.name}`;
   };
+  // Back number is the horse's permanent registry identity, so it's what
+  // identifies "the same horse" for duplicate checks — not the free-typed
+  // name, which two unrelated horses could share.
   const duplicateMessage = (entry, candidates = confirmedEntries) => {
     if (isClinic || !entry.class_id) return "";
     const backNumber = entry.back_number ? parseInt(entry.back_number, 10) : null;
-    const horseName = normalizeName(entry.horse_name);
-    if (!backNumber && !horseName) return "";
+    if (!backNumber) return "";
     const match = candidates.find((existing) =>
-      existing.class_id === entry.class_id &&
-      (
-        (backNumber != null && existing.back_number === backNumber) ||
-        (horseName && normalizeName(existing.horse) === horseName)
-      )
+      existing.class_id === entry.class_id && existing.back_number === backNumber
     );
     if (!match) return "";
-    return `${entry.horse_name || `Back #${entry.back_number}`} is already entered in ${classLabel(entry.class_id)}.`;
+    return `Back #${backNumber} (${entry.horse_name || "this horse"}) is already entered in ${classLabel(entry.class_id)}.`;
   };
   const duplicateInFormMessage = (validEntries) => {
     if (isClinic) return "";
     const seenBackNumbers = new Map();
-    const seenHorses = new Map();
     for (const entry of validEntries) {
-      const horseName = normalizeName(entry.horse_name);
       const backKey = entry.back_number ? `${entry.class_id}:${entry.back_number}` : "";
-      const horseKey = horseName ? `${entry.class_id}:${horseName}` : "";
-      if ((backKey && seenBackNumbers.has(backKey)) || (horseKey && seenHorses.has(horseKey))) {
-        return `${entry.horse_name} / back #${entry.back_number} is entered twice for ${classLabel(entry.class_id)}. Please remove the duplicate entry.`;
+      if (backKey && seenBackNumbers.has(backKey)) {
+        return `Back #${entry.back_number} (${entry.horse_name}) is entered twice for ${classLabel(entry.class_id)}. Please remove the duplicate entry.`;
       }
       if (backKey) seenBackNumbers.set(backKey, true);
-      if (horseKey) seenHorses.set(horseKey, true);
     }
     return "";
   };
 
   const updateEntry = (id, field, value) =>
-    setEntries((prev) => prev.map((e) => (e._id === id ? { ...e, [field]: value } : e)));
+    setEntries((prev) => prev.map((e) => {
+      if (e._id !== id) return e;
+      // Back number changed — the previous registry match (if any) no longer applies
+      // until the field is re-checked on blur.
+      if (field === "back_number") return { ...e, back_number: value, registryChecked: false, registryMatched: false };
+      return { ...e, [field]: value };
+    }));
 
+  // Back number is the horse's permanent registry identity, so once it resolves
+  // to a registered horse, the horse name is locked to whatever's on file —
+  // it can't be typed differently. Unregistered back numbers (new horses not
+  // yet added to the registry) leave the name field open for manual entry.
   const lookupHorse = async (entryId, backNum) => {
     if (!backNum) return;
     const { data } = await supabase
@@ -118,19 +129,19 @@ export default function RegisterPage() {
       .select("name, owner")
       .eq("back_number", parseInt(backNum, 10))
       .maybeSingle();
-    if (data) {
-      setEntries((prev) =>
-        prev.map((e) =>
-          e._id === entryId
-            ? {
-                ...e,
-                horse_name: e.horse_name || data.name,
-                exhibitor: e.exhibitor || (data.owner ?? ""),
-              }
-            : e
-        )
-      );
-    }
+    setEntries((prev) =>
+      prev.map((e) =>
+        e._id === entryId
+          ? {
+              ...e,
+              horse_name: data ? data.name : e.horse_name,
+              exhibitor: e.exhibitor || (data?.owner ?? ""),
+              registryChecked: true,
+              registryMatched: !!data,
+            }
+          : e
+      )
+    );
   };
 
   const removeEntry = (id) =>
@@ -347,14 +358,25 @@ export default function RegisterPage() {
                       onChange={(e) => updateEntry(entry._id, "back_number", e.target.value)}
                       onBlur={(e) => lookupHorse(entry._id, e.target.value)}
                       placeholder="e.g. 301" />
+                    {entry.registryChecked && !entry.registryMatched && (
+                      <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
+                        No horse found with this back number in our registry — double-check the number, or continue if this is a new horse.
+                      </p>
+                    )}
                   </>
                 )}
 
                 <label className="modal-label">{isClinic ? "Horse name (if participating)" : "Horse name *"}</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }}
+                <input className="field" style={{ width: "100%", fontSize: 16, ...(entry.registryMatched ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
                   value={entry.horse_name}
+                  readOnly={entry.registryMatched}
                   onChange={(e) => updateEntry(entry._id, "horse_name", e.target.value)}
                   placeholder={isClinic ? "e.g. Machine Made Lady (optional)" : "e.g. Machine Made Lady"} />
+                {entry.registryMatched && (
+                  <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
+                    Matched from the horse registry for back #{entry.back_number}. Contact the show secretary if this is wrong.
+                  </p>
+                )}
 
                 {duplicateWarning && (
                   <p style={{ fontSize: 12.5, color: "var(--clay)", marginTop: 4, fontWeight: 600 }}>

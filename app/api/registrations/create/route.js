@@ -80,21 +80,20 @@ export async function POST(req) {
     }));
 
     if (!isClinic) {
+      // The back number is the horse's permanent registry identity — a horse
+      // can only enter a given class once, keyed by back number, not by name
+      // (two unrelated horses can share a name; a back number can't).
       const seenBackNumbers = new Map();
-      const seenHorses = new Map();
       for (const entry of normalEntries) {
-        const horseName = normalizeName(entry.horse_name);
         const backKey = entry.back_number == null ? "" : `${entry.class_id}:${entry.back_number}`;
-        const horseKey = horseName ? `${entry.class_id}:${horseName}` : "";
-        if ((backKey && seenBackNumbers.has(backKey)) || (horseKey && seenHorses.has(horseKey))) {
+        if (backKey && seenBackNumbers.has(backKey)) {
           const cls = classMap[entry.class_id];
           return NextResponse.json(
-            { error: `${entry.horse_name} / back #${entry.back_number} is entered twice for ${classLabel(cls)}. Please remove the duplicate entry.` },
+            { error: `Back #${entry.back_number} (${entry.horse_name}) is entered twice for ${classLabel(cls)}. Please remove the duplicate entry.` },
             { status: 409 }
           );
         }
         if (backKey) seenBackNumbers.set(backKey, true);
-        if (horseKey) seenHorses.set(horseKey, true);
       }
 
       const { data: existingEntries } = await db
@@ -106,18 +105,39 @@ export async function POST(req) {
       for (const entry of normalEntries) {
         const match = (existingEntries ?? []).find((existing) =>
           existing.class_id === entry.class_id &&
-          (
-            (entry.back_number != null && existing.back_number === entry.back_number) ||
-            normalizeName(existing.horse) === normalizeName(entry.horse_name)
-          )
+          entry.back_number != null &&
+          existing.back_number === entry.back_number
         );
 
         if (match) {
           const cls = classMap[entry.class_id];
           return NextResponse.json(
-            { error: `${entry.horse_name || `Back #${entry.back_number}`} is already entered in ${classLabel(cls)}. Please check the class list or contact the show secretary.` },
+            { error: `Back #${entry.back_number} (${entry.horse_name}) is already entered in ${classLabel(cls)}. Please check the class list or contact the show secretary.` },
             { status: 409 }
           );
+        }
+      }
+
+      // Back number is the horse's permanent registry identity — the name
+      // submitted must match whatever's on file for that number so entries
+      // can't be recorded against the wrong horse. Unregistered back numbers
+      // (new horses not yet added to the registry) are allowed through.
+      const backNumbers = [...new Set(normalEntries.map((e) => e.back_number).filter((n) => n != null))];
+      if (backNumbers.length) {
+        const { data: horses } = await db
+          .from("horses")
+          .select("back_number, name")
+          .in("back_number", backNumbers);
+        const horseByBackNumber = Object.fromEntries((horses ?? []).map((h) => [h.back_number, h.name]));
+
+        for (const entry of normalEntries) {
+          const registryName = horseByBackNumber[entry.back_number];
+          if (registryName && normalizeName(registryName) !== normalizeName(entry.horse_name)) {
+            return NextResponse.json(
+              { error: `Back #${entry.back_number} is registered to "${registryName}" — please check the horse name or back number.` },
+              { status: 409 }
+            );
+          }
         }
       }
     }
