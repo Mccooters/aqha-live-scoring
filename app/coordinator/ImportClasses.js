@@ -5,7 +5,8 @@ import { supabase } from "../../lib/supabaseClient";
 const ALIASES = {
   num:          ["class #", "class no", "class number", "class num", "num", "#", "number", "no"],
   name:         ["class name", "name", "class"],
-  judge:        ["judge", "judge name", "judged by"],
+  judge:        ["judge", "judge 1", "judge1", "judge name", "judge 1 name", "judge one", "judge one name", "first judge", "judge a", "judged by"],
+  judge2:       ["judge 2", "judge2", "judge 2 name", "judge two", "judge two name", "second judge", "judge b"],
   scoring_mode: ["type", "scoring", "scoring mode", "scoring type", "mode", "score type", "class type"],
   hp_category:  ["hp category", "high points category", "high points cat", "hp cat", "high points", "hp"],
 };
@@ -63,6 +64,8 @@ export default function ImportClasses({ eventId, onDone }) {
       const warns = [];
 
       const hasModeCol = headers.includes("scoring_mode");
+      const hasJudgeCol = headers.includes("judge");
+      const hasJudge2Col = headers.includes("judge2");
 
       raw.slice(1).forEach((row, i) => {
         const obj = {};
@@ -77,7 +80,16 @@ export default function ImportClasses({ eventId, onDone }) {
           mode = normaliseMode(obj.scoring_mode);
           if (!mode) warns.push(`Row ${i + 2}: Unrecognised type "${obj.scoring_mode}" — defaulting to Score`);
         }
-        parsed.push({ num: isNaN(num) ? null : num, name: obj.name, judge: obj.judge || "", scoring_mode: mode ?? "score", hp_category: obj.hp_category || null });
+        parsed.push({
+          num: isNaN(num) ? null : num,
+          name: obj.name,
+          judge: obj.judge || "",
+          judge2: obj.judge2 || "",
+          hasJudgeCol,
+          hasJudge2Col,
+          scoring_mode: mode ?? "score",
+          hp_category: obj.hp_category || null,
+        });
       });
 
       if (!parsed.length) { setError("No class names found. Make sure the spreadsheet has a 'Class Name' column."); return; }
@@ -108,8 +120,10 @@ export default function ImportClasses({ eventId, onDone }) {
       for (const r of rows) {
         const match = existingByName[r.name.toLowerCase()];
         if (match) {
-          // Update judge and other fields on the existing class
-          const patch = { judge: r.judge, scoring_mode: r.scoring_mode };
+          // Update judges and other fields on the existing class
+          const patch = { scoring_mode: r.scoring_mode };
+          if (r.hasJudgeCol) patch.judge = r.judge;
+          if (r.hasJudge2Col) patch.judge2 = r.judge2 || null;
           if (r.hp_category !== null) patch.hp_category = r.hp_category;
           if (r.num !== null) patch.num = r.num;
           toUpdate.push({ id: match.id, ...patch });
@@ -122,6 +136,7 @@ export default function ImportClasses({ eventId, onDone }) {
             num:          assignedNum,
             name:         r.name,
             judge:        r.judge,
+            judge2:       r.judge2 || null,
             sort_order:   maxOrder,
             status:       "upcoming",
             scoring_mode: r.scoring_mode,
@@ -178,7 +193,7 @@ export default function ImportClasses({ eventId, onDone }) {
       {!rows ? (
         <>
           <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 0 }}>
-            Columns: <strong>Class #</strong>, <strong>Class Name</strong>, Judge (optional),
+            Columns: <strong>Class #</strong>, <strong>Class Name</strong>, <strong>Judge 1</strong> (optional), <strong>Judge 2</strong> (optional),
             Type (optional — <em>Score</em>, <em>Placing</em>, <em>Class Only</em>, <em>TBC (draw)</em>, or <em>TBC (whole class)</em>; defaults to Score),
             <strong> HP Category</strong> (optional — e.g. <em>Amateur</em>, <em>Senior Horse</em>; sets which High Points table this class feeds into)
           </p>
@@ -202,7 +217,7 @@ export default function ImportClasses({ eventId, onDone }) {
           <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12 }}>
             <table>
               <thead>
-                <tr><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge</th><th>Type</th><th>HP Category</th></tr>
+                <tr><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge 1</th><th>Judge 2</th><th>Type</th><th>HP Category</th></tr>
               </thead>
               <tbody>
                 {rows.slice(0, 60).map((r, i) => (
@@ -210,6 +225,7 @@ export default function ImportClasses({ eventId, onDone }) {
                     <td style={{ color: "var(--quiet)", fontFamily: "monospace" }}>{r.num ?? "auto"}</td>
                     <td style={{ fontWeight: 600 }}>{r.name}</td>
                     <td style={{ color: "var(--quiet)", fontSize: 12 }}>{r.judge || "—"}</td>
+                    <td style={{ color: "var(--quiet)", fontSize: 12 }}>{r.judge2 || "—"}</td>
                     <td style={{ fontSize: 12 }}>
                       <span style={{
                         background: r.scoring_mode === "placing" ? "#EEF4FF" : r.scoring_mode === "class_only" ? "#F3F0FF" : (r.scoring_mode === "tbc" || r.scoring_mode === "tbc_class") ? "#FFF3E0" : "#F0FBF0",
@@ -225,7 +241,7 @@ export default function ImportClasses({ eventId, onDone }) {
                   </tr>
                 ))}
                 {rows.length > 60 && (
-                  <tr><td colSpan={4} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
+                  <tr><td colSpan={6} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
                 )}
               </tbody>
             </table>
