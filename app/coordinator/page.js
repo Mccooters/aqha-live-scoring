@@ -26,8 +26,26 @@ function calcPoints(placing, competingEntries) {
 const fmtBack = (n) => String(n).padStart(3, "0");
 const ordinal = (n) => { const s = ["th","st","nd","rd"]; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
 
+async function pushErrorMessage(error) {
+  try {
+    if (error?.context?.clone) {
+      const detail = await error.context.clone().json();
+      if (detail?.error) return detail.error;
+    }
+  } catch {}
+  return error?.message ?? "Unknown push notification error.";
+}
+
 async function triggerPush(title, body, tag) {
-  try { await supabase.functions.invoke("send-push", { body: { title, body, tag } }); } catch {}
+  try {
+    const { data, error } = await supabase.functions.invoke("send-push", {
+      body: { title, body, tag },
+    });
+    if (error) return { ok: false, error: await pushErrorMessage(error) };
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: err?.message ?? "Could not contact the push notification service." };
+  }
 }
 
 function eventStatusPush(event, status) {
@@ -328,9 +346,30 @@ export default function Coordinator() {
     }
     if (previousStatus !== newStatus) {
       const push = eventStatusPush(currentEvent, newStatus);
-      if (push) triggerPush(push.title, push.body, push.tag);
+      if (push) {
+        const result = await triggerPush(push.title, push.body, push.tag);
+        if (!result.ok) window.alert(`Event status saved, but the notification did not send.\n\n${result.error}`);
+      }
     }
     await loadEvents();
+  };
+
+  const testPush = async () => {
+    const result = await triggerPush(
+      "HCQHA test notification",
+      currentEvent ? `${currentEvent.name}: push notifications are working.` : "Push notifications are working.",
+      "test-push"
+    );
+    if (!result.ok) {
+      window.alert(`Test notification failed.\n\n${result.error}`);
+      return;
+    }
+    const sent = result.data?.sent ?? 0;
+    if (sent === 0) {
+      window.alert("Test ran, but there are no subscribed devices yet.\n\nOn iPhone: open the site from the Home Screen app, tap Get notified, and choose Allow.");
+      return;
+    }
+    window.alert(`Test notification sent to ${sent} subscribed device${sent === 1 ? "" : "s"}.`);
   };
 
   const endEvent = async () => {
@@ -824,6 +863,7 @@ export default function Coordinator() {
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
             <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
+            <button className="btn-ghost" onClick={testPush} disabled={!eventId}>Test push</button>
             {classes.some((c) => c.hp_category && c.status === "completed") && (
               <button className="btn-ghost" style={{ borderColor: "#2D7A52", color: "#2D7A52" }}
                 onClick={pushAllHighPoints} disabled={pushingAllHp || !eventId}>

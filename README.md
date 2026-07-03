@@ -69,11 +69,19 @@ You don't need to write any code to launch this. Budget about 30–45 minutes.
    | `SQUARE_ENVIRONMENT` | `sandbox` while testing, `production` for real payments |
    | `SQUARE_WEBHOOK_SIGNATURE_KEY` | from your Square webhook subscription — **required**: payments will not confirm without it |
 
-   For push notifications ("Notify me" on the spectator page):
+   For push notifications ("Notify me" on the spectator page), add this one to
+   **Vercel Environment Variables**:
 
    | Name | Value |
    |---|---|
    | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | the public key from `npx web-push generate-vapid-keys` |
+
+   Then set the matching private push secrets in **Supabase Edge Functions**:
+
+   ```bash
+   npx supabase secrets set VAPID_PUBLIC_KEY=your_public_key VAPID_PRIVATE_KEY=your_private_key VAPID_EMAIL=admin@yourdomain.com
+   npx supabase functions deploy send-push
+   ```
 
 4. Click **Deploy**. Two minutes later you get a live URL like
    `aqha-live-scoring.vercel.app`.

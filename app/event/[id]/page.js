@@ -31,6 +31,7 @@ export default function EventPage() {
   const [event, setEvent] = useState(null);
   const [classes, setClasses] = useState([]);
   const [notifStatus, setNotifStatus] = useState("idle"); // idle | loading | subscribed | denied
+  const [notifError, setNotifError] = useState("");
   // iPhone only allows notifications for sites added to the Home Screen, so we
   // detect that case and show install steps instead of a button that can't work.
   const [iosNeedsInstall, setIosNeedsInstall] = useState(false);
@@ -69,7 +70,14 @@ export default function EventPage() {
   }, [id, load]);
 
   const subscribePush = async () => {
+    setNotifError("");
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setNotifError("This browser does not support web push notifications.");
+      setNotifStatus("denied");
+      return;
+    }
+    if (typeof Notification !== "undefined" && Notification.permission === "denied") {
+      setNotifError("Notifications are blocked for this app. Re-enable them in iPhone Settings > Notifications > HCQHA Live.");
       setNotifStatus("denied");
       return;
     }
@@ -77,10 +85,13 @@ export default function EventPage() {
     try {
       const reg = await navigator.serviceWorker.register("/sw.js");
       await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      });
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+      }
       const json = sub.toJSON();
       // The push_subscriptions table is locked down — the server stores the
       // subscription (see /api/push/subscribe).
@@ -93,9 +104,11 @@ export default function EventPage() {
           auth_key: json.keys.auth,
         }),
       });
-      if (!res.ok) throw new Error("subscribe failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not save this device for notifications.");
       setNotifStatus("subscribed");
-    } catch {
+    } catch (err) {
+      setNotifError(err?.message ?? "Could not turn on notifications. Please try again from the Home Screen app.");
       setNotifStatus("denied");
     }
   };
@@ -217,6 +230,11 @@ export default function EventPage() {
                 style={{ background: "transparent", border: "none", color: "var(--brass-soft)", fontSize: 12.5, cursor: "pointer", alignSelf: "flex-start", marginTop: 8, padding: 0, textDecoration: "underline" }}>
                 How to get alerts on iPhone
               </button>
+            )}
+            {notifStatus === "denied" && !iosNeedsInstall && notifError && (
+              <span style={{ fontSize: 12.5, color: "var(--brass-soft)", alignSelf: "flex-start", marginTop: 8, maxWidth: 280 }}>
+                {notifError}
+              </span>
             )}
           </div>
         </div>
