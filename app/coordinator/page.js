@@ -26,22 +26,23 @@ function calcPoints(placing, competingEntries) {
 const fmtBack = (n) => String(n).padStart(3, "0");
 const ordinal = (n) => { const s = ["th","st","nd","rd"]; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
 
-async function pushErrorMessage(error) {
-  try {
-    if (error?.context?.clone) {
-      const detail = await error.context.clone().json();
-      if (detail?.error) return detail.error;
-    }
-  } catch {}
-  return error?.message ?? "Unknown push notification error.";
-}
-
 async function triggerPush(title, body, tag) {
   try {
-    const { data, error } = await supabase.functions.invoke("send-push", {
-      body: { title, body, tag },
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return { ok: false, error: "Staff sign-in required." };
+
+    const res = await fetch("/api/push/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title, body, tag }),
     });
-    if (error) return { ok: false, error: await pushErrorMessage(error) };
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.error ?? "Push notification failed." };
     return { ok: true, data };
   } catch (err) {
     return { ok: false, error: err?.message ?? "Could not contact the push notification service." };
