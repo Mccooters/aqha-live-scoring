@@ -31,6 +31,19 @@ export default function EventPage() {
   const [event, setEvent] = useState(null);
   const [classes, setClasses] = useState([]);
   const [notifStatus, setNotifStatus] = useState("idle"); // idle | loading | subscribed | denied
+  // iPhone only allows notifications for sites added to the Home Screen, so we
+  // detect that case and show install steps instead of a button that can't work.
+  const [iosNeedsInstall, setIosNeedsInstall] = useState(false);
+  const [showIosHint, setShowIosHint] = useState(false);
+
+  useEffect(() => {
+    const ua = navigator.userAgent || "";
+    const isIos = /iPad|iPhone|iPod/.test(ua) || (ua.includes("Mac") && "ontouchend" in document);
+    const isStandalone =
+      window.navigator.standalone === true ||
+      window.matchMedia?.("(display-mode: standalone)").matches;
+    setIosNeedsInstall(isIos && !isStandalone);
+  }, []);
 
   const load = useCallback(async () => {
     const [{ data: ev }, { data: cls }] = await Promise.all([
@@ -184,17 +197,54 @@ export default function EventPage() {
               <div style={{ fontSize: 13, color: "#CBBFA9" }}>{event.location}</div>
             </div>
             {VAPID_PUBLIC_KEY && notifStatus !== "subscribed" && notifStatus !== "denied" && (
-              <button onClick={subscribePush} disabled={notifStatus === "loading"}
-                style={{ background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.25)", color: "#F2EADB", borderRadius: 20, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start", marginTop: 4 }}>
-                {notifStatus === "loading" ? "Subscribing…" : "🔔 Get notified"}
-              </button>
+              iosNeedsInstall ? (
+                <button onClick={() => setShowIosHint((v) => !v)}
+                  style={{ background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.25)", color: "#F2EADB", borderRadius: 20, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start", marginTop: 4 }}>
+                  📲 Get alerts on your iPhone
+                </button>
+              ) : (
+                <button onClick={subscribePush} disabled={notifStatus === "loading"}
+                  style={{ background: "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.25)", color: "#F2EADB", borderRadius: 20, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start", marginTop: 4 }}>
+                  {notifStatus === "loading" ? "Subscribing…" : "🔔 Get notified"}
+                </button>
+              )
             )}
             {notifStatus === "subscribed" && (
               <span style={{ fontSize: 12.5, color: "var(--brass-soft)", alignSelf: "flex-start", marginTop: 8 }}>✓ Notifications on</span>
             )}
+            {notifStatus === "denied" && iosNeedsInstall && (
+              <button onClick={() => setShowIosHint((v) => !v)}
+                style={{ background: "transparent", border: "none", color: "var(--brass-soft)", fontSize: 12.5, cursor: "pointer", alignSelf: "flex-start", marginTop: 8, padding: 0, textDecoration: "underline" }}>
+                How to get alerts on iPhone
+              </button>
+            )}
           </div>
         </div>
       </header>
+
+      {showIosHint && (
+        <div className="wrap" style={{ paddingTop: 14, paddingBottom: 0 }}>
+          <section className="card" style={{ border: "1px solid var(--brass)", background: "var(--sand)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <div className="display" style={{ fontWeight: 700, fontSize: 15, color: "var(--leather)" }}>Get live alerts on your iPhone</div>
+              <button onClick={() => setShowIosHint(false)}
+                style={{ background: "transparent", border: "none", color: "var(--quiet)", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0 }} aria-label="Close">×</button>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--quiet)", margin: "0 0 10px" }}>
+              Apple only lets a website send notifications once you&apos;ve added it to your Home Screen. It takes about 20 seconds:
+            </p>
+            <ol style={{ fontSize: 13.5, color: "var(--leather)", margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>
+              <li>Tap the <strong>Share</strong> button — the square with an up-arrow — at the bottom of Safari.</li>
+              <li>Scroll down and tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
+              <li>Open <strong>HCQHA Live</strong> from your Home Screen (the new icon), not from Safari.</li>
+              <li>Tap <strong>🔔 Get notified</strong> and choose <strong>Allow</strong>.</li>
+            </ol>
+            <p style={{ fontSize: 12, color: "var(--quiet)", margin: "10px 0 0" }}>
+              Note: this only works on iPhones updated to iOS 16.4 or newer (most iPhones from the last few years).
+            </p>
+          </section>
+        </div>
+      )}
 
       <main className="wrap">
         {/* ---- Live banner / completed summary / idle ---- */}

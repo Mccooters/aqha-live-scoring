@@ -1,10 +1,11 @@
 self.addEventListener("push", (event) => {
   const data = event.data?.json() ?? {};
   event.waitUntil(
-    self.registration.showNotification(data.title ?? "AQHA Show Update", {
+    self.registration.showNotification(data.title ?? "HCQHA Show Update", {
       body: data.body ?? "",
       tag: data.tag ?? "show-update",
-      icon: "/favicon.ico",
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
       renotify: true,
     })
   );
