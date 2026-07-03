@@ -30,6 +30,43 @@ async function triggerPush(title, body, tag) {
   try { await supabase.functions.invoke("send-push", { body: { title, body, tag } }); } catch {}
 }
 
+function eventStatusPush(event, status) {
+  if (!event) return null;
+  const name = event.name ?? "This event";
+  const isClinic = event.event_type === "clinic";
+  const tag = `event-${String(event.id ?? "status").slice(0, 8)}-${status}`;
+
+  if (status === "open") {
+    return {
+      title: `${name}: registrations are open`,
+      body: isClinic ? "Clinic registrations are open now." : "Entries are open now.",
+      tag,
+    };
+  }
+  if (status === "closed") {
+    return {
+      title: `${name}: registrations closed`,
+      body: isClinic ? "Clinic registrations have closed." : "Entries have closed and the draw is being finalised.",
+      tag,
+    };
+  }
+  if (status === "live") {
+    return {
+      title: `${name} is running`,
+      body: isClinic ? "The clinic is running now." : "Live scoring is running now.",
+      tag,
+    };
+  }
+  if (status === "completed") {
+    return {
+      title: `${name} has ended`,
+      body: isClinic ? "The clinic has ended." : "The event has ended. Final results are available.",
+      tag,
+    };
+  }
+  return null;
+}
+
 export default function Coordinator() {
   const [session, setSession] = useState(null);
   const [email, setEmail] = useState("");
@@ -283,7 +320,16 @@ export default function Coordinator() {
   };
 
   const setEventStatus = async (newStatus) => {
-    await supabase.from("events").update({ status: newStatus }).eq("id", eventId);
+    const previousStatus = currentEvent?.status;
+    const { error } = await supabase.from("events").update({ status: newStatus }).eq("id", eventId);
+    if (error) {
+      window.alert(error.message);
+      return;
+    }
+    if (previousStatus !== newStatus) {
+      const push = eventStatusPush(currentEvent, newStatus);
+      if (push) triggerPush(push.title, push.body, push.tag);
+    }
     await loadEvents();
   };
 
