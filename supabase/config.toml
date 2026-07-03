@@ -1,0 +1,10 @@
+# Supabase CLI settings — used when deploying edge functions.
+# The CLI assumes functions are TypeScript (index.ts); ours is plain
+# JavaScript, so the entrypoint must be spelled out here.
+
+[functions.send-push]
+enabled = true
+# The gateway requires a valid token before the function even runs; the
+# function itself then checks the token belongs to a signed-in staff member.
+verify_jwt = true
+entrypoint = "./functions/send-push/index.js"
