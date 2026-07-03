@@ -16,7 +16,7 @@ once on a given database.
 
 ## ⚠️ Still to run on the live database
 
-These three are the most recent and may not be applied yet. If a feature below
+These are the most recent and may not be applied yet. If a feature below
 "does nothing" when you click it, it's almost always because its migration
 hasn't been run.
 
@@ -28,6 +28,12 @@ hasn't been run.
 - [ ] **v15** — `schema-v15-hp-show-date.sql`
       → makes High Points month columns label correctly (e.g. "Nov '25")
         from the event's real date instead of guessing from the show name
+- [ ] **v16** — `schema-v16-security-lockdown.sql`
+      → **security fix**: stops exhibitor names/emails and push-notification
+        keys being readable by the public. ⚠️ Run this only AFTER the matching
+        code update is live on Vercel (the code update ships in the same pull
+        request as this file) — running it against older code breaks the
+        registration success page and the "Notify me" button.
 
 Tick these off once you've run them.
 
@@ -52,6 +58,7 @@ Tick these off once you've run them.
 | `schema-v13-cancellation-reason.sql` | A reason field for cancelled events |
 | `schema-v14-hp-category.sql` | A High Points category tag on each class |
 | `schema-v15-hp-show-date.sql` | Stores the event date with each High Points result |
+| `schema-v16-security-lockdown.sql` | Security: registrations and push subscriptions are no longer publicly readable/writable |
 
 ## For whoever updates the code next
 

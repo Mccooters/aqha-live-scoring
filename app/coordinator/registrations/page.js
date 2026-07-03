@@ -55,9 +55,13 @@ export default function RegistrationsPage() {
   const forceApprove = async (regId) => {
     if (!confirm("Force-create entries from this registration?\n\nOnly do this if the Square payment has been confirmed but entries didn't appear automatically.")) return;
     setApproving(regId);
+    const { data: sessionData } = await supabase.auth.getSession();
     const res = await fetch("/api/registrations/approve", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}`,
+      },
       body: JSON.stringify({ registration_id: regId }),
     });
     const data = await res.json();

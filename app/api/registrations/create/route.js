@@ -44,18 +44,37 @@ export async function POST(req) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
-    // Load classes (with capacity) to build Square line items and enforce spot limits
+    // Load classes (with capacity) to build Square line items and enforce spot limits.
+    // Filtered by event_id so a crafted request can't buy entries into another
+    // event's classes at this event's fee.
     const classIds = [...new Set(entries.map((e) => e.class_id))];
     const { data: classes } = await db
       .from("classes")
-      .select("id, num, name, capacity")
+      .select("id, num, name, capacity, status")
+      .eq("event_id", event_id)
       .in("id", classIds);
     const classMap = Object.fromEntries((classes ?? []).map((c) => [c.id, c]));
+
+    for (const classId of classIds) {
+      const cls = classMap[classId];
+      if (!cls) {
+        return NextResponse.json(
+          { error: "One of the selected classes doesn't belong to this event. Please refresh the page and try again." },
+          { status: 400 }
+        );
+      }
+      if (cls.status !== "upcoming") {
+        return NextResponse.json(
+          { error: `${classLabel(cls)} has already ${cls.status === "live" ? "started" : "run"} and can't take online entries.` },
+          { status: 409 }
+        );
+      }
+    }
 
     // Capacity check — reject if any requested class is full
     for (const classId of classIds) {
       const cls = classMap[classId];
-      if (cls?.capacity == null) continue; // no limit set
+      if (cls.capacity == null) continue; // no limit set
       const { count } = await db
         .from("entries")
         .select("id", { count: "exact", head: true })

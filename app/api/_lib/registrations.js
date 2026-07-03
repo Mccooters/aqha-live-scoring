@@ -150,40 +150,61 @@ async function sendBookingConfirmation(db, registrationId) {
 }
 
 export async function approveRegistration(db, registrationId) {
-  const { data: regEntries } = await db
+  // Claim the registration first: flip it to paid only if it isn't already.
+  // Square retries webhooks, so this can be called twice for one payment —
+  // only the call that wins this update goes on to create entries.
+  const { data: claimed, error: claimErr } = await db
+    .from("registrations")
+    .update({ status: "paid" })
+    .eq("id", registrationId)
+    .neq("status", "paid")
+    .select("id");
+  if (claimErr) throw new Error(claimErr.message);
+  if (!claimed?.length) return; // another call already approved it
+
+  const { data: regEntries, error: fetchErr } = await db
     .from("registration_entries")
     .select("*")
     .eq("registration_id", registrationId);
-
-  if (!regEntries?.length) return;
-
-  // Get the current max draw_order for each class so new entries slot in at the end
-  const classIds = [...new Set(regEntries.map((e) => e.class_id))];
-  const maxDraws = {};
-
-  for (const classId of classIds) {
-    const { data: existing } = await db
-      .from("entries")
-      .select("draw_order")
-      .eq("class_id", classId)
-      .order("draw_order", { ascending: false })
-      .limit(1);
-    maxDraws[classId] = existing?.[0]?.draw_order ?? 0;
+  if (fetchErr) {
+    await db.from("registrations").update({ status: "pending" }).eq("id", registrationId);
+    throw new Error(fetchErr.message);
   }
 
-  const entryRows = regEntries.map((e) => {
-    maxDraws[e.class_id] = (maxDraws[e.class_id] ?? 0) + 1;
-    return {
-      class_id: e.class_id,
-      back_number: e.back_number || maxDraws[e.class_id], // clinics: auto-assign sequential number
-      horse: e.horse_name,
-      exhibitor: e.exhibitor,
-      draw_order: maxDraws[e.class_id],
-    };
-  });
+  if (regEntries?.length) {
+    // Get the current max draw_order for each class so new entries slot in at the end
+    const classIds = [...new Set(regEntries.map((e) => e.class_id))];
+    const maxDraws = {};
 
-  await db.from("entries").insert(entryRows);
-  await db.from("registrations").update({ status: "paid" }).eq("id", registrationId);
+    for (const classId of classIds) {
+      const { data: existing } = await db
+        .from("entries")
+        .select("draw_order")
+        .eq("class_id", classId)
+        .order("draw_order", { ascending: false })
+        .limit(1);
+      maxDraws[classId] = existing?.[0]?.draw_order ?? 0;
+    }
+
+    const entryRows = regEntries.map((e) => {
+      maxDraws[e.class_id] = (maxDraws[e.class_id] ?? 0) + 1;
+      return {
+        class_id: e.class_id,
+        back_number: e.back_number || maxDraws[e.class_id], // clinics: auto-assign sequential number
+        horse: e.horse_name,
+        exhibitor: e.exhibitor,
+        draw_order: maxDraws[e.class_id],
+      };
+    });
+
+    const { error: insertErr } = await db.from("entries").insert(entryRows);
+    if (insertErr) {
+      // Put the registration back to pending so the webhook retry or the
+      // coordinator's force-approve button can try again.
+      await db.from("registrations").update({ status: "pending" }).eq("id", registrationId);
+      throw new Error(insertErr.message);
+    }
+  }
 
   try {
     await sendBookingConfirmation(db, registrationId);

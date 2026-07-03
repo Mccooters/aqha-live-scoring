@@ -60,6 +60,21 @@ You don't need to write any code to launch this. Budget about 30–45 minutes.
    | `BOOKING_EMAIL_FROM` | the verified sender, for example `HCQHA <entries@yourdomain.com>` |
    | `BOOKING_EMAIL_REPLY_TO` | optional reply-to address for exhibitors |
 
+   For card payments through Square, also add:
+
+   | Name | Value |
+   |---|---|
+   | `SQUARE_ACCESS_TOKEN` | from your Square developer dashboard |
+   | `SQUARE_LOCATION_ID` | your Square location ID |
+   | `SQUARE_ENVIRONMENT` | `sandbox` while testing, `production` for real payments |
+   | `SQUARE_WEBHOOK_SIGNATURE_KEY` | from your Square webhook subscription — **required**: payments will not confirm without it |
+
+   For push notifications ("Notify me" on the spectator page):
+
+   | Name | Value |
+   |---|---|
+   | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | the public key from `npx web-push generate-vapid-keys` |
+
 4. Click **Deploy**. Two minutes later you get a live URL like
    `aqha-live-scoring.vercel.app`.
 

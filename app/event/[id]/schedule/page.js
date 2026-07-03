@@ -14,7 +14,7 @@ export default function SchedulePage() {
       supabase.from("events").select("*").eq("id", id).single(),
       supabase
         .from("classes")
-        .select("*, entries(id, scratched, score)")
+        .select("*, entries(id, scratched, score, called)")
         .eq("event_id", id)
         .order("day")
         .order("sort_order"),
@@ -105,7 +105,12 @@ export default function SchedulePage() {
                 <tbody>
                   {dayCls.map((cls) => {
                     const competing = (cls.entries ?? []).filter((e) => !e.scratched).length;
-                    const scored = (cls.entries ?? []).filter((e) => e.score != null && !e.scratched).length;
+                    // TBC draw classes advance by marking entries "called" —
+                    // scores only come later from paperwork.
+                    const isTbcDraw = cls.scoring_mode === "tbc";
+                    const scored = (cls.entries ?? []).filter(
+                      (e) => !e.scratched && (isTbcDraw ? e.called : e.score != null)
+                    ).length;
                     const isLive = cls.status === "live";
                     return (
                       <tr key={cls.id} style={isLive ? { background: "#FBF4E4" } : {}}>
@@ -124,7 +129,7 @@ export default function SchedulePage() {
                           )}
                           {isLive && competing > 0 && (
                             <div style={{ fontSize: 11.5, color: "var(--clay)", marginTop: 2 }}>
-                              {scored} of {competing} scored
+                              {scored} of {competing} {isTbcDraw ? "shown" : "scored"}
                               <span style={{ display: "inline-block", marginLeft: 8, width: 60, height: 4, background: "var(--line)", borderRadius: 2, verticalAlign: "middle", overflow: "hidden" }}>
                                 <span style={{ display: "block", height: "100%", width: `${(scored / competing) * 100}%`, background: "var(--clay)", transition: "width .5s" }} />
                               </span>

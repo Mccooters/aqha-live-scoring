@@ -69,10 +69,18 @@ export default function EventPage() {
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
       });
       const json = sub.toJSON();
-      await supabase.from("push_subscriptions").upsert(
-        { endpoint: json.endpoint, p256dh: json.keys.p256dh, auth_key: json.keys.auth },
-        { onConflict: "endpoint" }
-      );
+      // The push_subscriptions table is locked down — the server stores the
+      // subscription (see /api/push/subscribe).
+      const res = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: json.endpoint,
+          p256dh: json.keys.p256dh,
+          auth_key: json.keys.auth,
+        }),
+      });
+      if (!res.ok) throw new Error("subscribe failed");
       setNotifStatus("subscribed");
     } catch {
       setNotifStatus("denied");
@@ -259,14 +267,20 @@ export default function EventPage() {
           <section className="card" style={{ background: "var(--sand)", border: "1px solid var(--line)", padding: "20px 22px" }}>
             <div className="display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 14, color: "var(--leather)" }}>Final Results</div>
             {classes.filter((cls) => cls.entries.some((e) => e.score != null && !e.scratched)).map((cls) => {
-              const champion = [...cls.entries].filter((e) => e.score != null && !e.scratched).sort((a, b) => b.score - a.score)[0];
+              // In placing modes the stored "score" is the placing (1 = best),
+              // so the champion is the LOWEST number, not the highest.
+              const isPlacingMode = ["placing", "class_only", "tbc_class"].includes(cls.scoring_mode);
+              const champion = [...cls.entries].filter((e) => e.score != null && !e.scratched)
+                .sort((a, b) => (isPlacingMode ? a.score - b.score : b.score - a.score))[0];
               return (
                 <div key={cls.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", gap: 10 }}>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 13.5 }}>Class {cls.num} · {cls.name}</div>
                     <div style={{ fontSize: 13, color: "var(--quiet)" }}>1st: #{fmtBack(champion.back_number)} {champion.horse} · {champion.exhibitor}</div>
                   </div>
-                  <div className="display" style={{ fontWeight: 700, color: "var(--brass)", fontSize: 20, whiteSpace: "nowrap" }}>{champion.score}</div>
+                  {!isPlacingMode && (
+                    <div className="display" style={{ fontWeight: 700, color: "var(--brass)", fontSize: 20, whiteSpace: "nowrap" }}>{champion.score}</div>
+                  )}
                 </div>
               );
             })}

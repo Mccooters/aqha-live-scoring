@@ -24,25 +24,38 @@ PR with a clear plain-English description.
   `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 - **Thin server layer (`app/api/`)** — exists only for the few things that
   must run server-side: creating/validating online registrations, the Square
-  payment webhook, and a manual "force-approve" route. These use a
-  service-role admin client (`app/api/_lib/registrations.js`,
-  `SUPABASE_SERVICE_ROLE_KEY`) that bypasses RLS. Everything else stays
-  client-side with the anon key.
-- **Security model**: Row Level Security — anyone can read (spectators need no
-  account); only authenticated users (show staff, created manually in the
-  Supabase dashboard under Authentication → Users) can write. API routes use
-  the service-role key intentionally to write on behalf of unauthenticated
-  exhibitors (online registration).
+  payment webhook, a manual "force-approve" route (staff JWT required — the
+  route verifies the caller's Supabase token via `auth.getUser()`), a
+  registration status lookup for the success page, and a push-subscribe
+  route. These use a service-role admin client
+  (`app/api/_lib/registrations.js`, `SUPABASE_SERVICE_ROLE_KEY`) that
+  bypasses RLS. Everything else stays client-side with the anon key.
+- **Security model**: Row Level Security — anyone can read the *show* tables
+  (spectators need no account); only authenticated users (show staff, created
+  manually in the Supabase dashboard under Authentication → Users) can write.
+  Exceptions (schema-v16): `registrations`/`registration_entries` are
+  staff-read-only (they hold names + emails; the public success page goes
+  through `app/api/registrations/status`), and `push_subscriptions` is not
+  publicly accessible at all (subscribe goes through `app/api/push/subscribe`).
+  API routes use the service-role key intentionally to act on behalf of
+  unauthenticated exhibitors. Public sign-ups should stay disabled in the
+  Supabase dashboard — any authenticated user can write.
 - **Realtime**: pages subscribe to postgres_changes on the tables they care
   about (`entries`, `classes`, `events`, `registrations`, `horses`,
   `horse_registrations`, `high_points`) and simply re-fetch on any change.
 - **Payments (Square)** — `app/api/registrations/create/route.js` creates a
   Square Payment Link (online-checkout) for paid class entry fees; the
   webhook (`app/api/webhooks/square/route.js`) verifies the HMAC signature
-  and approves the registration when `payment.updated` reports COMPLETED.
-  Free events (entry fee $0) skip Square entirely and auto-approve. Env vars:
-  `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID`, `SQUARE_ENVIRONMENT`
-  (sandbox|production), `SQUARE_WEBHOOK_SIGNATURE_KEY`, `NEXT_PUBLIC_BASE_URL`.
+  (fail-closed: rejects everything if `SQUARE_WEBHOOK_SIGNATURE_KEY` is
+  unset or the signature is missing/invalid; timing-safe compare; checks the
+  paid amount covers the registration total) and approves the registration
+  when `payment.updated` reports COMPLETED. `approveRegistration()` claims
+  the registration (pending → paid) atomically first, so webhook retries
+  can't double-create entries. Free events (entry fee $0) skip Square
+  entirely and auto-approve. Env vars: `SQUARE_ACCESS_TOKEN`,
+  `SQUARE_LOCATION_ID`, `SQUARE_ENVIRONMENT` (sandbox|production),
+  `SQUARE_WEBHOOK_SIGNATURE_KEY` (required — webhook refuses without it),
+  `NEXT_PUBLIC_BASE_URL`.
 - **Booking confirmation email** — after `approveRegistration()` creates the
   real `entries` rows and marks the registration paid, it sends an app-owned
   booking confirmation through Resend. This is separate from Square's payment
@@ -51,11 +64,13 @@ PR with a clear plain-English description.
   `BOOKING_EMAIL_REPLY_TO`.
 - **Push notifications** — full web-push stack: `public/sw.js` (service
   worker), Supabase Edge Function `supabase/functions/send-push` (Deno +
-  `web-push`, VAPID keys as function secrets), `push_subscriptions` table,
-  and an opt-in "Notify me" button on the spectator page
-  (`NEXT_PUBLIC_VAPID_PUBLIC_KEY`). The coordinator dashboard's
-  `triggerPush()` helper calls the edge function on score saves, scratches,
-  and "now showing" changes. iPhone requires the site added to Home Screen.
+  `web-push`, VAPID keys as function secrets; requires a signed-in staff JWT
+  — rejects the bare anon key), `push_subscriptions` table (not publicly
+  accessible; the opt-in "Notify me" button posts to `app/api/push/subscribe`),
+  spectator opt-in via `NEXT_PUBLIC_VAPID_PUBLIC_KEY`. The coordinator
+  dashboard's `triggerPush()` helper calls the edge function on score saves,
+  scratches, and "now showing" changes. iPhone requires the site added to
+  Home Screen.
 - **Styling**: plain CSS in `app/globals.css` with CSS variables. Western
   show-program aesthetic: paper #FBF8F2, leather #3A2A1C, brass #A8843C,
   clay #C24A2E. Fonts: Zilla Slab (display) + Archivo (body) via Google Fonts.
@@ -113,7 +128,7 @@ PR with a clear plain-English description.
   delete for staff. Self-service "create this table" instructions shown if
   the `high_points` table/migration hasn't been run yet.
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v12)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v16)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -138,12 +153,15 @@ PR with a clear plain-English description.
   show_name, points. Unique on (season, category, entity_name, show_name).
 - `registrations` — event_id, contact_name, contact_email, status
   (pending|paid|cancelled), square_order_id/checkout_url/payment_id,
-  total_cents.
+  total_cents. Staff-read-only since schema-v16 (contains personal contact
+  details); the public success page reads via `app/api/registrations/status`.
 - `registration_entries` — registration_id (cascade delete), class_id
   (cascade delete — schema-v10), back_number (nullable — clinics auto-assign
   sequentially on approval), horse_name, exhibitor.
-- `push_subscriptions` — endpoint (unique), p256dh, auth_key. Anyone can
-  insert/delete/read their own (no auth required to subscribe).
+- `push_subscriptions` — endpoint (unique), p256dh, auth_key. Not publicly
+  accessible since schema-v16; subscribing goes through
+  `app/api/push/subscribe` (service role), and the send-push edge function
+  reads/prunes with the service role.
 - Storage bucket `patterns` (public read, staff write) for uploaded pattern
   files; `classes.pattern_url` holds the resulting public URL.
 
@@ -248,8 +266,11 @@ sheet used to submit points to each association.
 
 ## Conventions
 
-- Permanent records: never delete events/classes/entries/scores. "End event"
-  only flips status to completed; "Archive" only hides from the home page.
+- Records are treated as permanent by default: "End event" only flips status
+  to completed; "Archive" only hides from the home page. Delete buttons DO
+  exist (owner-requested: events, classes, entries) but always sit behind a
+  confirm dialog that spells out what goes with them — never add a delete
+  path without one, and never delete data as a side effect of another action.
 - Client-side Supabase calls are the default for everything; only reach for
   an `app/api/` route when the action must run with elevated privileges
   (service-role key) or call a third-party API (Square).

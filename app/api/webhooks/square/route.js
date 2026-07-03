@@ -7,15 +7,27 @@ export async function POST(req) {
   const signature = req.headers.get("x-square-hmacsha256-signature");
   const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
 
-  // Verify Square webhook signature (skip in sandbox/dev if key not set)
-  if (signatureKey && signature) {
-    const webhookUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/webhooks/square`;
-    const hmac = crypto.createHmac("sha256", signatureKey);
-    hmac.update(webhookUrl + body);
-    const expected = hmac.digest("base64");
-    if (expected !== signature) {
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-    }
+  // Fail closed: without the signature key we cannot prove a call came from
+  // Square, so we refuse it rather than trust it. Set
+  // SQUARE_WEBHOOK_SIGNATURE_KEY (from the Square webhook subscription page)
+  // in every environment that takes payments, including sandbox.
+  if (!signatureKey) {
+    console.error("Square webhook rejected: SQUARE_WEBHOOK_SIGNATURE_KEY is not set");
+    return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
+  }
+  if (!signature) {
+    return NextResponse.json({ error: "Missing signature" }, { status: 401 });
+  }
+
+  const webhookUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/webhooks/square`;
+  const hmac = crypto.createHmac("sha256", signatureKey);
+  hmac.update(webhookUrl + body);
+  const expected = hmac.digest();
+  const provided = Buffer.from(signature, "base64");
+  const valid =
+    provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+  if (!valid) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
   let event;
@@ -42,11 +54,21 @@ export async function POST(req) {
   // Find our registration by the Square order ID stored at checkout creation time
   const { data: reg } = await db
     .from("registrations")
-    .select("id, status")
+    .select("id, status, total_cents")
     .eq("square_order_id", orderId)
     .maybeSingle();
 
   if (!reg || reg.status === "paid") return NextResponse.json({ ok: true });
+
+  // The completed payment must cover the registration total — a partial
+  // payment should never place entries.
+  const paidCents = payment?.amount_money?.amount;
+  if (typeof paidCents === "number" && paidCents < (reg.total_cents ?? 0)) {
+    console.error(
+      `Square payment ${payment.id} paid ${paidCents}c but registration ${reg.id} totals ${reg.total_cents}c — not approving`
+    );
+    return NextResponse.json({ ok: true });
+  }
 
   await db
     .from("registrations")

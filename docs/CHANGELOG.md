@@ -4,6 +4,34 @@ A plain-English record of what's been built, newest first. This is for
 information and to make future updates easier — it is not a marketing page.
 Dates are approximate (when the work landed on the live site).
 
+## Security hardening + scoring display fixes (July 2026)
+
+A security review found several holes; all are now closed. **Requires
+migration v16** and a redeploy of the `send-push` function
+(`npx supabase functions deploy send-push`).
+
+- **Payment loopholes closed.** Previously someone technical could have
+  confirmed their own unpaid registration (three separate ways: a staff-only
+  API that didn't check for staff, a forgeable Square payment confirmation,
+  and registering through a free event into a paid event's classes). All
+  three paths now verify properly. The Square webhook also refuses to run at
+  all if `SQUARE_WEBHOOK_SIGNATURE_KEY` isn't set — set it in Vercel before
+  the next paid event.
+- **Exhibitor privacy.** Contact names and email addresses from online
+  registrations were readable by anyone; now staff-only. The post-checkout
+  success page still works — it looks up only the payer's own registration.
+- **Push notifications locked down.** Only signed-in staff can send them, and
+  subscribers' keys are no longer publicly visible or deletable.
+- **Duplicate-entry protection.** If Square delivers the same payment
+  confirmation twice, entries are created once, not twice.
+- **High Points auto-push fix.** The class that just finished is now included
+  in the automatic push (previously it could be skipped until "Push all HP").
+- **Public results fixes.** Final Results on the spectator page now shows the
+  actual winner for placing-based classes (it used to show last place), and
+  the schedule progress bar now moves for TBC-draw classes.
+- **Spreadsheet library updated** to a maintained release (the old one had
+  two published vulnerabilities).
+
 ## High Points ↔ class scoring linking (June 2026)
 
 The biggest recent piece. Previously High Points were maintained by hand (CSV

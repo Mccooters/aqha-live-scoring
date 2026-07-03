@@ -2,7 +2,6 @@
 import { useEffect, useState, Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "../../../../../lib/supabaseClient";
 
 function SuccessContent() {
   const { id: eventId } = useParams();
@@ -18,11 +17,11 @@ function SuccessContent() {
     if (!regId) { setLoading(false); return; }
 
     async function check() {
-      const { data } = await supabase
-        .from("registrations")
-        .select("*, registration_entries(*)")
-        .eq("id", regId)
-        .single();
+      // Registrations hold names/emails so they're no longer publicly readable
+      // from the browser — this server route looks up just this one, keyed by
+      // the unguessable registration ID from the redirect URL.
+      const res = await fetch(`/api/registrations/status?id=${encodeURIComponent(regId)}`);
+      const data = res.ok ? await res.json() : null;
       if (data) {
         setReg(data);
         setEntries(data.registration_entries ?? []);

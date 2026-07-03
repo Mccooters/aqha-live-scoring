@@ -215,7 +215,12 @@ export default function Coordinator() {
     // Recalculate from ALL completed classes in this category so that:
     // (a) multiple classes sharing a category accumulate correctly, and
     // (b) pushing twice after a scratch/score change always reflects current reality.
-    const categoryClasses = classes.filter((c) => c.hp_category === category && c.status === "completed");
+    // When called from completeClass, React state may still say the passed-in
+    // class is "live" (the DB update hasn't round-tripped yet) — count it as
+    // completed so the class that just finished isn't skipped.
+    const categoryClasses = classes.filter(
+      (c) => c.hp_category === category && (c.status === "completed" || c.id === cls.id)
+    );
     const pointsMap = {};
 
     for (const c of categoryClasses) {
