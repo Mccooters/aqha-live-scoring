@@ -471,11 +471,20 @@ export default function EventPage() {
           return (
             <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
               <div className="card-head" style={isLive ? { background: "#FBF4E4" } : {}}>
-                <div className="display" style={{ fontWeight: 600, fontSize: 16.5 }}>
-                  Class {cls.num} · {cls.name}
-                  <span style={{ fontFamily: "Archivo, sans-serif", fontSize: 12, color: "var(--quiet)", fontWeight: 500 }}>
-                    {" "}· {cls.entries.filter((e) => !e.scratched).length} entries
-                  </span>
+                <div>
+                  <div className="display" style={{ fontWeight: 600, fontSize: 16.5 }}>
+                    Class {cls.num} · {cls.name}
+                    <span style={{ fontFamily: "Archivo, sans-serif", fontSize: 12, color: "var(--quiet)", fontWeight: 500 }}>
+                      {" "}· {cls.entries.filter((e) => !e.scratched).length} entries
+                    </span>
+                  </div>
+                  {(cls.judge || cls.judge2) && (
+                    <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                      {cls.judge2
+                        ? `Judges: ${cls.judge || "—"} (J1) · ${cls.judge2} (J2)`
+                        : `Judge: ${cls.judge}`}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   {cls.pattern_url && (
