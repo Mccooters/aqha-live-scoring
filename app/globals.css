@@ -35,7 +35,7 @@ td { padding: 9px 12px; border-top: 1px solid var(--line); }
 .btn-ghost.danger { border-color: var(--clay); color: var(--clay); }
 .field { font-size: 18px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font-family: inherit; }
 
-.event-class-grid { display: grid; grid-template-columns: 1fr; gap: 18px; align-items: start; }
+.event-class-grid { display: grid; grid-template-columns: 1fr; gap: 18px; align-items: stretch; }
 .event-class-grid .card { margin-bottom: 0; }
 .event-grid-category {
   color: #1746C6; font-weight: 800; font-size: 12px; letter-spacing: .12em;
@@ -46,7 +46,11 @@ td { padding: 9px 12px; border-top: 1px solid var(--line); }
   border-radius: 8px; padding: 7px 12px; font-weight: 800; font-size: 12px;
   letter-spacing: .12em; text-transform: uppercase; margin: 6px 0 -6px;
 }
-.event-class-card { min-width: 0; }
+.event-class-card { min-width: 0; height: 100%; display: flex; flex-direction: column; }
+.event-class-card .card-head { min-height: 90px; align-items: flex-start; }
+.event-class-card .card-head > div:first-child { min-width: 0; flex: 1 1 0; }
+.event-class-card .card-head > div:last-child { flex: 0 0 auto; justify-content: flex-end; }
+.event-class-card table { margin-top: auto; }
 .event-class-card td:nth-child(2),
 .event-class-card td:nth-child(3) { overflow-wrap: anywhere; }
 
