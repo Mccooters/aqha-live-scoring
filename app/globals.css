@@ -35,6 +35,28 @@ td { padding: 9px 12px; border-top: 1px solid var(--line); }
 .btn-ghost.danger { border-color: var(--clay); color: var(--clay); }
 .field { font-size: 18px; padding: 10px 14px; border: 2px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font-family: inherit; }
 
+.event-class-grid { display: grid; grid-template-columns: 1fr; gap: 18px; align-items: start; }
+.event-class-grid .card { margin-bottom: 0; }
+.event-grid-category {
+  color: #1746C6; font-weight: 800; font-size: 12px; letter-spacing: .12em;
+  text-transform: uppercase; margin: 4px 0 -8px;
+}
+.event-grid-break {
+  color: var(--leather); background: #FFF7D6; border: 1px solid #E6C76B;
+  border-radius: 8px; padding: 7px 12px; font-weight: 800; font-size: 12px;
+  letter-spacing: .12em; text-transform: uppercase; margin: 6px 0 -6px;
+}
+.event-class-card { min-width: 0; }
+.event-class-card td:nth-child(2),
+.event-class-card td:nth-child(3) { overflow-wrap: anywhere; }
+
+@media (min-width: 900px) {
+  .event-page-wrap { max-width: 1480px; }
+  .event-class-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 390px), 1fr)); gap: 20px; }
+  .event-grid-category,
+  .event-grid-break { grid-column: 1 / -1; }
+}
+
 /* Modal bottom sheet */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; z-index: 200; }
 .modal-sheet { background: var(--paper); border-radius: 16px 16px 0 0; width: 100%; max-width: 560px; padding: 24px 24px calc(24px + env(safe-area-inset-bottom)); max-height: 90vh; overflow-y: auto; }
