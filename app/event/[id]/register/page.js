@@ -167,6 +167,103 @@ function ClassSearchSelect({ value, classes, isClinic, onChange, classIsFull, sp
   );
 }
 
+function MultiClassPicker({ selectedIds, classes, onToggle, classIsFull, spotsLabel }) {
+  const [query, setQuery] = useState("");
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const filtered = classes.filter((cls) => {
+    if (!terms.length) return true;
+    const haystack = searchText(cls, false, spotsLabel(cls));
+    return terms.every((term) => haystack.includes(term));
+  });
+  const grouped = groupedByProgramCategory(filtered, "Classes");
+  const selected = new Set(selectedIds);
+
+  return (
+    <div>
+      <input
+        className="field"
+        style={{ width: "100%", fontSize: 16, marginBottom: 10 }}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search class number, name, or category..."
+        autoComplete="off"
+      />
+      <div style={{
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        background: "#fff",
+        maxHeight: 440,
+        overflowY: "auto",
+      }}>
+        {filtered.length === 0 ? (
+          <div style={{ padding: "12px 14px", color: "var(--quiet)", fontSize: 13 }}>
+            No matching classes.
+          </div>
+        ) : grouped.map((group) => (
+          <div key={group.key}>
+            {group.label && (
+              <div style={{
+                padding: "8px 12px 5px",
+                color: "#1746C6",
+                fontWeight: 800,
+                fontSize: 11,
+                letterSpacing: ".12em",
+                textTransform: "uppercase",
+                background: "#F7FAFF",
+                borderTop: "1px solid var(--line)",
+              }}>
+                {group.label}
+              </div>
+            )}
+            {group.classes.map((cls) => {
+              const checked = selected.has(cls.id);
+              const full = classIsFull(cls);
+              const disabled = full && !checked;
+              return (
+                <label
+                  key={cls.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "22px 1fr auto",
+                    gap: 10,
+                    alignItems: "center",
+                    padding: "11px 12px",
+                    borderTop: "1px solid var(--line)",
+                    background: checked ? "#FBF4E4" : "#fff",
+                    opacity: disabled ? .55 : 1,
+                    cursor: disabled ? "not-allowed" : "pointer",
+                  }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={() => onToggle(cls.id)}
+                    style={{ width: 18, height: 18 }}
+                  />
+                  <span style={{ minWidth: 0 }}>
+                    <span className="display" style={{ display: "block", fontWeight: 700, fontSize: 15 }}>
+                      Class {cls.num} · {cls.name}
+                    </span>
+                    <span style={{ display: "block", fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                      {[
+                        cls.judge2 ? `Judges: ${cls.judge || "-"} / ${cls.judge2}` : cls.judge ? `Judge: ${cls.judge}` : null,
+                        spotsLabel(cls),
+                      ].filter(Boolean).join(" · ")}
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 12, color: checked ? "var(--brass)" : "var(--quiet)", fontWeight: 800 }}>
+                    {checked ? "Selected" : full ? "Full" : ""}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function blankEntry() {
   return {
     _id: Math.random().toString(36).slice(2),
@@ -188,6 +285,15 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(true);
 
   const [entries, setEntries] = useState([blankEntry()]);
+  const [entryMode, setEntryMode] = useState("single");
+  const [multiEntry, setMultiEntry] = useState({
+    class_ids: [],
+    back_number: "",
+    horse_name: "",
+    exhibitor: "",
+    registryChecked: false,
+    registryMatched: false,
+  });
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [rulesAccepted, setRulesAccepted] = useState(false);
@@ -227,8 +333,17 @@ export default function RegisterPage() {
   }, [eventId]);
 
   const isClinic = event?.event_type === "clinic";
+  const isMultiMode = !isClinic && entryMode === "multi";
   const feePerClass = event?.entry_fee_cents ?? 0;
-  const filledEntries = entries.filter((e) => e.class_id);
+  const multiEntries = multiEntry.class_ids.map((classId) => ({
+    _id: `multi-${classId}`,
+    class_id: classId,
+    back_number: multiEntry.back_number,
+    horse_name: multiEntry.horse_name,
+    exhibitor: multiEntry.exhibitor,
+  }));
+  const submissionEntries = isMultiMode ? multiEntries : entries;
+  const filledEntries = submissionEntries.filter((e) => e.class_id);
   const totalCents = filledEntries.length * feePerClass;
 
   const classIsFull = (cls) => cls.capacity != null && (spotsTaken[cls.id] ?? 0) >= cls.capacity;
@@ -280,6 +395,26 @@ export default function RegisterPage() {
       return { ...e, [field]: value };
     }));
 
+  const updateMultiEntry = (field, value) =>
+    setMultiEntry((prev) => {
+      if (field === "back_number") {
+        return { ...prev, back_number: value, registryChecked: false, registryMatched: false };
+      }
+      return { ...prev, [field]: value };
+    });
+
+  const toggleMultiClass = (classId) => {
+    const cls = classes.find((c) => c.id === classId);
+    const alreadySelected = multiEntry.class_ids.includes(classId);
+    if (!alreadySelected && cls && classIsFull(cls)) return;
+    setMultiEntry((prev) => ({
+      ...prev,
+      class_ids: alreadySelected
+        ? prev.class_ids.filter((id) => id !== classId)
+        : [...prev.class_ids, classId],
+    }));
+  };
+
   // Back number is the horse's permanent registry identity, so once it resolves
   // to a registered horse, the horse name is locked to whatever's on file —
   // it can't be typed differently. Unregistered back numbers (new horses not
@@ -306,6 +441,22 @@ export default function RegisterPage() {
     );
   };
 
+  const lookupMultiHorse = async (backNum) => {
+    if (!backNum) return;
+    const { data } = await supabase
+      .from("horses")
+      .select("name, owner")
+      .eq("back_number", parseInt(backNum, 10))
+      .maybeSingle();
+    setMultiEntry((prev) => ({
+      ...prev,
+      horse_name: data ? data.name : prev.horse_name,
+      exhibitor: prev.exhibitor || (data?.owner ?? ""),
+      registryChecked: true,
+      registryMatched: !!data,
+    }));
+  };
+
   const removeEntry = (id) =>
     setEntries((prev) => (prev.length > 1 ? prev.filter((e) => e._id !== id) : prev));
 
@@ -314,17 +465,19 @@ export default function RegisterPage() {
     if (!contactName.trim()) { setError("Please enter your full name."); return; }
     if (!contactEmail.trim() || !contactEmail.includes("@")) { setError("Please enter a valid email address."); return; }
     const valid = isClinic
-      ? entries.filter((e) => e.class_id && e.exhibitor.trim())
-      : entries.filter((e) => e.class_id && e.back_number && e.horse_name.trim() && e.exhibitor.trim());
+      ? submissionEntries.filter((e) => e.class_id && e.exhibitor.trim())
+      : submissionEntries.filter((e) => e.class_id && e.back_number && e.horse_name.trim() && e.exhibitor.trim());
     if (!valid.length) {
       setError(isClinic
         ? "Please select a spot type and enter your name."
-        : "Please complete at least one entry — class, back number, horse name, and exhibitor are all required.");
+        : isMultiMode
+          ? "Please enter the horse details and select at least one class."
+          : "Please complete at least one entry — class, back number, horse name, and exhibitor are all required.");
       return;
     }
     const incomplete = isClinic
-      ? entries.filter((e) => e.class_id && !e.exhibitor.trim())
-      : entries.filter((e) => e.class_id && (!e.back_number || !e.horse_name.trim() || !e.exhibitor.trim()));
+      ? submissionEntries.filter((e) => e.class_id && !e.exhibitor.trim())
+      : submissionEntries.filter((e) => e.class_id && (!e.back_number || !e.horse_name.trim() || !e.exhibitor.trim()));
     if (incomplete.length) {
       setError(isClinic
         ? "Please enter your name for each spot selected."
@@ -424,6 +577,10 @@ export default function RegisterPage() {
     </main>
   );
 
+  const multiDuplicateWarnings = isMultiMode
+    ? multiEntries.map((entry) => duplicateMessage(entry)).filter(Boolean)
+    : [];
+
   return (
     <>
       <header className="header">
@@ -467,8 +624,100 @@ export default function RegisterPage() {
           </div>
         </section>
 
+        {!isClinic && (
+          <section className="card">
+            <div className="card-head">
+              <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Entry mode</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, paddingBottom: 8 }}>
+              {[
+                ["single", "One by one"],
+                ["multi", "Same horse, multiple classes"],
+              ].map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => { setEntryMode(mode); setError(""); }}
+                  style={{
+                    minHeight: 44,
+                    borderRadius: 10,
+                    border: `2px solid ${entryMode === mode ? "var(--leather)" : "var(--line)"}`,
+                    background: entryMode === mode ? "var(--sand)" : "#fff",
+                    color: entryMode === mode ? "var(--leather)" : "var(--quiet)",
+                    fontWeight: 800,
+                    fontSize: 14,
+                    padding: "9px 10px",
+                  }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* ---- Spot / class entries ---- */}
-        {entries.map((entry, idx) => {
+        {isMultiMode ? (
+          <section className="card">
+            <div className="card-head">
+              <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Same horse, multiple classes</div>
+              <span style={{ color: "var(--quiet)", fontSize: 12.5, fontWeight: 700 }}>
+                {multiEntry.class_ids.length} selected
+              </span>
+            </div>
+            <div style={{ paddingBottom: 8 }}>
+              <label className="modal-label">Back number *</label>
+              <input className="field" type="number" style={{ width: "100%", fontSize: 16 }}
+                value={multiEntry.back_number}
+                onChange={(e) => updateMultiEntry("back_number", e.target.value)}
+                onBlur={(e) => lookupMultiHorse(e.target.value)}
+                placeholder="e.g. 301" />
+              {multiEntry.registryChecked && !multiEntry.registryMatched && (
+                <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
+                  No horse found with this back number in our registry — double-check the number, or continue if this is a new horse.
+                </p>
+              )}
+
+              <label className="modal-label">Horse name *</label>
+              <input className="field" style={{ width: "100%", fontSize: 16, ...(multiEntry.registryMatched ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
+                value={multiEntry.horse_name}
+                readOnly={multiEntry.registryMatched}
+                onChange={(e) => updateMultiEntry("horse_name", e.target.value)}
+                placeholder="e.g. Machine Made Lady" />
+              {multiEntry.registryMatched && (
+                <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
+                  Matched from the horse registry for back #{multiEntry.back_number}. Contact the show secretary if this is wrong.
+                </p>
+              )}
+
+              <label className="modal-label">Exhibitor name *</label>
+              <input className="field" style={{ width: "100%", fontSize: 16 }}
+                value={multiEntry.exhibitor}
+                onChange={(e) => updateMultiEntry("exhibitor", e.target.value)}
+                placeholder="e.g. S. O'Brien" />
+
+              <label className="modal-label">Classes *</label>
+              <MultiClassPicker
+                selectedIds={multiEntry.class_ids}
+                classes={classes}
+                onToggle={toggleMultiClass}
+                classIsFull={classIsFull}
+                spotsLabel={spotsLabel}
+              />
+
+              {classes.length === 0 && (
+                <p style={{ fontSize: 12.5, color: "var(--clay)", marginTop: 4 }}>
+                  No upcoming classes have been added yet. Check back soon.
+                </p>
+              )}
+
+              {multiDuplicateWarnings.length > 0 && (
+                <p style={{ fontSize: 12.5, color: "var(--clay)", marginTop: 8, fontWeight: 600 }}>
+                  {multiDuplicateWarnings[0]} Please check your details before submitting.
+                </p>
+              )}
+            </div>
+          </section>
+        ) : entries.map((entry, idx) => {
           const selectedCls = entry.class_id ? classes.find((c) => c.id === entry.class_id) : null;
           const isFull = selectedCls ? classIsFull(selectedCls) : false;
           const duplicateWarning = duplicateMessage(entry);
@@ -553,10 +802,12 @@ export default function RegisterPage() {
           );
         })}
 
-        <button className="btn-ghost" style={{ width: "100%", marginBottom: 16, fontSize: 15 }}
-          onClick={() => setEntries((p) => [...p, blankEntry()])}>
-          + Add another {isClinic ? "spot" : "class entry"}
-        </button>
+        {!isMultiMode && (
+          <button className="btn-ghost" style={{ width: "100%", marginBottom: 16, fontSize: 15 }}
+            onClick={() => setEntries((p) => [...p, blankEntry()])}>
+            + Add another {isClinic ? "spot" : "class entry"}
+          </button>
+        )}
 
         {/* ---- Total + pay ---- */}
         <section className="card" style={{ background: "var(--sand)" }}>

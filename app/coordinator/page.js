@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
-import { programDisplayRows } from "../../lib/classCategories";
+import { categoryKey, programDisplayRows } from "../../lib/classCategories";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 
@@ -169,6 +169,9 @@ export default function Coordinator() {
   const [exporting, setExporting] = useState(false);
   const [pushingAllHp, setPushingAllHp] = useState(false);
   const [horseSuggestion, setHorseSuggestion] = useState(null);
+  const [patternFiles, setPatternFiles] = useState([]);
+  const [loadingPatternFiles, setLoadingPatternFiles] = useState(false);
+  const [uploadingPatternFiles, setUploadingPatternFiles] = useState(false);
 
   // ---- auth ----
   useEffect(() => {
@@ -217,6 +220,29 @@ export default function Coordinator() {
   const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
   const currentEvent = events.find((e) => e.id === eventId);
   const isClinic = currentEvent?.event_type === "clinic";
+
+  const loadPatternFiles = useCallback(async () => {
+    if (!eventId) return;
+    setLoadingPatternFiles(true);
+    try {
+      const { data, error } = await supabase.storage
+        .from("patterns")
+        .list(eventId, { limit: 300, sortBy: { column: "name", order: "asc" } });
+      if (error) {
+        setPatternFiles([]);
+        return;
+      }
+      setPatternFiles((data ?? [])
+        .filter((item) => item.name && !item.name.endsWith("/"))
+        .map((item) => {
+          const path = `${eventId}/${item.name}`;
+          const { data: urlData } = supabase.storage.from("patterns").getPublicUrl(path);
+          return { name: item.name, url: urlData.publicUrl };
+        }));
+    } finally {
+      setLoadingPatternFiles(false);
+    }
+  }, [eventId]);
 
   // Clear score inputs whenever the live class changes (auto-advance after last entry)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -594,8 +620,15 @@ export default function Coordinator() {
     let initialForm = {};
     if (type === "pattern" && extra.classId) {
       const cls = classes.find((c) => c.id === extra.classId);
-      initialForm = { pattern_url: cls?.pattern_url ?? "" };
+      const linkedClassIds = cls?.pattern_url
+        ? classes.filter((c) => c.pattern_url === cls.pattern_url).map((c) => c.id)
+        : [];
+      initialForm = {
+        pattern_url: cls?.pattern_url ?? "",
+        applyClassIds: linkedClassIds.length ? linkedClassIds : [extra.classId],
+      };
     }
+    if (type === "pattern" || type === "bulkPatterns") loadPatternFiles();
     if (type === "editEntry" && extra.entry) {
       const e = extra.entry;
       initialForm = {
@@ -623,6 +656,23 @@ export default function Coordinator() {
   };
   const closeModal = () => { setModal(null); setForm({}); setFormError(""); setHorseSuggestion(null); };
   const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const setPatternApplyClassIds = (ids) => {
+    const requiredId = modal?.classId;
+    setForm((f) => ({
+      ...f,
+      applyClassIds: [...new Set([requiredId, ...ids].filter(Boolean))],
+    }));
+  };
+
+  const togglePatternApplyClass = (classId) => {
+    if (classId === modal?.classId) return;
+    setForm((f) => {
+      const selected = new Set([modal?.classId, ...(f.applyClassIds ?? [])].filter(Boolean));
+      if (selected.has(classId)) selected.delete(classId); else selected.add(classId);
+      return { ...f, applyClassIds: [...selected] };
+    });
+  };
 
   const lookupHorse = async (backNum) => {
     if (!backNum) { setHorseSuggestion(null); return; }
@@ -761,6 +811,8 @@ export default function Coordinator() {
   const submitPattern = async () => {
     if (!form.pattern_url?.trim() && !form.patternFile) { setFormError("Provide a URL or upload a file"); return; }
     let url = form.pattern_url?.trim() || null;
+    const classIds = [...new Set([modal.classId, ...(form.applyClassIds ?? [])].filter(Boolean))];
+    if (classIds.length === 0) { setFormError("Choose at least one class"); return; }
     if (form.patternFile) {
       const file = form.patternFile;
       const path = `${eventId}/${modal.classId}-${file.name}`;
@@ -775,8 +827,38 @@ export default function Coordinator() {
       const { data: urlData } = supabase.storage.from("patterns").getPublicUrl(path);
       url = urlData.publicUrl;
     }
-    await supabase.from("classes").update({ pattern_url: url }).eq("id", modal.classId);
+    const { error } = await supabase.from("classes").update({ pattern_url: url }).in("id", classIds);
+    if (error) { setFormError(error.message); return; }
+    await loadClasses();
+    await loadPatternFiles();
     closeModal();
+  };
+
+  const submitBulkPatterns = async () => {
+    const files = form.patternFiles ?? [];
+    if (!files.length) { setFormError("Choose one or more pattern files to upload"); return; }
+    setUploadingPatternFiles(true);
+    setFormError("");
+    try {
+      let uploaded = 0;
+      for (const file of files) {
+        const safeName = file.name.replace(/[^\w.\- ]+/g, "-");
+        const path = `${eventId}/${safeName}`;
+        const { error } = await supabase.storage.from("patterns").upload(path, file, { upsert: true });
+        if (error) {
+          const msg = error.message?.toLowerCase() ?? "";
+          setFormError(msg.includes("not found") || msg.includes("bucket")
+            ? 'Storage not configured. Create a "patterns" bucket in Supabase Storage (Dashboard → Storage → New bucket, name: patterns, Public: on).'
+            : error.message);
+          return;
+        }
+        uploaded += 1;
+      }
+      await loadPatternFiles();
+      setForm((f) => ({ ...f, patternFiles: [], patternUploadMessage: `Uploaded ${uploaded} pattern${uploaded === 1 ? "" : "s"}.` }));
+    } finally {
+      setUploadingPatternFiles(false);
+    }
   };
 
   // ---- export ----
@@ -975,6 +1057,9 @@ export default function Coordinator() {
                   style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 700 }}>
                   Patterns PDF
                 </a>
+                <button className="btn-ghost" onClick={() => openModal("bulkPatterns")} disabled={!eventId}>
+                  Upload patterns
+                </button>
               </>
             )}
             <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>
@@ -1544,19 +1629,146 @@ export default function Coordinator() {
             {modal.type === "pattern" && (
               <>
                 <h2 className="display modal-title">Set class pattern</h2>
-                {(() => { const cls = classes.find((c) => c.id === modal.classId); return cls && <p style={{ marginTop: 0, color: "var(--quiet)", fontSize: 13 }}>Class {cls.num} · {cls.name}</p>; })()}
+                {(() => {
+                  const cls = classes.find((c) => c.id === modal.classId);
+                  return cls && (
+                    <p style={{ marginTop: 0, color: "var(--quiet)", fontSize: 13 }}>
+                      Class {cls.num} · {cls.name}
+                    </p>
+                  );
+                })()}
                 <label className="modal-label">Upload pattern file</label>
                 <input type="file" accept="image/*,.pdf" style={{ marginBottom: 4 }}
                   onChange={(e) => setForm((f) => ({ ...f, patternFile: e.target.files?.[0] ?? null }))} />
                 <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 0, marginBottom: 12 }}>
                   File upload requires the "patterns" storage bucket in Supabase (see setup notes).
                 </p>
+                <label className="modal-label">Choose uploaded pattern</label>
+                <select className="field" style={{ width: "100%", fontSize: 15 }}
+                  value={patternFiles.some((file) => file.url === form.pattern_url) ? form.pattern_url : ""}
+                  onChange={(e) => setForm((f) => ({ ...f, pattern_url: e.target.value, patternFile: null }))}>
+                  <option value="">{loadingPatternFiles ? "Loading uploaded patterns..." : "— Select from event uploads —"}</option>
+                  {patternFiles.map((file) => (
+                    <option key={file.url} value={file.url}>{file.name}</option>
+                  ))}
+                </select>
+                <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 4, marginBottom: 12 }}>
+                  Use Upload patterns on the dashboard to add all pattern files for the event first.
+                </p>
                 <label className="modal-label">Or paste a URL</label>
                 <input className="field" style={{ width: "100%", fontSize: 15 }} value={form.pattern_url ?? ""} onChange={setField("pattern_url")} placeholder="https://…" />
+                {(() => {
+                  const cls = classes.find((c) => c.id === modal.classId);
+                  const selectedIds = new Set([modal.classId, ...(form.applyClassIds ?? [])].filter(Boolean));
+                  const currentCategoryKey = categoryKey(cls?.program_category);
+                  const sameCategoryIds = currentCategoryKey
+                    ? classes.filter((c) => categoryKey(c.program_category) === currentCategoryKey).map((c) => c.id)
+                    : [modal.classId];
+                  return (
+                    <>
+                      <label className="modal-label">Apply this pattern to</label>
+                      <p style={{ fontSize: 12, color: "var(--quiet)", margin: "0 0 8px" }}>
+                        Upload or paste once, then choose every class that uses the same pattern.
+                      </p>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                        <button type="button" className="btn-ghost" style={{ padding: "6px 10px" }}
+                          onClick={() => setPatternApplyClassIds(sameCategoryIds)} disabled={!currentCategoryKey}>
+                          Same category
+                        </button>
+                        <button type="button" className="btn-ghost" style={{ padding: "6px 10px" }}
+                          onClick={() => setPatternApplyClassIds(classes.map((c) => c.id))}>
+                          All classes
+                        </button>
+                        <button type="button" className="btn-ghost" style={{ padding: "6px 10px" }}
+                          onClick={() => setPatternApplyClassIds([modal.classId])}>
+                          Current only
+                        </button>
+                        <span style={{ fontSize: 12, color: "var(--quiet)", alignSelf: "center" }}>
+                          {selectedIds.size} selected
+                        </span>
+                      </div>
+                      <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 10, background: "#fff" }}>
+                        {classes.map((c) => {
+                          const checked = selectedIds.has(c.id);
+                          const isCurrent = c.id === modal.classId;
+                          return (
+                            <label key={c.id} style={{ display: "grid", gridTemplateColumns: "20px 1fr auto", gap: 8, alignItems: "center", padding: "9px 10px", borderBottom: "1px solid var(--line)", cursor: isCurrent ? "default" : "pointer" }}>
+                              <input type="checkbox" checked={checked || isCurrent} disabled={isCurrent}
+                                onChange={() => togglePatternApplyClass(c.id)}
+                                style={{ width: 16, height: 16 }} />
+                              <span style={{ minWidth: 0 }}>
+                                <span className="display" style={{ display: "block", fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                  Class {c.num} · {c.name}
+                                </span>
+                                <span style={{ display: "block", fontSize: 11.5, color: "var(--quiet)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                  {c.program_category || "No category"}
+                                </span>
+                              </span>
+                              <span style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                                {isCurrent && <span style={{ fontSize: 10.5, color: "var(--brass)", fontWeight: 800, textTransform: "uppercase" }}>Current</span>}
+                                {c.pattern_url && (
+                                  <span style={{ fontSize: 10.5, color: "var(--green)", fontWeight: 800, textTransform: "uppercase" }}>
+                                    Has pattern
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitPattern}>Save pattern</button>
                   <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                </div>
+              </>
+            )}
+
+            {modal.type === "bulkPatterns" && (
+              <>
+                <h2 className="display modal-title">Upload patterns</h2>
+                <p style={{ fontSize: 13, color: "var(--quiet)", marginTop: 0 }}>
+                  Upload all PDFs or images for this event here. Then open Pattern on any class, choose an uploaded file, and apply it to every class that uses that same pattern.
+                </p>
+                <label className="modal-label">Pattern files</label>
+                <input type="file" accept="image/*,.pdf" multiple style={{ marginBottom: 8 }}
+                  onChange={(e) => setForm((f) => ({ ...f, patternFiles: Array.from(e.target.files ?? []), patternUploadMessage: "" }))} />
+                <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 0 }}>
+                  Files are stored in the public Supabase Storage bucket named "patterns".
+                </p>
+                {form.patternUploadMessage && (
+                  <p style={{ color: "var(--green)", fontSize: 13, fontWeight: 700, margin: "8px 0 0" }}>
+                    {form.patternUploadMessage}
+                  </p>
+                )}
+                {formError && <p className="modal-error">{formError}</p>}
+                <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }}
+                    onClick={submitBulkPatterns} disabled={uploadingPatternFiles}>
+                    {uploadingPatternFiles ? "Uploading..." : "Upload selected files"}
+                  </button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Done</button>
+                </div>
+
+                <label className="modal-label">Already uploaded</label>
+                <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 10, background: "#fff" }}>
+                  {loadingPatternFiles ? (
+                    <div style={{ padding: 12, fontSize: 13, color: "var(--quiet)" }}>Loading patterns...</div>
+                  ) : patternFiles.length ? (
+                    patternFiles.map((file) => (
+                      <a key={file.url} href={file.url} target="_blank" rel="noreferrer"
+                        style={{ display: "block", padding: "9px 10px", borderBottom: "1px solid var(--line)", color: "var(--leather)", fontSize: 13, fontWeight: 700, textDecoration: "none", overflowWrap: "anywhere" }}>
+                        {file.name}
+                      </a>
+                    ))
+                  ) : (
+                    <div style={{ padding: 12, fontSize: 13, color: "var(--quiet)" }}>
+                      No pattern files have been uploaded for this event yet.
+                    </div>
+                  )}
                 </div>
               </>
             )}

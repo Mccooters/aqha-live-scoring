@@ -49,9 +49,30 @@ function addMessagePage(pdfDoc, font, bold, title, lines = []) {
   });
 }
 
-async function appendPattern(pdfDoc, font, bold, cls, patternUrl, reqUrl) {
+function patternGroupLabel(classes) {
+  if (classes.length === 1) return `Class ${classes[0].num} - ${classes[0].name}`;
+  const refs = classes.map((cls) => cls.num).join(", ");
+  return `Classes ${refs} - shared pattern`;
+}
+
+function groupPatternClasses(classes) {
+  const groups = [];
+  const byUrl = new Map();
+  classes.forEach((cls) => {
+    const patternUrl = String(cls.pattern_url ?? "").trim();
+    if (!patternUrl) return;
+    if (!byUrl.has(patternUrl)) {
+      const group = { patternUrl, classes: [] };
+      byUrl.set(patternUrl, group);
+      groups.push(group);
+    }
+    byUrl.get(patternUrl).classes.push(cls);
+  });
+  return groups;
+}
+
+async function appendPattern(pdfDoc, font, bold, label, patternUrl, reqUrl) {
   const absoluteUrl = new URL(patternUrl, reqUrl).toString();
-  const label = `Class ${cls.num} - ${cls.name}`;
   try {
     const res = await fetch(absoluteUrl);
     if (!res.ok) throw new Error(`Download failed (${res.status})`);
@@ -105,6 +126,7 @@ export async function GET(req, { params }) {
 
   const patternClasses = (classes ?? [])
     .filter((cls) => cls.pattern_url && (!day || String(cls.day ?? 1) === String(day)));
+  const patternGroups = groupPatternClasses(patternClasses);
 
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -112,11 +134,13 @@ export async function GET(req, { params }) {
 
   addMessagePage(pdfDoc, font, bold, `${event?.name ?? "Event"} - Pattern Book`, [
     [event?.location, event?.starts_on, day ? `Day ${day}` : null].filter(Boolean).join(" - "),
-    patternClasses.length ? `${patternClasses.length} pattern${patternClasses.length === 1 ? "" : "s"} included.` : "No class patterns have been uploaded yet.",
+    patternGroups.length
+      ? `${patternGroups.length} unique pattern file${patternGroups.length === 1 ? "" : "s"} included for ${patternClasses.length} class${patternClasses.length === 1 ? "" : "es"}.`
+      : "No class patterns have been uploaded yet.",
   ]);
 
-  for (const cls of patternClasses) {
-    await appendPattern(pdfDoc, font, bold, cls, cls.pattern_url, req.url);
+  for (const group of patternGroups) {
+    await appendPattern(pdfDoc, font, bold, patternGroupLabel(group.classes), group.patternUrl, req.url);
   }
 
   const bytes = await pdfDoc.save();
