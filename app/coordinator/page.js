@@ -937,6 +937,9 @@ export default function Coordinator() {
             {eventId && <>
               Share: <Link href={`/event/${eventId}`} style={{ color: "var(--brass)" }}>Live view</Link>
               {" · "}<Link href={`/event/${eventId}/schedule`} style={{ color: "var(--brass)" }}>Schedule</Link>
+              {" · "}<Link href={`/event/${eventId}/program`} style={{ color: "var(--brass)" }}>Program</Link>
+              {" · "}<Link href={`/event/${eventId}/results`} style={{ color: "var(--brass)" }}>Results</Link>
+              {" · "}<a href={`/api/events/${eventId}/patterns`} style={{ color: "var(--brass)" }}>Patterns PDF</a>
               {" · "}<Link href={`/event/${eventId}/register`} style={{ color: "var(--brass)" }}>Entry form</Link>
               {currentEvent && (() => {
                 const s = currentEvent.status;
@@ -958,6 +961,22 @@ export default function Coordinator() {
             </>}
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {eventId && (
+              <>
+                <Link href={`/event/${eventId}/program`} target="_blank"
+                  style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 700 }}>
+                  Print program
+                </Link>
+                <Link href={`/event/${eventId}/results`} target="_blank"
+                  style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 700 }}>
+                  Print results
+                </Link>
+                <a href={`/api/events/${eventId}/patterns`}
+                  style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 700 }}>
+                  Patterns PDF
+                </a>
+              </>
+            )}
             <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>
               Edit event
             </button>

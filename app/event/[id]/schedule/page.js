@@ -63,6 +63,9 @@ export default function SchedulePage() {
         <div style={{ maxWidth: 860, margin: "0 auto" }}>
           <div style={{ display: "flex", gap: 14, marginBottom: 6 }}>
             <Link href={`/event/${id}`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>← Live scoring</Link>
+            <Link href={`/event/${id}/program`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>Program</Link>
+            <Link href={`/event/${id}/results`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>Results</Link>
+            <a href={`/api/events/${id}/patterns`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>Patterns PDF</a>
             <Link href="/" style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>All events</Link>
           </div>
           <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", margin: "0 0 2px" }}>{event.name}</h1>
@@ -77,6 +80,8 @@ export default function SchedulePage() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
           <h2 className="display" style={{ fontWeight: 700, fontSize: 20, margin: 0 }}>Class Schedule</h2>
           <span className={`badge ${event.status}`}>{event.status}</span>
+          <Link href={`/event/${id}/program`} className="btn-ghost" style={{ textDecoration: "none", marginLeft: "auto" }}>Print program</Link>
+          <Link href={`/event/${id}/results`} className="btn-ghost" style={{ textDecoration: "none" }}>Print results</Link>
         </div>
 
         {classes.length === 0 && (

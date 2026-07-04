@@ -255,9 +255,9 @@ export default function ImportClasses({ eventId, onDone }) {
       <h2 className="display modal-title">Import class list</h2>
       <p style={{ marginTop: 0, fontSize: 13.5, color: "var(--quiet)" }}>
         Upload a spreadsheet of classes to add to this event. No entries needed — just the class list.
-        Exhibitors will then be able to pick from these classes when registering online.{" "}
+        Exhibitors will then be able to pick from these classes when registering online. The example file includes an Options tab and grey free-entry cells for class numbers, names, and judges.{" "}
         <a href="/hcqha-class-list-template.xlsx" download style={{ color: "var(--brass)", fontWeight: 700 }}>
-          Download A Show class list
+          Download example class template
         </a>
       </p>
 
