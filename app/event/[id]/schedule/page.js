@@ -142,7 +142,11 @@ export default function SchedulePage() {
                             </td>
                             <td>
                               <div style={{ fontWeight: 600, fontSize: 14 }}>{cls.name}</div>
-                              {cls.judge && <div style={{ fontSize: 12, color: "var(--quiet)" }}>Judge: {cls.judge}</div>}
+                              {(cls.judge || cls.judge2) && (
+                                <div style={{ fontSize: 12, color: "var(--quiet)" }}>
+                                  {cls.judge2 ? `Judges: ${cls.judge || "—"} · ${cls.judge2}` : `Judge: ${cls.judge}`}
+                                </div>
+                              )}
                               {cls.pattern_url && (
                                 <a href={cls.pattern_url} target="_blank" rel="noreferrer"
                                   style={{ fontSize: 12, color: "var(--brass)", textDecoration: "none", fontWeight: 700 }}>▦ View pattern</a>
