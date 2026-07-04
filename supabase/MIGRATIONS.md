@@ -34,6 +34,15 @@ hasn't been run.
         code update is live on Vercel (the code update ships in the same pull
         request as this file) — running it against older code breaks the
         registration success page and the "Notify me" button.
+- [ ] **v17** — `schema-v17-live-activity-tokens.sql`
+      → only needed for the companion iPhone app (Live Activities). Adds the
+        table that tracks which phones are showing the Lock Screen live card.
+        Safe to skip until that app is being built.
+- [ ] **v18** — `schema-v18-clubs-foundation.sql`
+      → first step toward supporting **other clubs**. Creates the "club" idea,
+        tags all current data as HCQHA's, and adds per-club staff logins.
+        **Non-breaking** — nothing changes for HCQHA, safe to run anytime. The
+        actual per-club isolation is a later, deliberate step (v19).
 
 Tick these off once you've run them.
 
@@ -59,6 +68,8 @@ Tick these off once you've run them.
 | `schema-v14-hp-category.sql` | A High Points category tag on each class |
 | `schema-v15-hp-show-date.sql` | Stores the event date with each High Points result |
 | `schema-v16-security-lockdown.sql` | Security: registrations and push subscriptions are no longer publicly readable/writable |
+| `schema-v17-live-activity-tokens.sql` | iPhone companion app: tracks phones showing the Lock Screen Live Activity |
+| `schema-v18-clubs-foundation.sql` | Multi-club foundation: the "club" concept, per-club branding + staff logins (non-breaking) |
 
 ## For whoever updates the code next
 

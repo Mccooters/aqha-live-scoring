@@ -8,3 +8,8 @@ enabled = true
 # function itself then checks the token belongs to a signed-in staff member.
 verify_jwt = true
 entrypoint = "./functions/send-push/index.js"
+
+[functions.send-live-activity]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/send-live-activity/index.js"

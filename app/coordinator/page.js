@@ -26,6 +26,27 @@ function calcPoints(placing, competingEntries) {
 const fmtBack = (n) => String(n).padStart(3, "0");
 const ordinal = (n) => { const s = ["th","st","nd","rd"]; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
 
+// Snapshot of a live class for the iPhone Live Activity (Lock Screen card).
+// Keys must match the app's ScoringAttributes.ContentState exactly.
+function liveActivityState(cls) {
+  const mode = cls.scoring_mode ?? "score";
+  const active = (cls.entries ?? []).filter((e) => !e.scratched).sort((a, b) => a.draw_order - b.draw_order);
+  const cur = mode === "tbc" ? active.find((e) => !e.called) : active.find((e) => e.score == null);
+  const pos = cur ? active.findIndex((e) => e.id === cur.id) + 1 : active.length;
+  const lastScored = [...active].reverse().find((e) => e.score != null);
+  return {
+    className: cls.name,
+    classNumber: cls.num,
+    backNumber: cur?.back_number != null ? fmtBack(cur.back_number) : "",
+    horse: cur?.horse ?? "Class complete",
+    exhibitor: cur?.exhibitor ?? "",
+    drawPosition: pos,
+    drawTotal: active.length,
+    latestScore: lastScored?.score != null ? String(lastScored.score) : "",
+    status: cls.status ?? "live",
+  };
+}
+
 async function triggerPush(title, body, tag) {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -46,6 +67,23 @@ async function triggerPush(title, body, tag) {
     return { ok: true, data };
   } catch (err) {
     return { ok: false, error: err?.message ?? "Could not contact the push notification service." };
+  }
+}
+
+// Push a live update to any iPhones showing this event's Lock Screen activity.
+// Fire-and-forget, like triggerPush — never blocks or breaks scoring.
+async function triggerLiveActivity(eventId, contentState, { event = "update" } = {}) {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
+    await fetch("/api/live-activity/push", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ event_id: eventId, content_state: contentState, event }),
+    });
+  } catch {
+    /* ignore — Lock Screen updates are best-effort */
   }
 }
 
@@ -159,6 +197,25 @@ export default function Coordinator() {
   // Clear score inputs whenever the live class changes (auto-advance after last entry)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setScoreInput(""); setScoreInput2(""); }, [liveClass?.id]);
+
+  // Keep iPhone Lock Screen activities in sync. Because the dashboard re-fetches
+  // on every realtime change, this fires whenever the "now showing" horse, draw,
+  // or score changes — covering scoring, scratches, reorders and class changes.
+  const liveStateKey = liveClass ? JSON.stringify(liveActivityState(liveClass)) : null;
+  useEffect(() => {
+    if (!eventId || !liveStateKey) return;
+    triggerLiveActivity(eventId, JSON.parse(liveStateKey));
+  }, [eventId, liveStateKey]);
+
+  // End the Lock Screen activity when the event finishes.
+  useEffect(() => {
+    if (eventId && currentEvent?.status === "completed") {
+      triggerLiveActivity(eventId, {
+        className: "Show complete", classNumber: 0, backNumber: "", horse: "Results are final",
+        exhibitor: "", drawPosition: 0, drawTotal: 0, latestScore: "", status: "completed",
+      }, { event: "end" });
+    }
+  }, [eventId, currentEvent?.status]);
 
   // ---- scoring actions ----
   const saveScore = async () => {
