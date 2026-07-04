@@ -1,8 +1,9 @@
 "use client";
-import { Fragment, useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
+import { normaliseCategoryLabel, programDisplayRows } from "../../../lib/classCategories";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -18,6 +19,42 @@ const ordinal = (n) => {
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 };
+
+function classCategoryText(cls) {
+  return normaliseCategoryLabel(cls?.program_category);
+}
+
+function LiveClassLabel({ cls }) {
+  const category = classCategoryText(cls);
+  return (
+    <>
+      Live
+      {category ? ` · ${category}` : ""}
+      {" · "}Class {cls.num} — {cls.name}
+    </>
+  );
+}
+
+function NextClassPreview({ cls }) {
+  if (!cls) return null;
+  const category = classCategoryText(cls);
+  return (
+    <div style={{
+      marginTop: 14,
+      padding: "10px 12px",
+      border: "1px solid rgba(201,169,97,.35)",
+      borderRadius: 10,
+      background: "rgba(255,255,255,.06)",
+    }}>
+      <div style={{ fontSize: 10.5, letterSpacing: ".16em", textTransform: "uppercase", color: "#9c8a6e", fontWeight: 700, marginBottom: 3 }}>
+        Next up{category ? ` · ${category}` : ""}
+      </div>
+      <div style={{ fontSize: 13.5, color: "#F5EFE4", fontWeight: 700 }}>
+        Class {cls.num} — {cls.name}
+      </div>
+    </div>
+  );
+}
 
 function urlBase64ToUint8Array(base64) {
   const pad = "=".repeat((4 - (base64.length % 4)) % 4);
@@ -114,6 +151,12 @@ export default function EventPage() {
   };
 
   const liveClass = classes.find((c) => c.status === "live");
+  const liveClassIndex = liveClass ? classes.findIndex((c) => c.id === liveClass.id) : -1;
+  const nextClass = liveClass
+    ? classes.slice(liveClassIndex + 1).find((c) => c.status === "upcoming")
+      ?? classes.find((c) => c.status === "upcoming" && c.id !== liveClass.id)
+      ?? null
+    : null;
   const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
   const active = liveClass ? liveClass.entries.filter((e) => !e.scratched) : [];
   const drawPos = current ? active.findIndex((e) => e.id === current.id) + 1 : 0;
@@ -271,7 +314,7 @@ export default function EventPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
               <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
-                Live · Class {liveClass.num} — {liveClass.name}
+                <LiveClassLabel cls={liveClass} />
               </span>
             </div>
             <div className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", lineHeight: 1.2 }}>
@@ -280,13 +323,14 @@ export default function EventPage() {
             <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 4 }}>
               Results will be posted once the judge's paperwork is received.
             </div>
+            <NextClassPreview cls={nextClass} />
           </section>
         ) : liveClass && liveClass.scoring_mode === "class_only" ? (
           <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
               <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
-                Live · Class {liveClass.num} — {liveClass.name}
+                <LiveClassLabel cls={liveClass} />
               </span>
             </div>
             <div className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", lineHeight: 1.2 }}>
@@ -295,13 +339,14 @@ export default function EventPage() {
             {liveClass.judge && (
               <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 4 }}>Judge: {liveClass.judge}</div>
             )}
+            <NextClassPreview cls={nextClass} />
           </section>
         ) : liveClass && current ? (
           <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
               <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
-                Live · Class {liveClass.num} — {liveClass.name}
+                <LiveClassLabel cls={liveClass} />
               </span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
@@ -330,6 +375,7 @@ export default function EventPage() {
                 <div style={{ height: "100%", width: `${(scored / Math.max(active.length, 1)) * 100}%`, background: "var(--brass)", transition: "width .5s ease" }} />
               </div>
             )}
+            <NextClassPreview cls={nextClass} />
           </section>
         ) : event.status === "completed" ? (
           <section className="card" style={{ background: "var(--sand)", border: "1px solid var(--line)", padding: "20px 22px" }}>
@@ -389,7 +435,22 @@ export default function EventPage() {
         )}
 
         {/* ---- Per-class scoreboards ---- */}
-        {classes.map((cls, idx) => {
+        {programDisplayRows(classes).map((row) => {
+          if (row.type === "break") {
+            return (
+              <div key={row.key} style={{ margin: "24px 0 8px", color: "var(--leather)", background: "#FFF7D6", border: "1px solid #E6C76B", borderRadius: 8, padding: "7px 12px", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
+                {row.label}
+              </div>
+            );
+          }
+          if (row.type === "category") {
+            return (
+              <div key={row.key} style={{ margin: "22px 0 8px", color: "#1746C6", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
+                {row.label}
+              </div>
+            );
+          }
+          const cls = row.cls;
           const mode = cls.scoring_mode ?? "score";
           const isTbcDraw = mode === "tbc";
           const isPlacingMode = mode === "placing" || mode === "class_only" || mode === "tbc_class";
@@ -407,15 +468,8 @@ export default function EventPage() {
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
           const isClassOnly = mode === "class_only";
-          const showCategory = cls.program_category && cls.program_category !== classes[idx - 1]?.program_category;
           return (
-            <Fragment key={cls.id}>
-            {showCategory && (
-              <div style={{ margin: "22px 0 8px", color: "#1746C6", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
-                {cls.program_category}
-              </div>
-            )}
-            <section className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
+            <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
               <div className="card-head" style={isLive ? { background: "#FBF4E4" } : {}}>
                 <div className="display" style={{ fontWeight: 600, fontSize: 16.5 }}>
                   Class {cls.num} · {cls.name}
@@ -491,7 +545,6 @@ export default function EventPage() {
                 </tbody>
               </table>
             </section>
-            </Fragment>
           );
         })}
       </main>

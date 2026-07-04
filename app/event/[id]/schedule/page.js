@@ -1,8 +1,9 @@
 "use client";
-import { Fragment, useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
+import { programDisplayRows } from "../../../../lib/classCategories";
 
 export default function SchedulePage() {
   const { id } = useParams();
@@ -44,17 +45,6 @@ export default function SchedulePage() {
   days.sort((a, b) => a.day - b.day);
 
   const isMultiDay = days.length > 1 || (event?.starts_on && event?.ends_on && event.ends_on !== event.starts_on);
-
-  const categoryGroups = (dayClasses) => {
-    const groups = [];
-    dayClasses.forEach((cls) => {
-      const label = cls.program_category?.trim() || "";
-      let group = groups.find((g) => g.label === label);
-      if (!group) { group = { label, classes: [] }; groups.push(group); }
-      group.classes.push(cls);
-    });
-    return groups;
-  };
 
   const dayDate = (day) => {
     if (!event?.starts_on) return null;
@@ -114,16 +104,26 @@ export default function SchedulePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {categoryGroups(dayCls).map((group) => (
-                    <Fragment key={group.label || "classes"}>
-                      {group.label && (
-                        <tr>
-                          <td colSpan={4} style={{ color: "#1746C6", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase", background: "#F7FAFF", borderTop: "1px solid var(--line)" }}>
-                            {group.label}
+                  {programDisplayRows(dayCls).map((row) => {
+                    if (row.type === "break") {
+                      return (
+                        <tr key={row.key}>
+                          <td colSpan={4} style={{ color: "var(--leather)", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase", background: "#FFF7D6", borderTop: "1px solid #E6C76B" }}>
+                            {row.label}
                           </td>
                         </tr>
-                      )}
-                      {group.classes.map((cls) => {
+                      );
+                    }
+                    if (row.type === "category") {
+                      return (
+                        <tr key={row.key}>
+                          <td colSpan={4} style={{ color: "#1746C6", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase", background: "#F7FAFF", borderTop: "1px solid var(--line)" }}>
+                            {row.label}
+                          </td>
+                        </tr>
+                      );
+                    }
+                    const cls = row.cls;
                         const competing = (cls.entries ?? []).filter((e) => !e.scratched).length;
                         // TBC draw classes advance by marking entries "called" —
                         // scores only come later from paperwork.
@@ -162,9 +162,7 @@ export default function SchedulePage() {
                             </td>
                           </tr>
                         );
-                      })}
-                    </Fragment>
-                  ))}
+                  })}
                 </tbody>
               </table>
             </section>

@@ -1,11 +1,14 @@
 "use client";
 import { useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import { normaliseBreakLabel, normaliseCategoryLabel } from "../../lib/classCategories";
 
 const ALIASES = {
   num:          ["class #", "class no", "class number", "class num", "num", "#", "number", "no"],
   name:         ["class name", "name", "class"],
   program_category: ["category", "class category", "program category", "program section", "section", "division", "group"],
+  program_break_before: ["break", "break before", "program break", "program break before", "break heading", "program break heading"],
+  program_break_after: ["break after", "program break after", "finish after"],
   judge:        ["judge", "judge 1", "judge1", "judge name", "judge 1 name", "judge one", "judge one name", "first judge", "judge a", "judged by"],
   judge2:       ["judge 2", "judge2", "judge 2 name", "judge two", "judge two name", "second judge", "judge b"],
   scoring_mode: ["type", "scoring", "scoring mode", "scoring type", "mode", "score type", "class type"],
@@ -75,18 +78,28 @@ export default function ImportClasses({ eventId, onDone }) {
       const hasJudgeCol = headers.includes("judge");
       const hasJudge2Col = headers.includes("judge2");
       const hasCategoryCol = headers.includes("program_category");
+      const hasBreakCol = headers.includes("program_break_before");
+      const hasBreakAfterCol = headers.includes("program_break_after");
       let currentCategory = "";
+      let pendingBreak = "";
 
       raw.slice(1).forEach((row, i) => {
         const obj = {};
         headers.forEach((field, j) => { if (field) obj[field] = String(row[j] ?? "").trim(); });
-        if (obj.program_category) currentCategory = obj.program_category;
-        if (!obj.name && obj.program_category) return; // category heading row
+        const rowCategory = normaliseCategoryLabel(obj.program_category);
+        const rowBreak = normaliseBreakLabel(obj.program_break_before);
+        const rowBreakAfter = normaliseBreakLabel(obj.program_break_after);
+        if (rowCategory) currentCategory = rowCategory;
+        if (rowBreak) pendingBreak = rowBreak;
+        if (!obj.name && rowBreak) return; // break heading row
+        if (!obj.name && rowCategory) return; // category heading row
         if (!obj.name) return; // blank row — skip silently
         if (!hasCategoryCol && looksLikeCategoryHeading(obj)) {
-          currentCategory = obj.name;
+          currentCategory = normaliseCategoryLabel(obj.name);
           return;
         }
+        const breakBefore = rowBreak || pendingBreak || null;
+        pendingBreak = "";
         const num = obj.num ? parseInt(obj.num, 10) : null;
         if (obj.num && isNaN(num)) {
           warns.push(`Row ${i + 2}: Class # "${obj.num}" is not a number — will be auto-numbered`);
@@ -103,8 +116,12 @@ export default function ImportClasses({ eventId, onDone }) {
           judge2: obj.judge2 || "",
           hasJudgeCol,
           hasJudge2Col,
-          program_category: obj.program_category || currentCategory || null,
+          program_category: rowCategory || currentCategory || null,
           hasCategoryCol: hasCategoryCol || !!currentCategory,
+          program_break_before: breakBefore,
+          hasBreakCol: hasBreakCol || !!breakBefore,
+          program_break_after: rowBreakAfter || null,
+          hasBreakAfterCol,
           scoring_mode: mode ?? "score",
           hp_category: obj.hp_category || null,
         });
@@ -142,7 +159,9 @@ export default function ImportClasses({ eventId, onDone }) {
           const patch = { scoring_mode: r.scoring_mode };
           if (r.hasJudgeCol) patch.judge = r.judge;
           if (r.hasJudge2Col) patch.judge2 = r.judge2 || null;
-          if (r.hasCategoryCol) patch.program_category = r.program_category || null;
+          if (r.hasCategoryCol) patch.program_category = normaliseCategoryLabel(r.program_category) || null;
+          if (r.hasBreakCol) patch.program_break_before = normaliseBreakLabel(r.program_break_before) || null;
+          if (r.hasBreakAfterCol) patch.program_break_after = normaliseBreakLabel(r.program_break_after) || null;
           if (r.hp_category !== null) patch.hp_category = r.hp_category;
           if (r.num !== null) patch.num = r.num;
           toUpdate.push({ id: match.id, ...patch });
@@ -161,7 +180,9 @@ export default function ImportClasses({ eventId, onDone }) {
             scoring_mode: r.scoring_mode,
             hp_category:  r.hp_category,
           };
-          if (r.program_category) insertRow.program_category = r.program_category;
+          if (r.program_category) insertRow.program_category = normaliseCategoryLabel(r.program_category);
+          if (r.program_break_before) insertRow.program_break_before = normaliseBreakLabel(r.program_break_before);
+          if (r.program_break_after) insertRow.program_break_after = normaliseBreakLabel(r.program_break_after);
           toInsert.push(insertRow);
           existingByName[r.name.toLowerCase()] = true;
         }
@@ -180,6 +201,7 @@ export default function ImportClasses({ eventId, onDone }) {
     } catch (err) {
       setError(err.message?.includes("program_category")
         ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
+        : err.message?.includes("program_break_before") || err.message?.includes("program_break_after") ? 'Database migration needed. Please run "schema-v20-program-breaks.sql" in your Supabase SQL Editor first.'
         : err.message ?? "Import failed.");
     } finally {
       setImporting(false);
@@ -216,7 +238,7 @@ export default function ImportClasses({ eventId, onDone }) {
       {!rows ? (
         <>
           <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 0 }}>
-            Columns: <strong>Category</strong> (optional), <strong>Class #</strong>, <strong>Class Name</strong>, <strong>Judge 1</strong> (optional), <strong>Judge 2</strong> (optional),
+            Columns: <strong>Category</strong> (optional), <strong>Break Before</strong> (optional), <strong>Class #</strong>, <strong>Class Name</strong>, <strong>Judge 1</strong> (optional), <strong>Judge 2</strong> (optional), <strong>Break After</strong> (optional),
             Type (optional — <em>Score</em>, <em>Placing</em>, <em>Class Only</em>, <em>TBC (draw)</em>, or <em>TBC (whole class)</em>; defaults to Score),
             <strong> HP Category</strong> (optional — e.g. <em>Amateur</em>, <em>Senior Horse</em>; sets which High Points table this class feeds into)
           </p>
@@ -240,16 +262,18 @@ export default function ImportClasses({ eventId, onDone }) {
           <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12 }}>
             <table>
               <thead>
-                <tr><th>Category</th><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge 1</th><th>Judge 2</th><th>Type</th><th>HP Category</th></tr>
+                <tr><th>Category</th><th>Break Before</th><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge 1</th><th>Judge 2</th><th>Break After</th><th>Type</th><th>HP Category</th></tr>
               </thead>
               <tbody>
                 {rows.slice(0, 60).map((r, i) => (
                   <tr key={i}>
                     <td style={{ fontSize: 12, color: r.program_category ? "#1746C6" : "var(--line)", fontWeight: r.program_category ? 700 : 400 }}>{r.program_category || "—"}</td>
+                    <td style={{ fontSize: 12, color: r.program_break_before ? "var(--leather)" : "var(--line)", fontWeight: r.program_break_before ? 700 : 400 }}>{r.program_break_before || "—"}</td>
                     <td style={{ color: "var(--quiet)", fontFamily: "monospace" }}>{r.num ?? "auto"}</td>
                     <td style={{ fontWeight: 600 }}>{r.name}</td>
                     <td style={{ color: "var(--quiet)", fontSize: 12 }}>{r.judge || "—"}</td>
                     <td style={{ color: "var(--quiet)", fontSize: 12 }}>{r.judge2 || "—"}</td>
+                    <td style={{ fontSize: 12, color: r.program_break_after ? "var(--leather)" : "var(--line)", fontWeight: r.program_break_after ? 700 : 400 }}>{r.program_break_after || "—"}</td>
                     <td style={{ fontSize: 12 }}>
                       <span style={{
                         background: r.scoring_mode === "placing" ? "#EEF4FF" : r.scoring_mode === "class_only" ? "#F3F0FF" : (r.scoring_mode === "tbc" || r.scoring_mode === "tbc_class") ? "#FFF3E0" : "#F0FBF0",
@@ -265,7 +289,7 @@ export default function ImportClasses({ eventId, onDone }) {
                   </tr>
                 ))}
                 {rows.length > 60 && (
-                  <tr><td colSpan={7} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
+                  <tr><td colSpan={9} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
                 )}
               </tbody>
             </table>

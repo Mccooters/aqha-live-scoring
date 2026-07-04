@@ -1,7 +1,8 @@
 "use client";
-import { Fragment, useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
+import { programDisplayRows } from "../../lib/classCategories";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 
@@ -21,15 +22,22 @@ const PROGRAM_CATEGORIES = [
   "Quarter Horse Halter", "Paint Halter", "Paint Bred Halter", "Appaloosa Halter",
   "Other Breeds Halter", "Showmanship", "Lungeline", "Hunter in Hand", "Hack",
   "Hunter Under Saddle", "Hunt Seat Equitation", "Set Up Trail", "Trail",
-  "Break for Gear Change", "Break and Open Pen", "Western Pleasure",
+  "Western Pleasure",
   "Horsemanship", "Ranch Riding", "Reining", "Finish",
 ];
 
+const PROGRAM_BREAKS = ["SET UP TRAIL", "BREAK FOR GEAR CHANGE", "BREAK AND OPEN PEN", "FINISH"];
+
 function ProgramCategoryDatalist() {
   return (
-    <datalist id="program-categories">
-      {PROGRAM_CATEGORIES.map((cat) => <option key={cat} value={cat} />)}
-    </datalist>
+    <>
+      <datalist id="program-categories">
+        {PROGRAM_CATEGORIES.map((cat) => <option key={cat} value={cat} />)}
+      </datalist>
+      <datalist id="program-breaks">
+        {PROGRAM_BREAKS.map((label) => <option key={label} value={label} />)}
+      </datalist>
+    </>
   );
 }
 
@@ -598,7 +606,7 @@ export default function Coordinator() {
     }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
-      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "" };
+      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "" };
     }
     if (type === "editEvent" && extra.event) {
       const ev = extra.event;
@@ -666,10 +674,13 @@ export default function Coordinator() {
       hp_category: form.hp_category || null,
     };
     if (form.program_category?.trim()) insertData.program_category = form.program_category.trim();
+    if (form.program_break_before?.trim()) insertData.program_break_before = form.program_break_before.trim();
+    if (form.program_break_after?.trim()) insertData.program_break_after = form.program_break_after.trim();
     const { error } = await supabase.from("classes").insert(insertData);
     if (error) {
-      const msg = error.message?.includes("program_category")
-        ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
+      const msg = error.message?.includes("program_break_before") || error.message?.includes("program_break_after")
+        ? 'Database migration needed. Please run "schema-v20-program-breaks.sql" in your Supabase SQL Editor first.'
+        : error.message?.includes("program_category") ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("day") ? 'Database migration needed. Please run "schema-v2-horses.sql" in your Supabase SQL Editor first.' : error.message;
       setFormError(msg);
       return;
@@ -729,11 +740,18 @@ export default function Coordinator() {
     if (Object.prototype.hasOwnProperty.call(modal.cls ?? {}, "program_category") || form.program_category?.trim()) {
       updateData.program_category = form.program_category?.trim() || null;
     }
+    if (Object.prototype.hasOwnProperty.call(modal.cls ?? {}, "program_break_before") || form.program_break_before?.trim()) {
+      updateData.program_break_before = form.program_break_before?.trim() || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(modal.cls ?? {}, "program_break_after") || form.program_break_after?.trim()) {
+      updateData.program_break_after = form.program_break_after?.trim() || null;
+    }
     if (modal.cls.day !== undefined) updateData.day = parseInt(form.day ?? "1", 10) || 1;
     const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
     if (error) {
-      setFormError(error.message?.includes("program_category")
-        ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
+      setFormError(error.message?.includes("program_break_before") || error.message?.includes("program_break_after")
+        ? 'Database migration needed. Please run "schema-v20-program-breaks.sql" in your Supabase SQL Editor first.'
+        : error.message?.includes("program_category") ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
         : error.message);
       return;
     }
@@ -1152,7 +1170,22 @@ export default function Coordinator() {
           </div>
         )}
 
-        {classes.map((cls, idx) => {
+        {programDisplayRows(classes).map((row) => {
+          if (row.type === "break") {
+            return (
+              <div key={row.key} style={{ margin: "24px 0 8px", color: "var(--leather)", background: "#FFF7D6", border: "1px solid #E6C76B", borderRadius: 8, padding: "7px 12px", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
+                {row.label}
+              </div>
+            );
+          }
+          if (row.type === "category") {
+            return (
+              <div key={row.key} style={{ margin: "22px 0 8px", color: "#1746C6", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
+                {row.label}
+              </div>
+            );
+          }
+          const cls = row.cls;
           const mode = cls.scoring_mode ?? "score";
           const isTbcDraw = mode === "tbc";
           const twoJudges = !!cls.judge2;
@@ -1171,15 +1204,8 @@ export default function Coordinator() {
           const isLive = cls.status === "live";
           const confirmedSpots = cls.entries.filter((e) => !e.scratched).length;
           const isFull = cls.capacity != null && confirmedSpots >= cls.capacity;
-          const showCategory = !isClinic && cls.program_category && cls.program_category !== classes[idx - 1]?.program_category;
           return (
-            <Fragment key={cls.id}>
-            {showCategory && (
-              <div style={{ margin: "22px 0 8px", color: "#1746C6", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
-                {cls.program_category}
-              </div>
-            )}
-            <section className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
+            <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
               <div className="card-head" style={{ flexWrap: "nowrap", ...(isLive ? { background: "#FBF4E4" } : {}) }}>
                 {cls.status === "upcoming" && (
                   <input type="checkbox" checked={selectedClassIds.has(cls.id)} onChange={() => toggleClassSelect(cls.id)}
@@ -1304,7 +1330,6 @@ export default function Coordinator() {
                 </tbody>
               </table>
             </section>
-            </Fragment>
           );
         })}
 
@@ -1427,6 +1452,10 @@ export default function Coordinator() {
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge2 ?? ""} onChange={setField("judge2")} placeholder="e.g. L. Smith" />
                 <label className="modal-label">Program category</label>
                 <input className="field" list="program-categories" style={{ width: "100%", fontSize: 16 }} value={form.program_category ?? ""} onChange={setField("program_category")} placeholder="e.g. Quarter Horse Halter" />
+                <label className="modal-label">Program break before this class</label>
+                <input className="field" list="program-breaks" style={{ width: "100%", fontSize: 16 }} value={form.program_break_before ?? ""} onChange={setField("program_break_before")} placeholder="e.g. BREAK FOR GEAR CHANGE" />
+                <label className="modal-label">Program break after this class</label>
+                <input className="field" list="program-breaks" style={{ width: "100%", fontSize: 16 }} value={form.program_break_after ?? ""} onChange={setField("program_break_after")} placeholder="e.g. FINISH" />
                 <label className="modal-label">Pattern URL (optional)</label>
                 <input className="field" style={{ width: "100%", fontSize: 15 }} value={form.pattern_url ?? ""} onChange={setField("pattern_url")} placeholder="Link to pattern image or PDF" />
                 <label className="modal-label">Show day (1 for single-day events)</label>
@@ -1606,6 +1635,10 @@ export default function Coordinator() {
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge2 ?? ""} onChange={setField("judge2")} placeholder="e.g. L. Smith" />
                 <label className="modal-label">Program category</label>
                 <input className="field" list="program-categories" style={{ width: "100%", fontSize: 16 }} value={form.program_category ?? ""} onChange={setField("program_category")} placeholder="e.g. Trail" />
+                <label className="modal-label">Program break before this class</label>
+                <input className="field" list="program-breaks" style={{ width: "100%", fontSize: 16 }} value={form.program_break_before ?? ""} onChange={setField("program_break_before")} placeholder="e.g. SET UP TRAIL" />
+                <label className="modal-label">Program break after this class</label>
+                <input className="field" list="program-breaks" style={{ width: "100%", fontSize: 16 }} value={form.program_break_after ?? ""} onChange={setField("program_break_after")} placeholder="e.g. FINISH" />
                 {modal.cls?.day !== undefined && (
                   <>
                     <label className="modal-label">Show day</label>

@@ -46,6 +46,9 @@ hasn't been run.
 - [ ] **v19** — `schema-v19-class-categories.sql`
       → adds the **Program category** field on classes so schedules and entry
         forms can group classes like the printed show program.
+- [ ] **v20** — `schema-v20-program-breaks.sql`
+      → adds **Program break** headings before/after classes, e.g. "SET UP TRAIL",
+        "BREAK FOR GEAR CHANGE", or "FINISH", so schedules can match the printed program.
 
 Tick these off once you've run them.
 
@@ -74,6 +77,7 @@ Tick these off once you've run them.
 | `schema-v17-live-activity-tokens.sql` | iPhone companion app: tracks phones showing the Lock Screen Live Activity |
 | `schema-v18-clubs-foundation.sql` | Multi-club foundation: the "club" concept, per-club branding + staff logins (non-breaking) |
 | `schema-v19-class-categories.sql` | Program category tag on classes for grouped schedules and entry forms |
+| `schema-v20-program-breaks.sql` | Program break headings before/after classes for printed-program-style schedules |
 
 ## For whoever updates the code next
 

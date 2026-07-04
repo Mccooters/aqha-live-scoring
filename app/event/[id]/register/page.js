@@ -3,23 +3,9 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
+import { groupedByProgramCategory } from "../../../../lib/classCategories";
 
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
-
-function classCategory(cls) {
-  return cls.program_category?.trim() || "Classes";
-}
-
-function groupedClasses(classes) {
-  const groups = [];
-  classes.forEach((cls) => {
-    const label = classCategory(cls);
-    let group = groups.find((g) => g.label === label);
-    if (!group) { group = { label, classes: [] }; groups.push(group); }
-    group.classes.push(cls);
-  });
-  return groups;
-}
 
 function blankEntry() {
   return {
@@ -94,7 +80,7 @@ export default function RegisterPage() {
   };
   const availableClasses = classes.filter((c) => !classIsFull(c));
   const allFull = classes.length > 0 && availableClasses.length === 0;
-  const classGroups = groupedClasses(classes);
+  const classGroups = groupedByProgramCategory(classes, "Classes");
   const classLabel = (classId) => {
     const cls = classes.find((c) => c.id === classId);
     if (!cls) return "this class";
