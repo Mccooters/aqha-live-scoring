@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabaseClient";
 const ALIASES = {
   num:          ["class #", "class no", "class number", "class num", "num", "#", "number", "no"],
   name:         ["class name", "name", "class"],
+  program_category: ["category", "class category", "program category", "program section", "section", "division", "group"],
   judge:        ["judge", "judge 1", "judge1", "judge name", "judge 1 name", "judge one", "judge one name", "first judge", "judge a", "judged by"],
   judge2:       ["judge 2", "judge2", "judge 2 name", "judge two", "judge two name", "second judge", "judge b"],
   scoring_mode: ["type", "scoring", "scoring mode", "scoring type", "mode", "score type", "class type"],
@@ -34,6 +35,13 @@ function mapHeader(h) {
     if (aliases.includes(n)) return field;
   }
   return null;
+}
+
+function looksLikeCategoryHeading(obj) {
+  const name = obj.name?.trim();
+  if (!name || obj.num || obj.judge || obj.judge2 || obj.scoring_mode || obj.hp_category) return false;
+  const letters = name.replace(/[^A-Za-z]/g, "");
+  return letters.length >= 4 && name === name.toUpperCase();
 }
 
 export default function ImportClasses({ eventId, onDone }) {
@@ -66,11 +74,19 @@ export default function ImportClasses({ eventId, onDone }) {
       const hasModeCol = headers.includes("scoring_mode");
       const hasJudgeCol = headers.includes("judge");
       const hasJudge2Col = headers.includes("judge2");
+      const hasCategoryCol = headers.includes("program_category");
+      let currentCategory = "";
 
       raw.slice(1).forEach((row, i) => {
         const obj = {};
         headers.forEach((field, j) => { if (field) obj[field] = String(row[j] ?? "").trim(); });
+        if (obj.program_category) currentCategory = obj.program_category;
+        if (!obj.name && obj.program_category) return; // category heading row
         if (!obj.name) return; // blank row — skip silently
+        if (!hasCategoryCol && looksLikeCategoryHeading(obj)) {
+          currentCategory = obj.name;
+          return;
+        }
         const num = obj.num ? parseInt(obj.num, 10) : null;
         if (obj.num && isNaN(num)) {
           warns.push(`Row ${i + 2}: Class # "${obj.num}" is not a number — will be auto-numbered`);
@@ -87,6 +103,8 @@ export default function ImportClasses({ eventId, onDone }) {
           judge2: obj.judge2 || "",
           hasJudgeCol,
           hasJudge2Col,
+          program_category: obj.program_category || currentCategory || null,
+          hasCategoryCol: hasCategoryCol || !!currentCategory,
           scoring_mode: mode ?? "score",
           hp_category: obj.hp_category || null,
         });
@@ -124,6 +142,7 @@ export default function ImportClasses({ eventId, onDone }) {
           const patch = { scoring_mode: r.scoring_mode };
           if (r.hasJudgeCol) patch.judge = r.judge;
           if (r.hasJudge2Col) patch.judge2 = r.judge2 || null;
+          if (r.hasCategoryCol) patch.program_category = r.program_category || null;
           if (r.hp_category !== null) patch.hp_category = r.hp_category;
           if (r.num !== null) patch.num = r.num;
           toUpdate.push({ id: match.id, ...patch });
@@ -131,7 +150,7 @@ export default function ImportClasses({ eventId, onDone }) {
           const assignedNum = r.num ?? (maxNum + 1);
           maxNum   = Math.max(maxNum, assignedNum);
           maxOrder = maxOrder + 1;
-          toInsert.push({
+          const insertRow = {
             event_id:     eventId,
             num:          assignedNum,
             name:         r.name,
@@ -141,7 +160,9 @@ export default function ImportClasses({ eventId, onDone }) {
             status:       "upcoming",
             scoring_mode: r.scoring_mode,
             hp_category:  r.hp_category,
-          });
+          };
+          if (r.program_category) insertRow.program_category = r.program_category;
+          toInsert.push(insertRow);
           existingByName[r.name.toLowerCase()] = true;
         }
       }
@@ -157,7 +178,9 @@ export default function ImportClasses({ eventId, onDone }) {
 
       setDone({ created: toInsert.length, updated: toUpdate.length });
     } catch (err) {
-      setError(err.message ?? "Import failed.");
+      setError(err.message?.includes("program_category")
+        ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
+        : err.message ?? "Import failed.");
     } finally {
       setImporting(false);
     }
@@ -193,7 +216,7 @@ export default function ImportClasses({ eventId, onDone }) {
       {!rows ? (
         <>
           <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 0 }}>
-            Columns: <strong>Class #</strong>, <strong>Class Name</strong>, <strong>Judge 1</strong> (optional), <strong>Judge 2</strong> (optional),
+            Columns: <strong>Category</strong> (optional), <strong>Class #</strong>, <strong>Class Name</strong>, <strong>Judge 1</strong> (optional), <strong>Judge 2</strong> (optional),
             Type (optional — <em>Score</em>, <em>Placing</em>, <em>Class Only</em>, <em>TBC (draw)</em>, or <em>TBC (whole class)</em>; defaults to Score),
             <strong> HP Category</strong> (optional — e.g. <em>Amateur</em>, <em>Senior Horse</em>; sets which High Points table this class feeds into)
           </p>
@@ -217,11 +240,12 @@ export default function ImportClasses({ eventId, onDone }) {
           <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12 }}>
             <table>
               <thead>
-                <tr><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge 1</th><th>Judge 2</th><th>Type</th><th>HP Category</th></tr>
+                <tr><th>Category</th><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge 1</th><th>Judge 2</th><th>Type</th><th>HP Category</th></tr>
               </thead>
               <tbody>
                 {rows.slice(0, 60).map((r, i) => (
                   <tr key={i}>
+                    <td style={{ fontSize: 12, color: r.program_category ? "#1746C6" : "var(--line)", fontWeight: r.program_category ? 700 : 400 }}>{r.program_category || "—"}</td>
                     <td style={{ color: "var(--quiet)", fontFamily: "monospace" }}>{r.num ?? "auto"}</td>
                     <td style={{ fontWeight: 600 }}>{r.name}</td>
                     <td style={{ color: "var(--quiet)", fontSize: 12 }}>{r.judge || "—"}</td>
@@ -241,7 +265,7 @@ export default function ImportClasses({ eventId, onDone }) {
                   </tr>
                 ))}
                 {rows.length > 60 && (
-                  <tr><td colSpan={6} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
+                  <tr><td colSpan={7} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
                 )}
               </tbody>
             </table>

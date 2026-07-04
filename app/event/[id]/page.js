@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { Fragment, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
@@ -389,7 +389,7 @@ export default function EventPage() {
         )}
 
         {/* ---- Per-class scoreboards ---- */}
-        {classes.map((cls) => {
+        {classes.map((cls, idx) => {
           const mode = cls.scoring_mode ?? "score";
           const isTbcDraw = mode === "tbc";
           const isPlacingMode = mode === "placing" || mode === "class_only" || mode === "tbc_class";
@@ -407,8 +407,15 @@ export default function EventPage() {
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
           const isClassOnly = mode === "class_only";
+          const showCategory = cls.program_category && cls.program_category !== classes[idx - 1]?.program_category;
           return (
-            <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
+            <Fragment key={cls.id}>
+            {showCategory && (
+              <div style={{ margin: "22px 0 8px", color: "#1746C6", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
+                {cls.program_category}
+              </div>
+            )}
+            <section className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
               <div className="card-head" style={isLive ? { background: "#FBF4E4" } : {}}>
                 <div className="display" style={{ fontWeight: 600, fontSize: 16.5 }}>
                   Class {cls.num} · {cls.name}
@@ -484,6 +491,7 @@ export default function EventPage() {
                 </tbody>
               </table>
             </section>
+            </Fragment>
           );
         })}
       </main>

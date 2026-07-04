@@ -42,7 +42,10 @@ hasn't been run.
       → first step toward supporting **other clubs**. Creates the "club" idea,
         tags all current data as HCQHA's, and adds per-club staff logins.
         **Non-breaking** — nothing changes for HCQHA, safe to run anytime. The
-        actual per-club isolation is a later, deliberate step (v19).
+        actual per-club isolation is a later, deliberate migration.
+- [ ] **v19** — `schema-v19-class-categories.sql`
+      → adds the **Program category** field on classes so schedules and entry
+        forms can group classes like the printed show program.
 
 Tick these off once you've run them.
 
@@ -70,6 +73,7 @@ Tick these off once you've run them.
 | `schema-v16-security-lockdown.sql` | Security: registrations and push subscriptions are no longer publicly readable/writable |
 | `schema-v17-live-activity-tokens.sql` | iPhone companion app: tracks phones showing the Lock Screen Live Activity |
 | `schema-v18-clubs-foundation.sql` | Multi-club foundation: the "club" concept, per-club branding + staff logins (non-breaking) |
+| `schema-v19-class-categories.sql` | Program category tag on classes for grouped schedules and entry forms |
 
 ## For whoever updates the code next
 

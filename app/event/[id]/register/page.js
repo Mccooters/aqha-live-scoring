@@ -6,6 +6,21 @@ import { supabase } from "../../../../lib/supabaseClient";
 
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 
+function classCategory(cls) {
+  return cls.program_category?.trim() || "Classes";
+}
+
+function groupedClasses(classes) {
+  const groups = [];
+  classes.forEach((cls) => {
+    const label = classCategory(cls);
+    let group = groups.find((g) => g.label === label);
+    if (!group) { group = { label, classes: [] }; groups.push(group); }
+    group.classes.push(cls);
+  });
+  return groups;
+}
+
 function blankEntry() {
   return {
     _id: Math.random().toString(36).slice(2),
@@ -29,6 +44,7 @@ export default function RegisterPage() {
   const [entries, setEntries] = useState([blankEntry()]);
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  const [rulesAccepted, setRulesAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -41,7 +57,7 @@ export default function RegisterPage() {
         supabase.from("events").select("*").eq("id", eventId).single(),
         supabase
           .from("classes")
-          .select("id, num, name, capacity")
+          .select("*")
           .eq("event_id", eventId)
           .eq("status", "upcoming")
           .order("sort_order"),
@@ -78,6 +94,7 @@ export default function RegisterPage() {
   };
   const availableClasses = classes.filter((c) => !classIsFull(c));
   const allFull = classes.length > 0 && availableClasses.length === 0;
+  const classGroups = groupedClasses(classes);
   const classLabel = (classId) => {
     const cls = classes.find((c) => c.id === classId);
     if (!cls) return "this class";
@@ -173,6 +190,10 @@ export default function RegisterPage() {
     if (duplicateInForm) { setError(duplicateInForm); return; }
     const existingDuplicate = valid.map((entry) => duplicateMessage(entry)).find(Boolean);
     if (existingDuplicate) { setError(`${existingDuplicate} Please check your details or contact the show secretary.`); return; }
+    if (!rulesAccepted) {
+      setError("Please confirm you have read and agree to the entry conditions.");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -326,16 +347,29 @@ export default function RegisterPage() {
                   value={entry.class_id}
                   onChange={(e) => updateEntry(entry._id, "class_id", e.target.value)}>
                   <option value="">— Select{isClinic ? "" : " a class"} —</option>
-                  {classes.map((c) => {
+                  {isClinic ? classes.map((c) => {
                     const label = spotsLabel(c);
                     const full = classIsFull(c);
                     return (
                       <option key={c.id} value={c.id} disabled={full}>
-                        {isClinic ? c.name : `Class ${c.num}: ${c.name}`}
+                        {c.name}
                         {label ? ` (${label})` : ""}
                       </option>
                     );
-                  })}
+                  }) : classGroups.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.classes.map((c) => {
+                        const label = spotsLabel(c);
+                        const full = classIsFull(c);
+                        return (
+                          <option key={c.id} value={c.id} disabled={full}>
+                            Class {c.num}: {c.name}
+                            {label ? ` (${label})` : ""}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  ))}
                 </select>
 
                 {isFull && (
@@ -422,6 +456,11 @@ export default function RegisterPage() {
                 {error}
               </p>
             )}
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
+              <input type="checkbox" checked={rulesAccepted} onChange={(e) => setRulesAccepted(e.target.checked)}
+                style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
+              <span>I have read and agree to the entry conditions.</span>
+            </label>
             <button className="btn" style={{ width: "100%", fontSize: 17, padding: 14, background: "var(--leather)" }}
               onClick={submit} disabled={submitting}>
               {submitting
@@ -430,6 +469,11 @@ export default function RegisterPage() {
                 ? `Register & Pay ${fmtMoney(totalCents)}`
                 : isClinic ? "Register" : "Submit entries"}
             </button>
+            <p style={{ fontSize: 11.5, color: "var(--quiet)", lineHeight: 1.45, margin: "10px 0 0" }}>
+              {isClinic
+                ? "By registering, you participate at your own risk and agree to follow organiser and official directions. Fees are payable before participation unless otherwise arranged."
+                : "By submitting entries, you agree to HCQHA rules: horses must be eligible for their entered classes, competitors participate at their own risk and follow official directions, the show manager may alter the program or order of classes, refunds require a vet certificate, unpaid entries may be refused, and results may be withheld until payment is received."}
+            </p>
           </div>
         </section>
 

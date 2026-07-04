@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { Fragment, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import ImportEntries from "./ImportEntries";
@@ -16,6 +16,22 @@ const HP_CATEGORIES = [
   "Amateur", "Novice Amateur", "Select", "Beginner", "EWD", "Youth", "Leadline",
 ];
 const HP_HORSE_CATS = new Set(["Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse"]);
+
+const PROGRAM_CATEGORIES = [
+  "Quarter Horse Halter", "Paint Halter", "Paint Bred Halter", "Appaloosa Halter",
+  "Other Breeds Halter", "Showmanship", "Lungeline", "Hunter in Hand", "Hack",
+  "Hunter Under Saddle", "Hunt Seat Equitation", "Set Up Trail", "Trail",
+  "Break for Gear Change", "Break and Open Pen", "Western Pleasure",
+  "Horsemanship", "Ranch Riding", "Reining", "Finish",
+];
+
+function ProgramCategoryDatalist() {
+  return (
+    <datalist id="program-categories">
+      {PROGRAM_CATEGORIES.map((cat) => <option key={cat} value={cat} />)}
+    </datalist>
+  );
+}
 
 // Points scale: 1st=3, 2nd=2, 3rd=1 with 3+ entries; 1st=2, 2nd=1 with 2 entries; 1st=1 with 1 entry.
 function calcPoints(placing, competingEntries) {
@@ -582,7 +598,7 @@ export default function Coordinator() {
     }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
-      initialForm = { num: String(c.num), name: c.name, judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "" };
+      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "" };
     }
     if (type === "editEvent" && extra.event) {
       const ev = extra.event;
@@ -636,7 +652,7 @@ export default function Coordinator() {
   const submitClass = async () => {
     if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
     const maxOrder = Math.max(0, ...classes.map((c) => c.sort_order));
-    const { error } = await supabase.from("classes").insert({
+    const insertData = {
       event_id: eventId,
       num: parseInt(form.num, 10),
       name: form.name.trim(),
@@ -648,9 +664,13 @@ export default function Coordinator() {
       scoring_mode: form.scoring_mode ?? "score",
       capacity: form.capacity ? parseInt(form.capacity, 10) : null,
       hp_category: form.hp_category || null,
-    });
+    };
+    if (form.program_category?.trim()) insertData.program_category = form.program_category.trim();
+    const { error } = await supabase.from("classes").insert(insertData);
     if (error) {
-      const msg = error.message?.includes("day") ? 'Database migration needed. Please run "schema-v2-horses.sql" in your Supabase SQL Editor first.' : error.message;
+      const msg = error.message?.includes("program_category")
+        ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
+        : error.message?.includes("day") ? 'Database migration needed. Please run "schema-v2-horses.sql" in your Supabase SQL Editor first.' : error.message;
       setFormError(msg);
       return;
     }
@@ -706,9 +726,17 @@ export default function Coordinator() {
   const submitEditClass = async () => {
     if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
     const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", judge2: form.judge2?.trim() || null, scoring_mode: form.scoring_mode ?? "score", capacity: form.capacity ? parseInt(form.capacity, 10) : null, hp_category: form.hp_category || null };
+    if (Object.prototype.hasOwnProperty.call(modal.cls ?? {}, "program_category") || form.program_category?.trim()) {
+      updateData.program_category = form.program_category?.trim() || null;
+    }
     if (modal.cls.day !== undefined) updateData.day = parseInt(form.day ?? "1", 10) || 1;
     const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
-    if (error) { setFormError(error.message); return; }
+    if (error) {
+      setFormError(error.message?.includes("program_category")
+        ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
+        : error.message);
+      return;
+    }
     closeModal();
   };
 
@@ -1124,7 +1152,7 @@ export default function Coordinator() {
           </div>
         )}
 
-        {classes.map((cls) => {
+        {classes.map((cls, idx) => {
           const mode = cls.scoring_mode ?? "score";
           const isTbcDraw = mode === "tbc";
           const twoJudges = !!cls.judge2;
@@ -1143,8 +1171,15 @@ export default function Coordinator() {
           const isLive = cls.status === "live";
           const confirmedSpots = cls.entries.filter((e) => !e.scratched).length;
           const isFull = cls.capacity != null && confirmedSpots >= cls.capacity;
+          const showCategory = !isClinic && cls.program_category && cls.program_category !== classes[idx - 1]?.program_category;
           return (
-            <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
+            <Fragment key={cls.id}>
+            {showCategory && (
+              <div style={{ margin: "22px 0 8px", color: "#1746C6", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
+                {cls.program_category}
+              </div>
+            )}
+            <section className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
               <div className="card-head" style={{ flexWrap: "nowrap", ...(isLive ? { background: "#FBF4E4" } : {}) }}>
                 {cls.status === "upcoming" && (
                   <input type="checkbox" checked={selectedClassIds.has(cls.id)} onChange={() => toggleClassSelect(cls.id)}
@@ -1269,6 +1304,7 @@ export default function Coordinator() {
                 </tbody>
               </table>
             </section>
+            </Fragment>
           );
         })}
 
@@ -1286,6 +1322,7 @@ export default function Coordinator() {
       {modal && (
         <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
           <div className="modal-sheet">
+            <ProgramCategoryDatalist />
 
             {modal.type === "event" && (
               <>
@@ -1388,6 +1425,8 @@ export default function Coordinator() {
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge ?? ""} onChange={setField("judge")} placeholder="e.g. K. Maddox" />
                 <label className="modal-label">Judge 2 (leave blank for single-judge class)</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge2 ?? ""} onChange={setField("judge2")} placeholder="e.g. L. Smith" />
+                <label className="modal-label">Program category</label>
+                <input className="field" list="program-categories" style={{ width: "100%", fontSize: 16 }} value={form.program_category ?? ""} onChange={setField("program_category")} placeholder="e.g. Quarter Horse Halter" />
                 <label className="modal-label">Pattern URL (optional)</label>
                 <input className="field" style={{ width: "100%", fontSize: 15 }} value={form.pattern_url ?? ""} onChange={setField("pattern_url")} placeholder="Link to pattern image or PDF" />
                 <label className="modal-label">Show day (1 for single-day events)</label>
@@ -1565,6 +1604,8 @@ export default function Coordinator() {
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge ?? ""} onChange={setField("judge")} />
                 <label className="modal-label">Judge 2 (leave blank for single-judge class)</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge2 ?? ""} onChange={setField("judge2")} placeholder="e.g. L. Smith" />
+                <label className="modal-label">Program category</label>
+                <input className="field" list="program-categories" style={{ width: "100%", fontSize: 16 }} value={form.program_category ?? ""} onChange={setField("program_category")} placeholder="e.g. Trail" />
                 {modal.cls?.day !== undefined && (
                   <>
                     <label className="modal-label">Show day</label>

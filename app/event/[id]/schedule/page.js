@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { Fragment, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
@@ -44,6 +44,17 @@ export default function SchedulePage() {
   days.sort((a, b) => a.day - b.day);
 
   const isMultiDay = days.length > 1 || (event?.starts_on && event?.ends_on && event.ends_on !== event.starts_on);
+
+  const categoryGroups = (dayClasses) => {
+    const groups = [];
+    dayClasses.forEach((cls) => {
+      const label = cls.program_category?.trim() || "";
+      let group = groups.find((g) => g.label === label);
+      if (!group) { group = { label, classes: [] }; groups.push(group); }
+      group.classes.push(cls);
+    });
+    return groups;
+  };
 
   const dayDate = (day) => {
     if (!event?.starts_on) return null;
@@ -103,46 +114,57 @@ export default function SchedulePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {dayCls.map((cls) => {
-                    const competing = (cls.entries ?? []).filter((e) => !e.scratched).length;
-                    // TBC draw classes advance by marking entries "called" —
-                    // scores only come later from paperwork.
-                    const isTbcDraw = cls.scoring_mode === "tbc";
-                    const scored = (cls.entries ?? []).filter(
-                      (e) => !e.scratched && (isTbcDraw ? e.called : e.score != null)
-                    ).length;
-                    const isLive = cls.status === "live";
-                    return (
-                      <tr key={cls.id} style={isLive ? { background: "#FBF4E4" } : {}}>
-                        <td className="display" style={{ fontWeight: 700, color: isLive ? "var(--clay)" : "var(--quiet)" }}>
-                          {isLive && (
-                            <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: "var(--clay)", marginRight: 6, verticalAlign: "middle", animation: "pulse 1.6s infinite" }} />
-                          )}
-                          {cls.num}
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{cls.name}</div>
-                          {cls.judge && <div style={{ fontSize: 12, color: "var(--quiet)" }}>Judge: {cls.judge}</div>}
-                          {cls.pattern_url && (
-                            <a href={cls.pattern_url} target="_blank" rel="noreferrer"
-                              style={{ fontSize: 12, color: "var(--brass)", textDecoration: "none", fontWeight: 700 }}>▦ View pattern</a>
-                          )}
-                          {isLive && competing > 0 && (
-                            <div style={{ fontSize: 11.5, color: "var(--clay)", marginTop: 2 }}>
-                              {scored} of {competing} {isTbcDraw ? "shown" : "scored"}
-                              <span style={{ display: "inline-block", marginLeft: 8, width: 60, height: 4, background: "var(--line)", borderRadius: 2, verticalAlign: "middle", overflow: "hidden" }}>
-                                <span style={{ display: "block", height: "100%", width: `${(scored / competing) * 100}%`, background: "var(--clay)", transition: "width .5s" }} />
-                              </span>
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ textAlign: "center", color: "var(--quiet)" }}>{competing}</td>
-                        <td style={{ textAlign: "right" }}>
-                          <span className={`badge ${cls.status}`}>{cls.status}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {categoryGroups(dayCls).map((group) => (
+                    <Fragment key={group.label || "classes"}>
+                      {group.label && (
+                        <tr>
+                          <td colSpan={4} style={{ color: "#1746C6", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase", background: "#F7FAFF", borderTop: "1px solid var(--line)" }}>
+                            {group.label}
+                          </td>
+                        </tr>
+                      )}
+                      {group.classes.map((cls) => {
+                        const competing = (cls.entries ?? []).filter((e) => !e.scratched).length;
+                        // TBC draw classes advance by marking entries "called" —
+                        // scores only come later from paperwork.
+                        const isTbcDraw = cls.scoring_mode === "tbc";
+                        const scored = (cls.entries ?? []).filter(
+                          (e) => !e.scratched && (isTbcDraw ? e.called : e.score != null)
+                        ).length;
+                        const isLive = cls.status === "live";
+                        return (
+                          <tr key={cls.id} style={isLive ? { background: "#FBF4E4" } : {}}>
+                            <td className="display" style={{ fontWeight: 700, color: isLive ? "var(--clay)" : "var(--quiet)" }}>
+                              {isLive && (
+                                <span style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: "var(--clay)", marginRight: 6, verticalAlign: "middle", animation: "pulse 1.6s infinite" }} />
+                              )}
+                              {cls.num}
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, fontSize: 14 }}>{cls.name}</div>
+                              {cls.judge && <div style={{ fontSize: 12, color: "var(--quiet)" }}>Judge: {cls.judge}</div>}
+                              {cls.pattern_url && (
+                                <a href={cls.pattern_url} target="_blank" rel="noreferrer"
+                                  style={{ fontSize: 12, color: "var(--brass)", textDecoration: "none", fontWeight: 700 }}>▦ View pattern</a>
+                              )}
+                              {isLive && competing > 0 && (
+                                <div style={{ fontSize: 11.5, color: "var(--clay)", marginTop: 2 }}>
+                                  {scored} of {competing} {isTbcDraw ? "shown" : "scored"}
+                                  <span style={{ display: "inline-block", marginLeft: 8, width: 60, height: 4, background: "var(--line)", borderRadius: 2, verticalAlign: "middle", overflow: "hidden" }}>
+                                    <span style={{ display: "block", height: "100%", width: `${(scored / competing) * 100}%`, background: "var(--clay)", transition: "width .5s" }} />
+                                  </span>
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ textAlign: "center", color: "var(--quiet)" }}>{competing}</td>
+                            <td style={{ textAlign: "right" }}>
+                              <span className={`badge ${cls.status}`}>{cls.status}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
                 </tbody>
               </table>
             </section>
