@@ -1,11 +1,171 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
 import { groupedByProgramCategory } from "../../../../lib/classCategories";
 
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
+
+function basicClassLabel(cls, isClinic) {
+  if (!cls) return "";
+  return isClinic ? cls.name : `Class ${cls.num}: ${cls.name}`;
+}
+
+function searchText(cls, isClinic, availability) {
+  return [
+    basicClassLabel(cls, isClinic),
+    cls.program_category,
+    cls.judge,
+    cls.judge2,
+    availability,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function ClassSearchSelect({ value, classes, isClinic, onChange, classIsFull, spotsLabel }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef(null);
+  const selectedClass = classes.find((cls) => cls.id === value);
+
+  useEffect(() => {
+    if (selectedClass) setQuery(basicClassLabel(selectedClass, isClinic));
+  }, [selectedClass, isClinic]);
+
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const filtered = classes.filter((cls) => {
+    if (!terms.length) return true;
+    const label = spotsLabel(cls);
+    const haystack = searchText(cls, isClinic, label);
+    return terms.every((term) => haystack.includes(term));
+  });
+  const grouped = isClinic
+    ? [{ key: "spots", label: "Spot types", classes: filtered }]
+    : groupedByProgramCategory(filtered, "Classes");
+
+  const chooseClass = (cls) => {
+    if (classIsFull(cls)) return;
+    onChange(cls.id);
+    setQuery(basicClassLabel(cls, isClinic));
+    setOpen(false);
+  };
+
+  return (
+    <div>
+      <div style={{ position: "relative" }}>
+        <input
+          ref={inputRef}
+          className="field"
+          style={{ width: "100%", fontSize: 16, paddingRight: 44 }}
+          value={query}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 120)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+            if (value) onChange("");
+          }}
+          placeholder={isClinic ? "Type to search spot types..." : "Type class number, name, or category..."}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+        />
+        <button
+          type="button"
+          aria-label={`Show ${isClinic ? "spot type" : "class"} options`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            setOpen(true);
+            inputRef.current?.focus();
+          }}
+          style={{
+            position: "absolute",
+            right: 8,
+            top: 6,
+            bottom: 6,
+            width: 30,
+            border: 0,
+            borderLeft: "1px solid var(--line)",
+            background: "transparent",
+            color: "var(--quiet)",
+            fontSize: 16,
+            fontWeight: 800,
+          }}>
+          ▾
+        </button>
+      </div>
+      {open && (
+        <div style={{
+          marginTop: 6,
+          border: "1px solid var(--line)",
+          background: "#fff",
+          borderRadius: 8,
+          maxHeight: 260,
+          overflowY: "auto",
+          boxShadow: "0 10px 22px rgba(42,30,18,.12)",
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: "10px 12px", color: "var(--quiet)", fontSize: 13 }}>
+              No matching {isClinic ? "spot types" : "classes"}.
+            </div>
+          ) : grouped.map((group) => (
+            <div key={group.key}>
+              {!isClinic && group.label && (
+                <div style={{
+                  padding: "7px 10px 4px",
+                  color: "#1746C6",
+                  fontWeight: 800,
+                  fontSize: 11,
+                  letterSpacing: ".12em",
+                  textTransform: "uppercase",
+                  background: "#F7FAFF",
+                  borderTop: "1px solid var(--line)",
+                }}>
+                  {group.label}
+                </div>
+              )}
+              {group.classes.map((cls) => {
+                const label = spotsLabel(cls);
+                const full = classIsFull(cls);
+                return (
+                  <button
+                    key={cls.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => chooseClass(cls)}
+                    disabled={full}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      border: 0,
+                      borderTop: "1px solid var(--line)",
+                      background: value === cls.id ? "#FBF4E4" : "#fff",
+                      color: full ? "var(--quiet)" : "var(--ink)",
+                      opacity: full ? .55 : 1,
+                      padding: "10px 12px",
+                      cursor: full ? "not-allowed" : "pointer",
+                    }}>
+                    <span style={{ display: "block", fontWeight: 700 }}>
+                      {basicClassLabel(cls, isClinic)}
+                    </span>
+                    <span style={{ display: "block", fontSize: 12, color: full ? "var(--clay)" : "var(--quiet)", marginTop: 2 }}>
+                      {[
+                        !isClinic && cls.program_category,
+                        cls.judge2 ? `Judges: ${cls.judge || "-"} / ${cls.judge2}` : cls.judge ? `Judge: ${cls.judge}` : null,
+                        label,
+                      ].filter(Boolean).join(" · ")}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function blankEntry() {
   return {
@@ -80,11 +240,10 @@ export default function RegisterPage() {
   };
   const availableClasses = classes.filter((c) => !classIsFull(c));
   const allFull = classes.length > 0 && availableClasses.length === 0;
-  const classGroups = groupedByProgramCategory(classes, "Classes");
   const classLabel = (classId) => {
     const cls = classes.find((c) => c.id === classId);
     if (!cls) return "this class";
-    return isClinic ? cls.name : `Class ${cls.num}: ${cls.name}`;
+    return basicClassLabel(cls, isClinic);
   };
   // Back number is the horse's permanent registry identity, so it's what
   // identifies "the same horse" for duplicate checks — not the free-typed
@@ -329,34 +488,14 @@ export default function RegisterPage() {
               </div>
               <div style={{ paddingBottom: 8 }}>
                 <label className="modal-label">{isClinic ? "Spot type *" : "Class *"}</label>
-                <select className="field" style={{ width: "100%", fontSize: 16 }}
+                <ClassSearchSelect
                   value={entry.class_id}
-                  onChange={(e) => updateEntry(entry._id, "class_id", e.target.value)}>
-                  <option value="">— Select{isClinic ? "" : " a class"} —</option>
-                  {isClinic ? classes.map((c) => {
-                    const label = spotsLabel(c);
-                    const full = classIsFull(c);
-                    return (
-                      <option key={c.id} value={c.id} disabled={full}>
-                        {c.name}
-                        {label ? ` (${label})` : ""}
-                      </option>
-                    );
-                  }) : classGroups.map((group) => (
-                    <optgroup key={group.label} label={group.label}>
-                      {group.classes.map((c) => {
-                        const label = spotsLabel(c);
-                        const full = classIsFull(c);
-                        return (
-                          <option key={c.id} value={c.id} disabled={full}>
-                            Class {c.num}: {c.name}
-                            {label ? ` (${label})` : ""}
-                          </option>
-                        );
-                      })}
-                    </optgroup>
-                  ))}
-                </select>
+                  classes={classes}
+                  isClinic={isClinic}
+                  onChange={(classId) => updateEntry(entry._id, "class_id", classId)}
+                  classIsFull={classIsFull}
+                  spotsLabel={spotsLabel}
+                />
 
                 {isFull && (
                   <p style={{ fontSize: 12.5, color: "var(--clay)", marginTop: 4, fontWeight: 600 }}>
