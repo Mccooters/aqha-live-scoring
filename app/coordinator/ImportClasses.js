@@ -32,10 +32,14 @@ function normaliseMode(raw) {
   return null;
 }
 
+function normaliseHeader(h) {
+  return String(h ?? "").toLowerCase().replace(/#/g, " number ").replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function mapHeader(h) {
-  const n = String(h ?? "").toLowerCase().replace(/[^a-z0-9]/g, " ").trim();
+  const n = normaliseHeader(h);
   for (const [field, aliases] of Object.entries(ALIASES)) {
-    if (aliases.includes(n)) return field;
+    if (aliases.some((alias) => normaliseHeader(alias) === n)) return field;
   }
   return null;
 }
@@ -45,6 +49,22 @@ function looksLikeCategoryHeading(obj) {
   if (!name || obj.num || obj.judge || obj.judge2 || obj.scoring_mode || obj.hp_category) return false;
   const letters = name.replace(/[^A-Za-z]/g, "");
   return letters.length >= 4 && name === name.toUpperCase();
+}
+
+function classIdentityKey(cls) {
+  const category = normaliseCategoryLabel(cls.program_category).toLowerCase();
+  const name = String(cls.name ?? "").trim().toLowerCase();
+  return `${category}::${name}`;
+}
+
+function uniqueMap(rows, keyFn) {
+  const map = new Map();
+  rows.forEach((row) => {
+    const key = keyFn(row);
+    if (!key) return;
+    map.set(key, map.has(key) ? null : row);
+  });
+  return map;
 }
 
 export default function ImportClasses({ eventId, onDone }) {
@@ -114,6 +134,7 @@ export default function ImportClasses({ eventId, onDone }) {
           name: obj.name,
           judge: obj.judge || "",
           judge2: obj.judge2 || "",
+          sort_order: parsed.length + 1,
           hasJudgeCol,
           hasJudge2Col,
           program_category: rowCategory || currentCategory || null,
@@ -141,11 +162,13 @@ export default function ImportClasses({ eventId, onDone }) {
     try {
       // Find the current max num and sort_order so we don't collide
       const { data: existing } = await supabase
-        .from("classes")
-        .select("id, num, name, sort_order")
+        .from("classes").select("id, num, name, sort_order, program_category")
         .eq("event_id", eventId);
 
-      const existingByName = Object.fromEntries((existing ?? []).map((c) => [c.name.toLowerCase(), c]));
+      const existingRows = existing ?? [];
+      const existingByNumAndName = uniqueMap(existingRows, (c) => c.num == null ? "" : `${c.num}::${String(c.name ?? "").trim().toLowerCase()}`);
+      const existingByIdentity = uniqueMap(existingRows, classIdentityKey);
+      const existingByName = uniqueMap(existingRows, (c) => String(c.name ?? "").trim().toLowerCase());
       let maxNum   = Math.max(0, ...(existing ?? []).map((c) => c.num));
       let maxOrder = Math.max(0, ...(existing ?? []).map((c) => c.sort_order));
 
@@ -153,10 +176,13 @@ export default function ImportClasses({ eventId, onDone }) {
       const toUpdate = [];
 
       for (const r of rows) {
-        const match = existingByName[r.name.toLowerCase()];
+        const numNameMatch = r.num == null ? null : existingByNumAndName.get(`${r.num}::${r.name.toLowerCase()}`);
+        const identityMatch = existingByIdentity.get(classIdentityKey(r));
+        const nameMatch = r.num == null ? existingByName.get(r.name.toLowerCase()) : null;
+        const match = numNameMatch || identityMatch || nameMatch;
         if (match) {
           // Update judges and other fields on the existing class
-          const patch = { scoring_mode: r.scoring_mode };
+          const patch = { scoring_mode: r.scoring_mode, sort_order: r.sort_order };
           if (r.hasJudgeCol) patch.judge = r.judge;
           if (r.hasJudge2Col) patch.judge2 = r.judge2 || null;
           if (r.hasCategoryCol) patch.program_category = normaliseCategoryLabel(r.program_category) || null;
@@ -168,14 +194,15 @@ export default function ImportClasses({ eventId, onDone }) {
         } else {
           const assignedNum = r.num ?? (maxNum + 1);
           maxNum   = Math.max(maxNum, assignedNum);
-          maxOrder = maxOrder + 1;
+          const assignedOrder = r.sort_order ?? (maxOrder + 1);
+          maxOrder = Math.max(maxOrder, assignedOrder);
           const insertRow = {
             event_id:     eventId,
             num:          assignedNum,
             name:         r.name,
             judge:        r.judge,
             judge2:       r.judge2 || null,
-            sort_order:   maxOrder,
+            sort_order:   assignedOrder,
             status:       "upcoming",
             scoring_mode: r.scoring_mode,
             hp_category:  r.hp_category,
@@ -184,7 +211,6 @@ export default function ImportClasses({ eventId, onDone }) {
           if (r.program_break_before) insertRow.program_break_before = normaliseBreakLabel(r.program_break_before);
           if (r.program_break_after) insertRow.program_break_after = normaliseBreakLabel(r.program_break_after);
           toInsert.push(insertRow);
-          existingByName[r.name.toLowerCase()] = true;
         }
       }
 
