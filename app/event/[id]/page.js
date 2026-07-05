@@ -150,7 +150,10 @@ export default function EventPage() {
     }
   };
 
-  const liveClass = classes.find((c) => c.status === "live");
+  // Only treat a class as "live" on the public view when the event itself is
+  // live — otherwise a class left in the live state after an event is ended or
+  // reverted would keep showing the live banner over the final/closed view.
+  const liveClass = event?.status === "live" ? classes.find((c) => c.status === "live") : null;
   const liveClassIndex = liveClass ? classes.findIndex((c) => c.id === liveClass.id) : -1;
   const nextClass = liveClass
     ? classes.slice(liveClassIndex + 1).find((c) => c.status === "upcoming")
@@ -165,6 +168,7 @@ export default function EventPage() {
   if (!event) return <main className="wrap"><p style={{ color: "var(--quiet)" }}>Loading…</p></main>;
 
   const isClinic = event.event_type === "clinic";
+  const showClassStatusBadges = ["live", "completed", "archived", "cancelled"].includes(event.status);
 
   // ---- Clinic view ----
   if (isClinic) {
@@ -497,7 +501,7 @@ export default function EventPage() {
                         ▦ View pattern
                       </a>
                     )}
-                    <span className={`badge ${cls.status}`}>{cls.status}</span>
+                    {showClassStatusBadges && <span className={`badge ${cls.status}`}>{cls.status}</span>}
                   </div>
                 </div>
                 <table>

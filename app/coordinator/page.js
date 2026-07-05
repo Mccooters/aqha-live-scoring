@@ -28,6 +28,14 @@ const PROGRAM_CATEGORIES = [
 
 const PROGRAM_BREAKS = ["SET UP TRAIL", "BREAK FOR GEAR CHANGE", "BREAK AND OPEN PEN", "FINISH"];
 
+const SCORING_MODE_LABELS = {
+  score: "Score",
+  placing: "Placing",
+  class_only: "Class Only",
+  tbc: "TBC (draw)",
+  tbc_class: "TBC (whole class)",
+};
+
 function ProgramCategoryDatalist() {
   return (
     <>
@@ -49,6 +57,8 @@ function calcPoints(placing, competingEntries) {
 
 const fmtBack = (n) => String(n).padStart(3, "0");
 const ordinal = (n) => { const s = ["th","st","nd","rd"]; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
+const cleanFilename = (value, fallback = "classes") =>
+  (String(value ?? fallback).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || fallback);
 
 // Snapshot of a live class for the iPhone Live Activity (Lock Screen card).
 // Keys must match the app's ScoringAttributes.ContentState exactly.
@@ -167,6 +177,7 @@ export default function Coordinator() {
   const [form, setForm] = useState({});
   const [formError, setFormError] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [exportingClasses, setExportingClasses] = useState(false);
   const [pushingAllHp, setPushingAllHp] = useState(false);
   const [horseSuggestion, setHorseSuggestion] = useState(null);
   const [patternFiles, setPatternFiles] = useState([]);
@@ -251,7 +262,7 @@ export default function Coordinator() {
   // Keep iPhone Lock Screen activities in sync. Because the dashboard re-fetches
   // on every realtime change, this fires whenever the "now showing" horse, draw,
   // or score changes — covering scoring, scratches, reorders and class changes.
-  const liveStateKey = liveClass ? JSON.stringify(liveActivityState(liveClass)) : null;
+  const liveStateKey = (liveClass && currentEvent?.status === "live") ? JSON.stringify(liveActivityState(liveClass)) : null;
   useEffect(() => {
     if (!eventId || !liveStateKey) return;
     triggerLiveActivity(eventId, JSON.parse(liveStateKey));
@@ -339,10 +350,34 @@ export default function Coordinator() {
   };
 
   const startClass = async (cls) => {
-    if (liveClass) await supabase.from("classes").update({ status: "completed" }).eq("id", liveClass.id);
-    await supabase.from("classes").update({ status: "live" }).eq("id", cls.id);
-    const next = firstPending(cls.entries, cls.scoring_mode);
-    if (next) triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${cls.num} · ${cls.name}`, "now-showing");
+    if (busy) return;
+    // A class can only be live while the event is live.
+    if (currentEvent?.status !== "live") {
+      window.alert("Set the event to Live (“Go live”) before starting a class.");
+      return;
+    }
+    // Starting a class while another is still live will complete that one —
+    // warn if it has entries that haven't been scored yet.
+    if (liveClass && liveClass.id !== cls.id) {
+      const mode = liveClass.scoring_mode ?? "score";
+      const unscored = liveClass.entries.filter((e) => !e.scratched && (mode === "tbc" ? !e.called : e.score == null)).length;
+      const msg = unscored > 0
+        ? `Class ${liveClass.num} (${liveClass.name}) is still live with ${unscored} ${unscored === 1 ? "entry" : "entries"} not yet ${mode === "tbc" ? "shown" : "scored"}.\n\nStarting "${cls.name}" will mark that class complete. Continue?`
+        : `Class ${liveClass.num} is still live and will be marked complete. Continue?`;
+      if (!window.confirm(msg)) return;
+    }
+    setBusy(true);
+    try {
+      if (liveClass && liveClass.id !== cls.id) {
+        await supabase.from("classes").update({ status: "completed" }).eq("id", liveClass.id);
+        await pushToHighPoints(liveClass);
+      }
+      await supabase.from("classes").update({ status: "live" }).eq("id", cls.id);
+      const next = firstPending(cls.entries, cls.scoring_mode);
+      if (next) triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${cls.num} · ${cls.name}`, "now-showing");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const completeClass = async (cls) => {
@@ -358,12 +393,27 @@ export default function Coordinator() {
       );
     }
     await pushToHighPoints(cls);
-    const nextUp = classes.find((c) => c.status === "upcoming" && c.id !== cls.id);
-    if (nextUp) {
-      await supabase.from("classes").update({ status: "live" }).eq("id", nextUp.id);
-      const nextEntry = firstPending(nextUp.entries, nextUp.scoring_mode);
-      if (nextEntry) triggerPush(`Now showing: #${fmtBack(nextEntry.back_number)} ${nextEntry.horse}`, `Class ${nextUp.num} · ${nextUp.name}`, "now-showing");
+    // Auto-advance only while the event is live, and to the next class AFTER
+    // this one in running order (not the earliest upcoming, which could jump
+    // backwards over classes you've deliberately skipped).
+    if (currentEvent?.status === "live") {
+      const nextUp = classes
+        .filter((c) => c.status === "upcoming" && c.id !== cls.id && (c.sort_order ?? 0) > (cls.sort_order ?? 0))
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0];
+      if (nextUp) {
+        await supabase.from("classes").update({ status: "live" }).eq("id", nextUp.id);
+        const nextEntry = firstPending(nextUp.entries, nextUp.scoring_mode);
+        if (nextEntry) triggerPush(`Now showing: #${fmtBack(nextEntry.back_number)} ${nextEntry.horse}`, `Class ${nextUp.num} · ${nextUp.name}`, "now-showing");
+      }
     }
+  };
+
+  // Wrapper for the manual "Complete" button so a double-tap can't fire twice
+  // (the score-flow callers already hold `busy` while they call completeClass).
+  const completeClassManual = async (cls) => {
+    if (busy) return;
+    setBusy(true);
+    try { await completeClass(cls); } finally { setBusy(false); }
   };
 
   const pushToHighPoints = async (cls) => {
@@ -482,7 +532,25 @@ export default function Coordinator() {
 
   const endEvent = async () => {
     if (!window.confirm("Mark this event as completed? This cannot be undone.")) return;
+    // Don't leave a class stuck 'live' — complete it (and push its High Points)
+    // before the event is marked completed.
+    if (liveClass) {
+      await supabase.from("classes").update({ status: "completed" }).eq("id", liveClass.id);
+      await pushToHighPoints(liveClass);
+    }
     await setEventStatus("completed");
+    await loadClasses();
+  };
+
+  const revertToClosed = async () => {
+    if (!window.confirm("Revert to closed? The event goes back to the 'Entries closed' state, and any class currently being scored is set back to upcoming (scores are kept).")) return;
+    // Clear the live class so the public view and Lock Screen don't keep
+    // showing a class as live while the event is closed.
+    if (liveClass) {
+      await supabase.from("classes").update({ status: "upcoming" }).eq("id", liveClass.id);
+    }
+    await setEventStatus("closed");
+    await loadClasses();
   };
 
   const cancelEvent = () => {
@@ -522,17 +590,39 @@ export default function Coordinator() {
     }
   };
 
-  const closeEntries = async () => {
-    const emptyClasses = classes.filter((c) => c.entries.length === 0);
-    const emptyNote = emptyClasses.length > 0
-      ? `\n\n${emptyClasses.length} class${emptyClasses.length !== 1 ? "es" : ""} with no entries will be removed:\n${emptyClasses.slice(0, 8).map((c) => `  · Class ${c.num} · ${c.name}`).join("\n")}${emptyClasses.length > 8 ? `\n  · …and ${emptyClasses.length - 8} more` : ""}`
-      : "";
-    if (!window.confirm(`Close entries for this event?${emptyNote}\n\nExhibitors will no longer be able to register online. You can reopen entries if needed.`)) return;
-    if (emptyClasses.length > 0) {
-      await supabase.from("classes").delete().in("id", emptyClasses.map((c) => c.id));
+  const closeEntries = () => {
+    // Ask what to do with empty classes rather than always deleting them.
+    openModal("closeEntries");
+  };
+
+  const submitCloseEntries = async () => {
+    setBusy(true);
+    try {
+      const emptyClasses = classes.filter((c) => c.entries.length === 0);
+      const doDelete = !!form.deleteEmpty && emptyClasses.length > 0;
+      if (doDelete) {
+        await supabase.from("classes").delete().in("id", emptyClasses.map((c) => c.id));
+      }
+      if (doDelete && form.renumber) {
+        // Re-sequence the remaining classes 1..N in running order (day, then
+        // sort_order) so deleting empties doesn't leave gaps in the numbers.
+        const emptyIds = new Set(emptyClasses.map((c) => c.id));
+        const remaining = classes
+          .filter((c) => !emptyIds.has(c.id))
+          .sort((a, b) => (a.day ?? 1) - (b.day ?? 1) || (a.sort_order ?? 0) - (b.sort_order ?? 0));
+        await Promise.all(
+          remaining
+            .map((c, i) => ({ id: c.id, num: i + 1, was: c.num }))
+            .filter((u) => u.num !== u.was)
+            .map((u) => supabase.from("classes").update({ num: u.num }).eq("id", u.id))
+        );
+      }
+      await setEventStatus("closed");
+      await loadClasses();
+      closeModal();
+    } finally {
+      setBusy(false);
     }
-    await setEventStatus("closed");
-    await loadClasses();
   };
 
   const randomiseDraw = async () => {
@@ -862,6 +952,71 @@ export default function Coordinator() {
   };
 
   // ---- export ----
+  const exportClasses = async () => {
+    if (!currentEvent) return;
+    if (!classes.length) {
+      window.alert("No classes to export yet.");
+      return;
+    }
+    setExportingClasses(true);
+    try {
+      const mod = await import("xlsx"); const XLSX = mod.default ?? mod;
+      const wb = XLSX.utils.book_new();
+
+      const classRows = [[
+        "Category", "Break Before", "Class #", "Class Name", "Judge 1", "Judge 2",
+        "Break After", "Type", "HP Category", "Day", "Capacity", "Pattern URL",
+      ]];
+
+      [...classes]
+        .sort((a, b) =>
+          (a.day ?? 1) - (b.day ?? 1) ||
+          (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+          (a.num ?? 0) - (b.num ?? 0))
+        .forEach((cls) => {
+          classRows.push([
+            cls.program_category ?? "",
+            cls.program_break_before ?? "",
+            cls.num ?? "",
+            cls.name ?? "",
+            cls.judge ?? "",
+            cls.judge2 ?? "",
+            cls.program_break_after ?? "",
+            SCORING_MODE_LABELS[cls.scoring_mode ?? "score"] ?? "Score",
+            cls.hp_category ?? "",
+            cls.day ?? 1,
+            cls.capacity ?? "",
+            cls.pattern_url ?? "",
+          ]);
+        });
+
+      const classSheet = XLSX.utils.aoa_to_sheet(classRows);
+      classSheet["!cols"] = [
+        { wch: 24 }, { wch: 24 }, { wch: 9 }, { wch: 42 }, { wch: 22 }, { wch: 22 },
+        { wch: 24 }, { wch: 18 }, { wch: 22 }, { wch: 8 }, { wch: 10 }, { wch: 42 },
+      ];
+      XLSX.utils.book_append_sheet(wb, classSheet, "Classes");
+
+      const optionsRows = [
+        ["Type options"],
+        ...Object.values(SCORING_MODE_LABELS).map((label) => [label]),
+        [],
+        ["Notes"],
+        ["Edit the Classes tab, then use Import classes to re-upload it."],
+        ["Rows are matched to existing classes by class number/name, then category/name, then name."],
+        ["Leave Capacity blank for unlimited spots."],
+        ["Pattern URL can be a public link or a pattern previously uploaded to the event."],
+      ];
+      const optionsSheet = XLSX.utils.aoa_to_sheet(optionsRows);
+      optionsSheet["!cols"] = [{ wch: 90 }];
+      XLSX.utils.book_append_sheet(wb, optionsSheet, "Options");
+
+      XLSX.writeFile(wb, `${cleanFilename(currentEvent.name, "classes")}-classes.xlsx`);
+    } finally {
+      setExportingClasses(false);
+    }
+  };
+
   const exportResults = async () => {
     if (!currentEvent) return;
     setExporting(true);
@@ -1069,6 +1224,9 @@ export default function Coordinator() {
               Registrations
             </Link>
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
+            <button className="btn-ghost" onClick={exportClasses} disabled={exportingClasses || !eventId || classes.length === 0}>
+              {exportingClasses ? "Exporting…" : "⇩ Export classes"}
+            </button>
             <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
             <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
             <button className="btn-ghost" onClick={testPush} disabled={!eventId}>Test push</button>
@@ -1118,11 +1276,11 @@ export default function Coordinator() {
                   {s === "live" && (
                     <>
                       <button className="btn-ghost" style={{ fontSize: 13 }}
-                        onClick={() => { if (window.confirm("Revert to closed? The event will go back to the 'Entries closed' state. Any scoring in progress will not be affected.")) setEventStatus("closed"); }}
+                        onClick={revertToClosed}
                         disabled={busy}>
                         ← Back to closed
                       </button>
-                      <button className="btn-ghost danger" onClick={endEvent}>End event</button>
+                      <button className="btn-ghost danger" onClick={endEvent} disabled={busy}>End event</button>
                     </>
                   )}
                   {s === "completed" && (
@@ -1345,10 +1503,12 @@ export default function Coordinator() {
                     <>
                       <button className="btn-ghost" onClick={() => moveClass(cls, -1)} aria-label="Move earlier">▲</button>
                       <button className="btn-ghost" onClick={() => moveClass(cls, 1)} aria-label="Move later">▼</button>
-                      <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }} onClick={() => startClass(cls)}>Start</button>
+                      {currentEvent?.status === "live" && (
+                        <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }} onClick={() => startClass(cls)} disabled={busy}>Start</button>
+                      )}
                     </>
                   )}
-                  {isLive && !isClinic && <button className="btn-ghost" onClick={() => completeClass(cls)}>Complete</button>}
+                  {isLive && !isClinic && <button className="btn-ghost" onClick={() => completeClassManual(cls)} disabled={busy}>Complete</button>}
                   {cls.status === "completed" && cls.hp_category && !isClinic && (
                     <button className="btn-ghost" style={{ fontSize: 11, borderColor: "var(--green)", color: "var(--green)" }}
                       onClick={() => pushToHighPoints(cls)} title="Push results to the High Points leaderboard">
@@ -1923,6 +2083,53 @@ export default function Coordinator() {
                 </div>
               </>
             )}
+
+            {modal.type === "closeEntries" && (() => {
+              const emptyClasses = classes.filter((c) => c.entries.length === 0);
+              return (
+                <>
+                  <h2 className="display modal-title">Close entries</h2>
+                  <p style={{ fontSize: 14, color: "var(--quiet)", marginTop: 0 }}>
+                    Exhibitors will no longer be able to register online. You can reopen entries later if needed.
+                  </p>
+                  {emptyClasses.length > 0 ? (
+                    <>
+                      <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 0", cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!form.deleteEmpty} style={{ marginTop: 3 }}
+                          onChange={(e) => setForm((f) => ({ ...f, deleteEmpty: e.target.checked, renumber: e.target.checked ? f.renumber : false }))} />
+                        <span>
+                          <strong>Delete {emptyClasses.length} {emptyClasses.length === 1 ? "class" : "classes"} with no entries</strong>
+                          <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+                            {emptyClasses.slice(0, 6).map((c) => `Class ${c.num} · ${c.name}`).join(", ")}{emptyClasses.length > 6 ? `, and ${emptyClasses.length - 6} more` : ""}
+                          </span>
+                        </span>
+                      </label>
+                      {form.deleteEmpty && (
+                        <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "4px 0 10px 30px", cursor: "pointer" }}>
+                          <input type="checkbox" checked={!!form.renumber} style={{ marginTop: 3 }}
+                            onChange={(e) => setForm((f) => ({ ...f, renumber: e.target.checked }))} />
+                          <span>
+                            <strong>Renumber the remaining classes</strong>
+                            <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+                              Re-sequence class numbers 1, 2, 3… in running order so there are no gaps. This changes the numbers shown on the schedule and printed program.
+                            </span>
+                          </span>
+                        </label>
+                      )}
+                    </>
+                  ) : (
+                    <p style={{ fontSize: 13.5, color: "var(--quiet)" }}>Every class has at least one entry.</p>
+                  )}
+                  {formError && <p className="modal-error">{formError}</p>}
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    <button className="btn" style={{ flex: 1, background: "var(--leather)", color: "#fff" }} onClick={submitCloseEntries} disabled={busy}>
+                      {busy ? "Closing…" : "Close entries"}
+                    </button>
+                    <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                  </div>
+                </>
+              );
+            })()}
 
           </div>
         </div>
