@@ -16,6 +16,19 @@ input:focus, button:focus-visible { outline: 2px solid var(--brass); outline-off
 .wrap { max-width: 860px; margin: 0 auto; padding: 20px 20px 56px; }
 .header { background: var(--leather); color: #F2EADB; padding: 20px; }
 .display { font-family: 'Zilla Slab', serif; }
+.event-resource-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.event-resource-link {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 31px;
+  padding: 7px 11px; border: 1px solid rgba(242, 234, 219, .46); border-radius: 7px;
+  background: rgba(255, 255, 255, .08); color: #F7E7BF; text-decoration: none;
+  font-size: 13px; font-weight: 800; line-height: 1; white-space: nowrap;
+}
+.event-resource-link:focus-visible { outline: 2px solid var(--brass-soft); outline-offset: 2px; }
+.event-resource-link.prominent {
+  background: #F2EADB; border-color: #F2EADB; color: var(--leather-deep);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, .16);
+}
+.event-resource-link.prominent:hover { background: #FFF7E8; border-color: #FFF7E8; }
 .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-bottom: 18px; }
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 16px; background: var(--paper); border-bottom: 1px solid var(--line); }
 .badge { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: 3px 10px; border-radius: 20px; color: #fff; }

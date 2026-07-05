@@ -61,12 +61,12 @@ export default function SchedulePage() {
     <>
       <header className="header">
         <div style={{ maxWidth: 860, margin: "0 auto" }}>
-          <div style={{ display: "flex", gap: 14, marginBottom: 6 }}>
-            <Link href={`/event/${id}`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>← Live scoring</Link>
-            <Link href={`/event/${id}/program`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>Program</Link>
-            <Link href={`/event/${id}/results`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>Results</Link>
-            <a href={`/api/events/${id}/patterns`} style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>Patterns PDF</a>
-            <Link href="/" style={{ color: "var(--brass-soft)", fontSize: 12.5, textDecoration: "none" }}>All events</Link>
+          <div className="event-resource-links">
+            <Link href={`/event/${id}`} className="event-resource-link">Live scoring</Link>
+            <Link href={`/event/${id}/program`} className="event-resource-link prominent">Program</Link>
+            <Link href={`/event/${id}/results`} className="event-resource-link prominent">Results</Link>
+            <a href={`/api/events/${id}/patterns`} className="event-resource-link prominent">Patterns PDF</a>
+            <Link href="/" className="event-resource-link">All events</Link>
           </div>
           <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", margin: "0 0 2px" }}>{event.name}</h1>
           <div style={{ fontSize: 13, color: "#CBBFA9" }}>
