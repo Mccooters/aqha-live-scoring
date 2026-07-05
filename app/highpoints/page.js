@@ -15,6 +15,8 @@ const CANONICAL_CATEGORIES = [
 ];
 
 const KNOWN_CATEGORY_NAMES = new Set(CANONICAL_CATEGORIES.map(c => c.toLowerCase()));
+const HIGH_POINTS_NOTICE_KEY = "high_points_notice";
+const HIGH_POINTS_NOTICE_TEXT = "Current results are not up to date. TBC.";
 
 const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const SHOW_MONTH_ORDER = [
@@ -130,6 +132,10 @@ export default function HighPoints() {
   const [formError, setFormError] = useState("");
   const [importError, setImportError] = useState("");
   const [importing, setImporting] = useState(false);
+  const [noticeEnabled, setNoticeEnabled] = useState(false);
+  const [noticeReady, setNoticeReady] = useState(false);
+  const [noticeSaving, setNoticeSaving] = useState(false);
+  const [noticeError, setNoticeError] = useState("");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -159,7 +165,46 @@ export default function HighPoints() {
     setLoading(false);
   }, []);
 
+  const loadNotice = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", HIGH_POINTS_NOTICE_KEY)
+      .maybeSingle();
+    if (error) {
+      setNoticeReady(false);
+      setNoticeEnabled(false);
+      return;
+    }
+    setNoticeReady(true);
+    setNoticeEnabled(Boolean(data?.value?.enabled));
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadNotice(); }, [loadNotice]);
+
+  const toggleNotice = async () => {
+    const nextEnabled = !noticeEnabled;
+    setNoticeSaving(true);
+    setNoticeError("");
+    const { error } = await supabase
+      .from("site_settings")
+      .upsert({
+        key: HIGH_POINTS_NOTICE_KEY,
+        value: { enabled: nextEnabled, message: HIGH_POINTS_NOTICE_TEXT },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+    if (error) {
+      setNoticeError(error.message?.includes("site_settings")
+        ? 'Database migration needed. Please run "schema-v22-site-settings.sql" in your Supabase SQL Editor first.'
+        : error.message);
+      setNoticeSaving(false);
+      return;
+    }
+    setNoticeReady(true);
+    setNoticeEnabled(nextEnabled);
+    setNoticeSaving(false);
+  };
 
   const setField = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
   const closeModal = () => { setModal(null); setForm({}); setFormError(""); setImportError(""); };
@@ -345,10 +390,16 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             {session && (
-              <button className="btn-ghost" style={{ borderColor: "var(--brass-soft)", color: "var(--brass-soft)", background: "transparent", padding: "6px 12px" }}
-                onClick={() => setModal({ type: "import" })}>
-                ⇪ Import CSV
-              </button>
+              <>
+                <button className="btn-ghost" style={{ borderColor: noticeEnabled ? "var(--clay)" : "var(--brass-soft)", color: noticeEnabled ? "#F2EADB" : "var(--brass-soft)", background: noticeEnabled ? "var(--clay)" : "transparent", padding: "6px 12px" }}
+                  onClick={toggleNotice} disabled={noticeSaving}>
+                  {noticeSaving ? "Saving..." : noticeEnabled ? "Hide TBC notice" : "Show TBC notice"}
+                </button>
+                <button className="btn-ghost" style={{ borderColor: "var(--brass-soft)", color: "var(--brass-soft)", background: "transparent", padding: "6px 12px" }}
+                  onClick={() => setModal({ type: "import" })}>
+                  ⇪ Import CSV
+                </button>
+              </>
             )}
             {!session && (
               <Link href="/coordinator" style={{ color: "var(--brass-soft)", fontSize: 13, textDecoration: "none" }}>Staff →</Link>
@@ -358,6 +409,22 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
       </header>
 
       <main className="wrap">
+        {noticeEnabled && (
+          <div className="card" style={{ padding: "12px 14px", borderColor: "#E0B15A", background: "#FFF7D6", marginBottom: 14 }}>
+            <p style={{ margin: 0, color: "var(--leather)", fontSize: 14, fontWeight: 800 }}>
+              {HIGH_POINTS_NOTICE_TEXT}
+            </p>
+          </div>
+        )}
+        {session && noticeError && (
+          <p className="modal-error" style={{ marginTop: 0, marginBottom: 12 }}>{noticeError}</p>
+        )}
+        {session && !noticeReady && !noticeError && (
+          <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 0, marginBottom: 12 }}>
+            Run <code>schema-v22-site-settings.sql</code> to enable the TBC notice toggle.
+          </p>
+        )}
+
         {!session && records.length > 0 && (
           <p style={{ fontSize: 12.5, color: "var(--quiet)", marginBottom: 12 }}>
             <Link href="/coordinator" style={{ color: "var(--brass)" }}>Sign in</Link> to add or edit results.

@@ -52,6 +52,9 @@ hasn't been run.
 - [ ] **v21** — `schema-v21-event-patterns-pdf.sql`
       → lets staff choose one custom rider-facing **Patterns PDF** for the public
         Patterns PDF link, while keeping the generated class pattern book as fallback.
+- [ ] **v22** — `schema-v22-site-settings.sql`
+      → adds site-wide settings, currently used to toggle the **High Points
+        results are not up to date / TBC** notice.
 
 Tick these off once you've run them.
 
@@ -82,6 +85,7 @@ Tick these off once you've run them.
 | `schema-v19-class-categories.sql` | Program category tag on classes for grouped schedules and entry forms |
 | `schema-v20-program-breaks.sql` | Program break headings before/after classes for printed-program-style schedules |
 | `schema-v21-event-patterns-pdf.sql` | Custom rider-facing Patterns PDF per event |
+| `schema-v22-site-settings.sql` | Site-wide settings, including the High Points TBC notice toggle |
 
 ## For whoever updates the code next
 

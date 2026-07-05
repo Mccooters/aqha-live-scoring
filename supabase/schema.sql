@@ -38,6 +38,16 @@ create table entries (
   created_at timestamptz default now()
 );
 
+create table site_settings (
+  key text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamptz default now()
+);
+
+insert into site_settings (key, value)
+values ('high_points_notice', '{"enabled": false, "message": "Current results are not up to date. TBC."}'::jsonb)
+on conflict (key) do nothing;
+
 create index on classes (event_id, sort_order);
 create index on entries (class_id, draw_order);
 
@@ -48,14 +58,20 @@ create index on entries (class_id, draw_order);
 alter table events  enable row level security;
 alter table classes enable row level security;
 alter table entries enable row level security;
+alter table site_settings enable row level security;
 
 create policy "public read events"  on events  for select using (true);
 create policy "public read classes" on classes for select using (true);
 create policy "public read entries" on entries for select using (true);
+create policy "public read site_settings" on site_settings for select using (true);
 
 create policy "staff write events"  on events  for all to authenticated using (true) with check (true);
 create policy "staff write classes" on classes for all to authenticated using (true) with check (true);
 create policy "staff write entries" on entries for all to authenticated using (true) with check (true);
+create policy "staff write site_settings" on site_settings for all to authenticated using (true) with check (true);
+
+grant select on site_settings to anon;
+grant select, insert, update, delete on site_settings to authenticated;
 
 -- ========== REALTIME ==========
 -- Lets every spectator's screen update the instant a score is saved.
