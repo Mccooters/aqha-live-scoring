@@ -49,6 +49,9 @@ hasn't been run.
 - [ ] **v20** — `schema-v20-program-breaks.sql`
       → adds **Program break** headings before/after classes, e.g. "SET UP TRAIL",
         "BREAK FOR GEAR CHANGE", or "FINISH", so schedules can match the printed program.
+- [ ] **v21** — `schema-v21-event-patterns-pdf.sql`
+      → lets staff choose one custom rider-facing **Patterns PDF** for the public
+        Patterns PDF link, while keeping the generated class pattern book as fallback.
 
 Tick these off once you've run them.
 
@@ -78,6 +81,7 @@ Tick these off once you've run them.
 | `schema-v18-clubs-foundation.sql` | Multi-club foundation: the "club" concept, per-club branding + staff logins (non-breaking) |
 | `schema-v19-class-categories.sql` | Program category tag on classes for grouped schedules and entry forms |
 | `schema-v20-program-breaks.sql` | Program break headings before/after classes for printed-program-style schedules |
+| `schema-v21-event-patterns-pdf.sql` | Custom rider-facing Patterns PDF per event |
 
 ## For whoever updates the code next
 

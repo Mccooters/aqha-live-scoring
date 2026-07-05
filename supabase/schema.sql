@@ -9,6 +9,7 @@ create table events (
   location text,
   starts_on date,
   ends_on date,
+  patterns_pdf_url text, -- optional custom rider-facing Patterns PDF
   status text not null default 'upcoming', -- upcoming | live | completed
   created_at timestamptz default now()
 );

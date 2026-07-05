@@ -59,6 +59,10 @@ const fmtBack = (n) => String(n).padStart(3, "0");
 const ordinal = (n) => { const s = ["th","st","nd","rd"]; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
 const cleanFilename = (value, fallback = "classes") =>
   (String(value ?? fallback).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || fallback);
+const isPdfFile = (value) => {
+  const text = String(value ?? "").toLowerCase();
+  return text.endsWith(".pdf") || text.includes(".pdf?");
+};
 
 // Snapshot of a live class for the iPhone Live Activity (Lock Screen card).
 // Keys must match the app's ScoringAttributes.ContentState exactly.
@@ -231,6 +235,7 @@ export default function Coordinator() {
   const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
   const currentEvent = events.find((e) => e.id === eventId);
   const isClinic = currentEvent?.event_type === "clinic";
+  const uploadedPdfFiles = patternFiles.filter((file) => isPdfFile(file.name) || isPdfFile(file.url));
 
   const loadPatternFiles = useCallback(async () => {
     if (!eventId) return;
@@ -718,6 +723,11 @@ export default function Coordinator() {
         applyClassIds: linkedClassIds.length ? linkedClassIds : [extra.classId],
       };
     }
+    if (type === "bulkPatterns") {
+      initialForm = {
+        patterns_pdf_url: currentEvent?.patterns_pdf_url ?? "",
+      };
+    }
     if (type === "pattern" || type === "bulkPatterns") loadPatternFiles();
     if (type === "editEntry" && extra.entry) {
       const e = extra.entry;
@@ -931,6 +941,7 @@ export default function Coordinator() {
     setFormError("");
     try {
       let uploaded = 0;
+      const uploadedFiles = [];
       for (const file of files) {
         const safeName = file.name.replace(/[^\w.\- ]+/g, "-");
         const path = `${eventId}/${safeName}`;
@@ -942,13 +953,44 @@ export default function Coordinator() {
             : error.message);
           return;
         }
+        const { data: urlData } = supabase.storage.from("patterns").getPublicUrl(path);
+        uploadedFiles.push({ name: safeName, url: urlData.publicUrl });
         uploaded += 1;
       }
       await loadPatternFiles();
-      setForm((f) => ({ ...f, patternFiles: [], patternUploadMessage: `Uploaded ${uploaded} pattern${uploaded === 1 ? "" : "s"}.` }));
+      setForm((f) => {
+        const singlePdf = uploadedFiles.length === 1 && isPdfFile(uploadedFiles[0].name) ? uploadedFiles[0].url : "";
+        return {
+          ...f,
+          patternFiles: [],
+          patternUploadMessage: `Uploaded ${uploaded} pattern${uploaded === 1 ? "" : "s"}.`,
+          patterns_pdf_url: f.patterns_pdf_url || currentEvent?.patterns_pdf_url || singlePdf,
+        };
+      });
     } finally {
       setUploadingPatternFiles(false);
     }
+  };
+
+  const submitPatternsPdf = async () => {
+    if (!eventId) return;
+    const url = form.patterns_pdf_url?.trim() || null;
+    setFormError("");
+    const { error } = await supabase.from("events").update({ patterns_pdf_url: url }).eq("id", eventId);
+    if (error) {
+      setFormError(error.message?.includes("patterns_pdf_url")
+        ? 'Database migration needed. Please run "schema-v21-event-patterns-pdf.sql" in your Supabase SQL Editor first.'
+        : error.message);
+      return;
+    }
+    await loadEvents();
+    setForm((f) => ({
+      ...f,
+      patterns_pdf_url: url ?? "",
+      patternsPdfMessage: url
+        ? "Rider Patterns PDF updated."
+        : "Patterns PDF will use the generated class pattern book.",
+    }));
   };
 
   // ---- export ----
@@ -1213,7 +1255,7 @@ export default function Coordinator() {
                   Patterns PDF
                 </a>
                 <button className="btn-ghost" onClick={() => openModal("bulkPatterns")} disabled={!eventId}>
-                  Upload patterns
+                  Manage patterns PDF
                 </button>
               </>
             )}
@@ -1889,9 +1931,9 @@ export default function Coordinator() {
 
             {modal.type === "bulkPatterns" && (
               <>
-                <h2 className="display modal-title">Upload patterns</h2>
+                <h2 className="display modal-title">Manage patterns PDF</h2>
                 <p style={{ fontSize: 13, color: "var(--quiet)", marginTop: 0 }}>
-                  Upload all PDFs or images for this event here. Then open Pattern on any class, choose an uploaded file, and apply it to every class that uses that same pattern.
+                  Upload class pattern files here, then choose one PDF to be the public rider-facing Patterns PDF. Leave it blank to use the generated class pattern book.
                 </p>
                 <label className="modal-label">Pattern files</label>
                 <input type="file" accept="image/*,.pdf" multiple style={{ marginBottom: 8 }}
@@ -1904,7 +1946,6 @@ export default function Coordinator() {
                     {form.patternUploadMessage}
                   </p>
                 )}
-                {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }}
                     onClick={submitBulkPatterns} disabled={uploadingPatternFiles}>
@@ -1913,17 +1954,65 @@ export default function Coordinator() {
                   <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Done</button>
                 </div>
 
+                <label className="modal-label">Rider-facing Patterns PDF</label>
+                <select className="field" style={{ width: "100%", fontSize: 15 }}
+                  value={uploadedPdfFiles.some((file) => file.url === form.patterns_pdf_url) ? form.patterns_pdf_url : ""}
+                  onChange={(e) => setForm((f) => ({ ...f, patterns_pdf_url: e.target.value, patternsPdfMessage: "" }))}>
+                  <option value="">{loadingPatternFiles ? "Loading PDFs..." : "— Generated from class patterns —"}</option>
+                  {uploadedPdfFiles.map((file) => (
+                    <option key={file.url} value={file.url}>{file.name}</option>
+                  ))}
+                </select>
+                <label className="modal-label">Or paste PDF URL</label>
+                <input className="field" style={{ width: "100%", fontSize: 15 }} value={form.patterns_pdf_url ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, patterns_pdf_url: e.target.value, patternsPdfMessage: "" }))}
+                  placeholder="https://..." />
+                <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>
+                  The public Patterns PDF link will send riders this PDF. Clear the field and save to go back to the generated class-pattern PDF.
+                </p>
+                {form.patternsPdfMessage && (
+                  <p style={{ color: "var(--green)", fontSize: 13, fontWeight: 700, margin: "8px 0 0" }}>
+                    {form.patternsPdfMessage}
+                  </p>
+                )}
+                {formError && <p className="modal-error">{formError}</p>}
+                <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitPatternsPdf}>
+                    Save rider PDF
+                  </button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }}
+                    onClick={() => setForm((f) => ({ ...f, patterns_pdf_url: "", patternsPdfMessage: "" }))}>
+                    Use generated
+                  </button>
+                </div>
+
                 <label className="modal-label">Already uploaded</label>
                 <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 10, background: "#fff" }}>
                   {loadingPatternFiles ? (
                     <div style={{ padding: 12, fontSize: 13, color: "var(--quiet)" }}>Loading patterns...</div>
                   ) : patternFiles.length ? (
-                    patternFiles.map((file) => (
-                      <a key={file.url} href={file.url} target="_blank" rel="noreferrer"
-                        style={{ display: "block", padding: "9px 10px", borderBottom: "1px solid var(--line)", color: "var(--leather)", fontSize: 13, fontWeight: 700, textDecoration: "none", overflowWrap: "anywhere" }}>
-                        {file.name}
-                      </a>
-                    ))
+                    patternFiles.map((file) => {
+                      const pdf = isPdfFile(file.name) || isPdfFile(file.url);
+                      const isRiderPdf = currentEvent?.patterns_pdf_url === file.url;
+                      return (
+                        <div key={file.url}
+                          style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center", padding: "9px 10px", borderBottom: "1px solid var(--line)" }}>
+                          <a href={file.url} target="_blank" rel="noreferrer"
+                            style={{ color: "var(--leather)", fontSize: 13, fontWeight: 700, textDecoration: "none", overflowWrap: "anywhere", minWidth: 0 }}>
+                            {file.name}
+                          </a>
+                          <span style={{ display: "inline-flex", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
+                            {isRiderPdf && <span style={{ fontSize: 10.5, color: "var(--green)", fontWeight: 800, textTransform: "uppercase" }}>Rider PDF</span>}
+                            {pdf && (
+                              <button type="button" className="btn-ghost" style={{ padding: "5px 8px" }}
+                                onClick={() => setForm((f) => ({ ...f, patterns_pdf_url: file.url, patternsPdfMessage: "" }))}>
+                                Select
+                              </button>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })
                   ) : (
                     <div style={{ padding: 12, fontSize: 13, color: "var(--quiet)" }}>
                       No pattern files have been uploaded for this event yet.

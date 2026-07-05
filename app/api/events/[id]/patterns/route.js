@@ -22,6 +22,11 @@ function isJpeg(url, contentType) {
   return contentType?.includes("jpeg") || contentType?.includes("jpg") || path.endsWith(".jpg") || path.endsWith(".jpeg");
 }
 
+function isMissingColumn(error, column) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return error?.code === "42703" || message.includes(column.toLowerCase());
+}
+
 function drawWrappedText(page, text, { x, y, size = 11, font, color = rgb(0, 0, 0), maxWidth = 500, lineHeight = size + 4 }) {
   const words = String(text ?? "").split(/\s+/).filter(Boolean);
   let line = "";
@@ -69,6 +74,37 @@ function groupPatternClasses(classes) {
     byUrl.get(patternUrl).classes.push(cls);
   });
   return groups;
+}
+
+async function loadEvent(db, eventId) {
+  const withCustomPdf = await db
+    .from("events")
+    .select("name, location, starts_on, patterns_pdf_url")
+    .eq("id", eventId)
+    .single();
+  if (!withCustomPdf.error) return withCustomPdf.data;
+
+  if (!isMissingColumn(withCustomPdf.error, "patterns_pdf_url")) {
+    return withCustomPdf.data;
+  }
+
+  const { data } = await db
+    .from("events")
+    .select("name, location, starts_on")
+    .eq("id", eventId)
+    .single();
+  return data;
+}
+
+async function fetchCustomPdf(patternsPdfUrl, reqUrl) {
+  const absoluteUrl = new URL(patternsPdfUrl, reqUrl).toString();
+  const res = await fetch(absoluteUrl);
+  if (!res.ok) throw new Error(`Custom PDF download failed (${res.status})`);
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!isPdf(absoluteUrl, contentType)) {
+    throw new Error(`Custom file is not a PDF (${contentType || "unknown file type"})`);
+  }
+  return new Uint8Array(await res.arrayBuffer());
 }
 
 async function appendPattern(pdfDoc, font, bold, label, patternUrl, reqUrl) {
@@ -119,10 +155,28 @@ export async function GET(req, { params }) {
   const db = adminClient();
   const eventId = params.id;
   const day = new URL(req.url).searchParams.get("day");
-  const [{ data: event }, { data: classes }] = await Promise.all([
-    db.from("events").select("name, location, starts_on").eq("id", eventId).single(),
+  const [event, { data: classes }] = await Promise.all([
+    loadEvent(db, eventId),
     db.from("classes").select("num, name, day, sort_order, pattern_url").eq("event_id", eventId).order("day").order("sort_order"),
   ]);
+  const filename = `${cleanFilename(event?.name)}-patterns.pdf`;
+  const customPatternsPdfUrl = String(event?.patterns_pdf_url ?? "").trim();
+  let customPdfError = null;
+
+  if (customPatternsPdfUrl) {
+    try {
+      const bytes = await fetchCustomPdf(customPatternsPdfUrl, req.url);
+      return new Response(bytes, {
+        headers: {
+          "content-type": "application/pdf",
+          "content-disposition": `attachment; filename="${filename}"`,
+          "cache-control": "no-store",
+        },
+      });
+    } catch (err) {
+      customPdfError = err;
+    }
+  }
 
   const patternClasses = (classes ?? [])
     .filter((cls) => cls.pattern_url && (!day || String(cls.day ?? 1) === String(day)));
@@ -134,17 +188,19 @@ export async function GET(req, { params }) {
 
   addMessagePage(pdfDoc, font, bold, `${event?.name ?? "Event"} - Pattern Book`, [
     [event?.location, event?.starts_on, day ? `Day ${day}` : null].filter(Boolean).join(" - "),
+    customPdfError
+      ? `The selected rider PDF could not be loaded, so this generated pattern book was used instead. ${customPdfError?.message ?? customPdfError}`
+      : null,
     patternGroups.length
       ? `${patternGroups.length} unique pattern file${patternGroups.length === 1 ? "" : "s"} included for ${patternClasses.length} class${patternClasses.length === 1 ? "" : "es"}.`
       : "No class patterns have been uploaded yet.",
-  ]);
+  ].filter(Boolean));
 
   for (const group of patternGroups) {
     await appendPattern(pdfDoc, font, bold, patternGroupLabel(group.classes), group.patternUrl, req.url);
   }
 
   const bytes = await pdfDoc.save();
-  const filename = `${cleanFilename(event?.name)}-patterns.pdf`;
   return new Response(bytes, {
     headers: {
       "content-type": "application/pdf",
