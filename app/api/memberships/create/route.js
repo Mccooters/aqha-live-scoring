@@ -11,10 +11,19 @@ const squareBase =
 
 export async function POST(req) {
   try {
-    const { membership_type_id, member_name, email, phone, address, applicant_notes, horses } =
-      await req.json();
+    const {
+      membership_type_id, member_name, email, phone, address,
+      aqha_member_number, other_memberships,
+      emergency_contact_name, emergency_contact_phone,
+      interests, applicant_notes, horses,
+    } = await req.json();
 
-    if (!membership_type_id || !member_name?.trim() || !email?.trim() || !email.includes("@")) {
+    // Required fields match the club's membership application form.
+    if (
+      !membership_type_id || !member_name?.trim() || !email?.trim() || !email.includes("@") ||
+      !String(phone ?? "").trim() || !String(address ?? "").trim() ||
+      !String(emergency_contact_name ?? "").trim() || !String(emergency_contact_phone ?? "").trim()
+    ) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
@@ -64,6 +73,11 @@ export async function POST(req) {
         email: cleanedEmail,
         phone: String(phone ?? "").trim() || null,
         address: String(address ?? "").trim() || null,
+        aqha_member_number: String(aqha_member_number ?? "").trim() || null,
+        other_memberships: String(other_memberships ?? "").trim() || null,
+        emergency_contact_name: String(emergency_contact_name ?? "").trim() || null,
+        emergency_contact_phone: String(emergency_contact_phone ?? "").trim() || null,
+        interests: String(interests ?? "").trim() || null,
         applicant_notes: String(applicant_notes ?? "").trim() || null,
         total_cents: totalCents,
         status: "pending",

@@ -392,7 +392,13 @@ export default function MembershipsPage() {
                   <div style={{ fontSize: 13.5, color: "var(--ink)", display: "grid", gap: 3 }}>
                     {m.phone && <div><strong>Phone:</strong> {m.phone}</div>}
                     {m.address && <div><strong>Address:</strong> {m.address}</div>}
-                    {m.applicant_notes && <div><strong>Notes from applicant:</strong> {m.applicant_notes}</div>}
+                    {m.aqha_member_number && <div><strong>AQHA member number:</strong> {m.aqha_member_number}</div>}
+                    {m.other_memberships && <div><strong>Other associations:</strong> {m.other_memberships}</div>}
+                    {(m.emergency_contact_name || m.emergency_contact_phone) && (
+                      <div><strong>Emergency contact:</strong> {[m.emergency_contact_name, m.emergency_contact_phone].filter(Boolean).join(" · ")}</div>
+                    )}
+                    {m.interests && <div><strong>Wants from the club:</strong> {m.interests}</div>}
+                    {m.applicant_notes && <div><strong>Feedback:</strong> {m.applicant_notes}</div>}
                     {m.approved_at && <div><strong>Approved:</strong> {fmtDate(m.approved_at)}</div>}
                   </div>
 

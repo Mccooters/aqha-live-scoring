@@ -4,6 +4,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { signupSeason, seasonLabel } from "../../lib/membershipSeason";
+import { WAIVER_INTRO, WAIVER_BODY, WAIVER_DECLARATION } from "../../lib/membershipWaiver";
+
+const INTEREST_OPTIONS = ["Shows", "Clinics", "To connect with locals"];
 
 const fmtMoney = (cents) => `$${((cents ?? 0) / 100).toFixed(2)}`;
 
@@ -30,6 +33,11 @@ export default function MembershipPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [aqhaNumber, setAqhaNumber] = useState("");
+  const [otherMemberships, setOtherMemberships] = useState("");
+  const [emergencyName, setEmergencyName] = useState("");
+  const [emergencyPhone, setEmergencyPhone] = useState("");
+  const [interests, setInterests] = useState([]);
   const [applicantNotes, setApplicantNotes] = useState("");
   const [horses, setHorses] = useState([]);
   const [agreed, setAgreed] = useState(false);
@@ -82,16 +90,24 @@ export default function MembershipPage() {
     }
   };
 
+  const toggleInterest = (option) =>
+    setInterests((prev) =>
+      prev.includes(option) ? prev.filter((i) => i !== option) : [...prev, option]
+    );
+
   const submit = async () => {
     setError("");
     if (!typeId) { setError("Please choose a membership type."); return; }
     if (!memberName.trim()) { setError("Please enter your full name."); return; }
     if (!email.trim() || !email.includes("@")) { setError("Please enter a valid email address."); return; }
+    if (!phone.trim()) { setError("Please enter your phone number."); return; }
+    if (!address.trim()) { setError("Please enter your address."); return; }
+    if (!emergencyName.trim() || !emergencyPhone.trim()) { setError("Please enter an emergency contact name and phone number."); return; }
     const incompleteHorse = horses.find((h) =>
       !h.horse_name.trim() && (h.back_number || h.breed.trim() || h.registrations.trim() || h.notes.trim())
     );
     if (incompleteHorse) { setError("One of your horses is missing its name. Please fill it in or remove that horse."); return; }
-    if (!agreed) { setError("Please confirm you agree to the club rules and constitution."); return; }
+    if (!agreed) { setError("Please confirm you have read and agree to the membership terms, liability waiver and declaration."); return; }
 
     setSubmitting(true);
     try {
@@ -104,6 +120,11 @@ export default function MembershipPage() {
           email: email.trim(),
           phone: phone.trim(),
           address: address.trim(),
+          aqha_member_number: aqhaNumber.trim(),
+          other_memberships: otherMemberships.trim(),
+          emergency_contact_name: emergencyName.trim(),
+          emergency_contact_phone: emergencyPhone.trim(),
+          interests: interests.join(", "),
           applicant_notes: applicantNotes.trim(),
           horses: horses
             .filter((h) => h.horse_name.trim())
@@ -249,14 +270,56 @@ export default function MembershipPage() {
                 <p style={{ fontSize: 12, color: "var(--quiet)", margin: "6px 0 0" }}>
                   Use the same email address when entering events online — it&apos;s how we recognise your membership.
                 </p>
-                <label className="modal-label">Phone</label>
+                <label className="modal-label">Phone number *</label>
                 <input className="field" type="tel" style={{ width: "100%", fontSize: 16 }}
                   value={phone} onChange={(e) => setPhone(e.target.value)}
                   placeholder="e.g. 0400 000 000" />
-                <label className="modal-label">Postal address</label>
+                <label className="modal-label">Address *</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }}
                   value={address} onChange={(e) => setAddress(e.target.value)}
                   placeholder="Street, suburb, state, postcode" />
+                <label className="modal-label">AQHA member number</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }}
+                  value={aqhaNumber} onChange={(e) => setAqhaNumber(e.target.value)}
+                  placeholder="If you have one" />
+                <label className="modal-label">Other breed and association memberships</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }}
+                  value={otherMemberships} onChange={(e) => setOtherMemberships(e.target.value)}
+                  placeholder="e.g. PHAA, ApHC" />
+              </div>
+            </section>
+
+            {/* Emergency contact */}
+            <section className="card">
+              <div className="card-head">
+                <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Emergency contact</div>
+              </div>
+              <div style={{ paddingBottom: 8 }}>
+                <label className="modal-label">Emergency contact name *</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }}
+                  value={emergencyName} onChange={(e) => setEmergencyName(e.target.value)}
+                  placeholder="e.g. Tom O'Brien" />
+                <label className="modal-label">Emergency contact phone number *</label>
+                <input className="field" type="tel" style={{ width: "100%", fontSize: 16 }}
+                  value={emergencyPhone} onChange={(e) => setEmergencyPhone(e.target.value)}
+                  placeholder="e.g. 0400 000 000" />
+              </div>
+            </section>
+
+            {/* What would you like from the club? */}
+            <section className="card">
+              <div className="card-head">
+                <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>What would you like from the club?</div>
+              </div>
+              <div style={{ display: "grid", gap: 8, paddingBottom: 10 }}>
+                {INTEREST_OPTIONS.map((option) => (
+                  <label key={option} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 14.5, cursor: "pointer" }}>
+                    <input type="checkbox" checked={interests.includes(option)}
+                      onChange={() => toggleInterest(option)}
+                      style={{ width: 18, height: 18, flexShrink: 0 }} />
+                    <span>{option}</span>
+                  </label>
+                ))}
               </div>
             </section>
 
@@ -315,15 +378,42 @@ export default function MembershipPage() {
               </div>
             </section>
 
-            {/* Notes */}
+            {/* Feedback */}
             <section className="card">
               <div className="card-head">
-                <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Anything else?</div>
+                <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Feedback for the club</div>
               </div>
               <div style={{ paddingBottom: 8 }}>
                 <textarea className="field" rows={3} style={{ width: "100%", fontSize: 15, resize: "vertical" }}
                   value={applicantNotes} onChange={(e) => setApplicantNotes(e.target.value)}
-                  placeholder="Optional — anything you'd like the committee to know." />
+                  placeholder="Optional — any other feedback on what we can do to support our members." />
+              </div>
+            </section>
+
+            {/* Terms, liability waiver & declaration */}
+            <section className="card">
+              <div className="card-head">
+                <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Membership terms, liability waiver & declaration</div>
+              </div>
+              <div style={{ paddingBottom: 10 }}>
+                {WAIVER_INTRO.map((p, i) => (
+                  <p key={i} style={{ fontSize: 13.5, color: "var(--ink)", fontWeight: 600, marginTop: 0 }}>{p}</p>
+                ))}
+                <div style={{
+                  border: "1px solid var(--line)",
+                  borderRadius: 8,
+                  background: "#fff",
+                  maxHeight: 240,
+                  overflowY: "auto",
+                  padding: "10px 12px",
+                }}>
+                  {WAIVER_BODY.map((p, i) => (
+                    <p key={i} style={{ fontSize: 12.5, color: "var(--quiet)", lineHeight: 1.5, marginTop: i === 0 ? 0 : 10, marginBottom: 0 }}>{p}</p>
+                  ))}
+                  {WAIVER_DECLARATION.map((p, i) => (
+                    <p key={i} style={{ fontSize: 12.5, color: "var(--ink)", fontWeight: 600, lineHeight: 1.5, marginTop: 10, marginBottom: 0 }}>{p}</p>
+                  ))}
+                </div>
               </div>
             </section>
 
@@ -353,7 +443,7 @@ export default function MembershipPage() {
                 <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
                   <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)}
                     style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
-                  <span>I agree to abide by the club rules and constitution, and understand my application is subject to committee approval.</span>
+                  <span>I/we have read, understood and agree to the membership terms, liability waiver and declaration above, agree to abide by the Constitution and the Rules and Regulations of AQHA and HCQHA, and understand my application is subject to committee approval.</span>
                 </label>
                 <button className="btn" style={{ width: "100%", fontSize: 17, padding: 14, background: "var(--leather)" }}
                   onClick={submit} disabled={submitting || !types.length}>

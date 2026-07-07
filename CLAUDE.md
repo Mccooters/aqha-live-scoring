@@ -182,7 +182,11 @@ PR with a clear plain-English description.
   (schema-v23; public read so the join form can list them, staff write).
 - `club_members` — season ('2026-2027', 1 Aug–31 Jul), membership_type_id +
   membership_type_name snapshot, member_name, email, phone, address,
-  applicant_notes, status (pending|paid|approved|rejected), total_cents,
+  aqha_member_number, other_memberships, emergency_contact_name/phone,
+  interests, applicant_notes (fields mirror the club's paper/Google
+  application form; the liability waiver text shown on the join page lives
+  in `lib/membershipWaiver.js`), status (pending|paid|approved|rejected),
+  total_cents,
   square ids, approved_at. Staff-only read (personal details) — public
   access goes through `app/api/memberships/*` routes. NOTE: the table is
   named `club_members` because schema-v18 already uses `memberships` for

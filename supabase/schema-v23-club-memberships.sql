@@ -39,10 +39,14 @@ create policy "staff write membership_types"
 grant select on membership_types to anon;
 grant select, insert, update, delete on membership_types to authenticated;
 
--- Starter type so the join form works immediately — rename it and set the
--- real price (and add more types) on the coordinator Memberships page.
+-- The club's membership types, matching the existing paper/Google form.
+-- Edit names and prices any time on the coordinator Memberships page.
 insert into membership_types (name, description, fee_cents, sort_order)
-select 'Annual membership', 'Club membership for the current season (1 August – 31 July).', 0, 1
+select * from (values
+  ('Family Membership', '2 adults, 2 children', 5000, 1),
+  ('Single',            null,                   3500, 2),
+  ('Youth',             null,                   1000, 3)
+) as seed(name, description, fee_cents, sort_order)
 where not exists (select 1 from membership_types);
 
 -- 2) Members — one row per person per season.
@@ -59,7 +63,13 @@ create table if not exists club_members (
   email                text not null,
   phone                text,
   address              text,
-  applicant_notes      text,
+  aqha_member_number   text,                       -- AQHA member number, if they have one
+  other_memberships    text,                       -- other breed/association memberships
+  emergency_contact_name  text,
+  emergency_contact_phone text,
+  interests            text,                       -- what they'd like from the club (Shows, Clinics, ...)
+  applicant_notes      text,                       -- feedback / anything else from the applicant
+
   status               text not null default 'pending',
   total_cents          integer not null default 0,
   square_order_id      text,
@@ -68,6 +78,14 @@ create table if not exists club_members (
   approved_at          timestamptz,
   created_at           timestamptz default now()
 );
+-- If an earlier copy of this file was already run, these make sure the newer
+-- application-form fields exist too (they do nothing on a fresh table).
+alter table club_members add column if not exists aqha_member_number      text;
+alter table club_members add column if not exists other_memberships       text;
+alter table club_members add column if not exists emergency_contact_name  text;
+alter table club_members add column if not exists emergency_contact_phone text;
+alter table club_members add column if not exists interests               text;
+
 create index if not exists club_members_season_idx on club_members (season);
 create index if not exists club_members_email_idx on club_members (lower(email));
 create index if not exists club_members_square_order_idx on club_members (square_order_id);
