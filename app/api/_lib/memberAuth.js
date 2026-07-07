@@ -124,7 +124,7 @@ export function memberSignInReadError(error, tableName) {
   }
 
   if (code === "42501" || haystack.includes("permission denied") || haystack.includes("row-level security")) {
-    return "Member sign-in couldn't access the account tables. Check the server database credentials.";
+    return "Supabase rejected account-table access. Re-copy the service_role key into SUPABASE_SERVICE_ROLE_KEY and redeploy.";
   }
 
   return "Member sign-in couldn't access the account tables. Please try again or contact the club.";
