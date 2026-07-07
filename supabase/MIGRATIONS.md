@@ -72,6 +72,10 @@ hasn't been run.
         the join form collect family members' names, and adds a "people
         included" setting on each membership type. Run v23 first — this
         builds on club memberships.
+- [ ] **v26** — `schema-v26-member-service-role-grants.sql`
+      → grants the server-only `service_role` access to the private member
+        account/session/code tables created by v25. Run this if account
+        sign-in says Supabase rejected account-table access.
 
 Tick these off once you've run them.
 
@@ -106,6 +110,7 @@ Tick these off once you've run them.
 | `schema-v23-club-memberships.sql` | Club memberships: join + pay online, horse details, committee approval, members-only event entry switch |
 | `schema-v24-highpoints-breeds.sql` | Breed-specific High Points leaderboards (Paint, Appaloosa, …) alongside the AQHA ones |
 | `schema-v25-member-accounts.sql` | Member self-service portal: email-code or password sign-in, app-managed member sessions, people covered by a membership, "people included" on membership types |
+| `schema-v26-member-service-role-grants.sql` | Grants service-role table access for private member account/session/code tables |
 
 ## For whoever updates the code next
 

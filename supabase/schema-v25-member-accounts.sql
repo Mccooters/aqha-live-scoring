@@ -35,6 +35,7 @@ alter table member_accounts add column if not exists password_locked_until times
 alter table member_accounts enable row level security;
 revoke all on member_accounts from anon;
 revoke all on member_accounts from authenticated;
+grant select, insert, update, delete on member_accounts to service_role;
 
 -- 2) Sign-in codes — the 6-digit code we email. One live code per address;
 --    expires after ~10 minutes; only a hash of the code is stored.
@@ -49,6 +50,7 @@ create table if not exists member_login_codes (
 alter table member_login_codes enable row level security;
 revoke all on member_login_codes from anon;
 revoke all on member_login_codes from authenticated;
+grant select, insert, update, delete on member_login_codes to service_role;
 
 -- 3) Sessions — keeps a member signed in for ~90 days. The browser cookie
 --    holds a random token; only its hash is stored here.
@@ -63,6 +65,7 @@ create index if not exists member_sessions_account_idx on member_sessions (accou
 alter table member_sessions enable row level security;
 revoke all on member_sessions from anon;
 revoke all on member_sessions from authenticated;
+grant select, insert, update, delete on member_sessions to service_role;
 
 -- 4) People covered by a membership — the applicant themselves is the
 --    member_name on club_members and is NOT duplicated here; these are the
