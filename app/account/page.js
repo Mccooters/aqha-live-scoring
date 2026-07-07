@@ -9,13 +9,21 @@ import { seasonLabel, signupSeason } from "../../lib/membershipSeason";
 // (members are not Supabase users; see CLAUDE.md "Member accounts").
 
 const STATUS_BADGE = {
-  approved: { className: "completed", label: "Current member" },
   paid: { className: "live", label: "Awaiting committee approval" },
   pending: { className: "closed", label: "Awaiting payment" },
   rejected: { className: "archived", label: "Not approved" },
 };
 
 const fmtBack = (n) => String(n).padStart(3, "0");
+
+function memberBadge(m) {
+  if (m.status === "approved") {
+    if (m.is_current) return { className: "completed", label: "Current member" };
+    if (m.is_upcoming) return { className: "upcoming", label: "Upcoming member" };
+    return { className: "completed", label: "Approved" };
+  }
+  return STATUS_BADGE[m.status] ?? { className: "archived", label: m.status };
+}
 
 async function api(path, method = "GET", body) {
   const res = await fetch(path, {
@@ -204,11 +212,11 @@ function SignIn({ onSignedIn }) {
 // ---------- Portal cards ----------
 
 function StatusCard({ m, renewal }) {
-  const badge = STATUS_BADGE[m.status] ?? { className: "archived", label: m.status };
+  const badge = memberBadge(m);
   return (
     <section className="card">
       <CardTitle right={<span className={`badge ${badge.className}`}>{badge.label}</span>}>
-        {renewal ? "Renewal application" : "Membership"}
+        {m.is_upcoming ? "Upcoming membership" : renewal ? "Renewal application" : "Membership"}
       </CardTitle>
       <div style={{ padding: "10px 16px 14px" }}>
         <div className="display" style={{ fontWeight: 700, fontSize: 17, color: "var(--leather)" }}>
@@ -233,6 +241,19 @@ function StatusCard({ m, renewal }) {
         )}
       </div>
     </section>
+  );
+}
+
+function PastMembershipRow({ m }) {
+  const badge = memberBadge(m);
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid var(--line)" }}>
+      <div>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{m.membership_type_name || "Membership"}</div>
+        <div style={{ fontSize: 12, color: "var(--quiet)" }}>{seasonLabel(m.season)}</div>
+      </div>
+      <span className={`badge ${badge.className}`}>{badge.label}</span>
+    </div>
   );
 }
 
@@ -813,15 +834,7 @@ export default function AccountPage() {
                 </summary>
                 <div style={{ paddingBottom: 12 }}>
                   {pastRows.map((m) => (
-                    <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid var(--line)" }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 14 }}>{m.membership_type_name || "Membership"}</div>
-                        <div style={{ fontSize: 12, color: "var(--quiet)" }}>{seasonLabel(m.season)}</div>
-                      </div>
-                      <span className={`badge ${(STATUS_BADGE[m.status] ?? {}).className ?? "archived"}`}>
-                        {(STATUS_BADGE[m.status] ?? {}).label ?? m.status}
-                      </span>
-                    </div>
+                    <PastMembershipRow key={m.id} m={m} />
                   ))}
                 </div>
               </details>

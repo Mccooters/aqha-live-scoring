@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminClient } from "../../_lib/registrations";
 import { getMemberAccount, escapeIlike, notSignedIn } from "../../_lib/memberAuth";
-import { activeSeasons } from "../../../../lib/membershipSeason";
+import { activeSeasons, currentSeason } from "../../../../lib/membershipSeason";
 
 // Reads the session cookie, so it can never be pre-rendered at build time.
 export const dynamic = "force-dynamic";
@@ -55,17 +55,20 @@ export async function GET() {
       (types ?? []).forEach((t) => { typePeople[t.id] = t.included_people; });
     }
 
+    const current = currentSeason();
     const seasons = activeSeasons();
     const memberships = (rows ?? [])
       .map((row) => {
         const isActiveSeason = seasons.includes(row.season);
+        const isCurrentSeason = row.season === current;
         const { square_order_id, square_payment_id, square_checkout_url, ...rest } = row;
         return {
           ...rest,
           included_people: row.included_people ?? typePeople[row.membership_type_id] ?? null,
           square_checkout_url: row.status === "pending" ? square_checkout_url : undefined,
           is_active_season: isActiveSeason,
-          is_current: isActiveSeason && row.status === "approved",
+          is_current: isCurrentSeason && row.status === "approved",
+          is_upcoming: isActiveSeason && !isCurrentSeason && row.status === "approved",
           editable: row.status !== "rejected",
           people: (row.people ?? []).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
           horses: (row.horses ?? []).sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? "")),
