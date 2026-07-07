@@ -47,7 +47,12 @@ PR with a clear plain-English description.
   (`sendLoginCodeEmail`) proves email ownership → a `member_sessions` row +
   httpOnly `member_session` cookie (90 days; the cookie holds a random token,
   the DB only its sha256 hash; codes are also stored hashed, single-use,
-  10-min expiry, 5 attempts, 60s resend cooldown). All `app/api/account/*`
+  10-min expiry, 5 attempts, 60s resend cooldown). An optional **password**
+  (set from the portal once signed in) is a second way to earn the same
+  session: scrypt-hashed via `app/api/_lib/passwords.js` (Node built-in, no
+  dependency), locked for 15 min after 10 wrong guesses. The emailed code
+  always works and clears the lock — it IS the forgot-password flow, so
+  there is no separate reset path. All `app/api/account/*`
   routes (`app/api/_lib/memberAuth.js`) verify the cookie, then use the
   service-role client, scoping every query to `club_members` rows whose
   email matches the account (ilike, wildcards escaped — the same email-as-
@@ -164,8 +169,9 @@ PR with a clear plain-English description.
   sign-ups count for the coming season and are valid immediately).
   Application flow: pending (unpaid) → paid (awaiting approval) → approved
   (staff) or rejected. Emails via Resend on payment and on approval.
-- `app/account/page.js` — member portal (schema-v25): sign in with an
-  emailed 6-digit code (no password; see Member accounts above), then see
+- `app/account/page.js` — member portal (schema-v25): sign in with email +
+  password, or with an emailed 6-digit code (the default for first-time and
+  forgotten-password sign-ins; see Member accounts above), then see
   membership status per season (with a "Finish payment" link for abandoned
   checkouts), edit contact details (not name/email — name is what the
   committee approved, email is the login identity), manage the people on
@@ -230,7 +236,8 @@ PR with a clear plain-English description.
   How many fit is `club_members.included_people`, snapshotted at application
   time from `membership_types.included_people` (both v25).
 - `member_accounts` / `member_login_codes` / `member_sessions` — the member
-  portal's login tables (schema-v25): account per lowercase email, hashed
+  portal's login tables (schema-v25): account per lowercase email (plus
+  optional scrypt `password_hash` + failed-attempt lockout fields), hashed
   single-use sign-in codes, hashed 90-day session tokens. Locked down like
   `push_subscriptions` — no anon OR authenticated access, service role only
   via `app/api/account/*`.

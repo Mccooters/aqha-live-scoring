@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { adminClient } from "../../_lib/registrations";
 import {
-  normalizeEmail, sha256Hex, codesMatch, generateSessionToken,
-  sessionCookieOptions, SESSION_COOKIE, SESSION_TTL_MS, MAX_CODE_ATTEMPTS,
+  normalizeEmail, codesMatch, createMemberSession,
+  sessionCookieOptions, SESSION_COOKIE, MAX_CODE_ATTEMPTS,
 } from "../../_lib/memberAuth";
 
 // Step 2 of member sign-in: check the emailed code; if it's right, create
@@ -70,28 +70,23 @@ export async function POST(req) {
       return NextResponse.json({ error: "Something went wrong — try again." }, { status: 500 });
     }
 
+    // A code sign-in proves they own the email, so it also clears any
+    // password lockout (it doubles as the "forgot password" path).
     await db
       .from("member_accounts")
-      .update({ last_login_at: new Date().toISOString() })
+      .update({
+        last_login_at: new Date().toISOString(),
+        password_failed_attempts: 0,
+        password_locked_until: null,
+      })
       .eq("id", account.id);
 
-    const token = generateSessionToken();
-    const { error: sessionErr } = await db.from("member_sessions").insert({
-      account_id: account.id,
-      token_hash: sha256Hex(token),
-      expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
-    });
-    if (sessionErr) {
-      return NextResponse.json({ error: sessionErr.message }, { status: 500 });
+    let token;
+    try {
+      token = await createMemberSession(db, account.id);
+    } catch (err) {
+      return NextResponse.json({ error: err.message }, { status: 500 });
     }
-
-    // Tidy up any of this account's sessions that have already expired —
-    // cheap housekeeping so the table never needs a scheduled job.
-    await db
-      .from("member_sessions")
-      .delete()
-      .eq("account_id", account.id)
-      .lt("expires_at", new Date().toISOString());
 
     cookies().set(SESSION_COOKIE, token, sessionCookieOptions());
     return NextResponse.json({ ok: true });

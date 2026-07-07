@@ -16,13 +16,22 @@
 -- public and even signed-in staff browsers cannot touch them directly.
 
 -- 1) Member accounts — one row per member login (keyed by email, stored
---    lowercase so matching is simple).
+--    lowercase so matching is simple). A password is optional: members can
+--    always sign in with an emailed code, and may set a password from the
+--    portal to skip the email step (the code doubles as "forgot password").
 create table if not exists member_accounts (
   id            uuid primary key default gen_random_uuid(),
   email         text not null unique,     -- always stored lowercase
+  password_hash text,                     -- scrypt hash; null = no password set
+  password_failed_attempts integer not null default 0,
+  password_locked_until    timestamptz,   -- set after too many wrong guesses
   created_at    timestamptz default now(),
   last_login_at timestamptz
 );
+-- If an earlier copy of this file was already run, add the password fields.
+alter table member_accounts add column if not exists password_hash text;
+alter table member_accounts add column if not exists password_failed_attempts integer not null default 0;
+alter table member_accounts add column if not exists password_locked_until timestamptz;
 alter table member_accounts enable row level security;
 revoke all on member_accounts from anon;
 revoke all on member_accounts from authenticated;

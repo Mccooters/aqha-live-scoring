@@ -74,6 +74,7 @@ export async function GET() {
 
     return NextResponse.json({
       email: account.email,
+      has_password: !!account.password_hash,
       memberships,
       has_current_membership: memberships.some((m) => m.is_current),
     });

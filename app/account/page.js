@@ -51,6 +51,7 @@ function DetailRow({ label, value, quiet }) {
 function SignIn({ onSignedIn }) {
   const [step, setStep] = useState("email"); // email | code
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -105,6 +106,28 @@ function SignIn({ onSignedIn }) {
     }
   };
 
+  const signInWithPassword = async () => {
+    setError("");
+    if (!email.trim() || !email.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    if (!password) {
+      setError("Enter your password — or use an emailed code instead.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { ok, data } = await api("/api/account/password-login", "POST", { email: email.trim(), password });
+      if (!ok) { setError(data?.error ?? "Something went wrong — try again."); return; }
+      onSignedIn();
+    } catch {
+      setError("Could not connect. Please check your internet and try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <section className="card">
@@ -113,15 +136,27 @@ function SignIn({ onSignedIn }) {
           {step === "email" && (
             <>
               <p style={{ fontSize: 13.5, color: "var(--quiet)", margin: "10px 0 8px" }}>
-                Enter the email address on your membership application and we&apos;ll email you a sign-in code —
-                no password needed.
+                Sign in with the email address on your membership application.
               </p>
+              <label className="modal-label">Email address</label>
               <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
                 value={email} onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && requestCode()}
                 placeholder="e.g. sarah@example.com" autoComplete="email" />
+              <label className="modal-label">Password</label>
+              <input className="field" type="password" style={{ width: "100%", fontSize: 16 }}
+                value={password} onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && signInWithPassword()}
+                placeholder="Your password" autoComplete="current-password" />
               {error && <p className="modal-error">{error}</p>}
               <button className="btn" style={{ width: "100%", marginTop: 12, padding: 12, background: "var(--leather)" }}
+                onClick={signInWithPassword} disabled={busy}>
+                {busy ? "Signing in…" : "Sign in"}
+              </button>
+              <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "14px 0 8px", textAlign: "center" }}>
+                No password yet, or forgotten it? We&apos;ll email you a code instead —
+                once you&apos;re in, you can set a new password.
+              </p>
+              <button className="btn-ghost" style={{ width: "100%", fontSize: 14, padding: "9px 0" }}
                 onClick={requestCode} disabled={busy}>
                 {busy ? "Sending…" : "Email me a code"}
               </button>
@@ -531,6 +566,76 @@ function HorsesCard({ m, onChanged }) {
   );
 }
 
+function PasswordCard({ hasPassword, onChanged }) {
+  const [modal, setModal] = useState(false);
+  const [pw, setPw] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const openModal = () => { setPw(""); setConfirm(""); setError(""); setModal(true); };
+
+  const save = async () => {
+    setError("");
+    if (pw.length < 8) { setError("Use at least 8 characters."); return; }
+    if (pw !== confirm) { setError("The two passwords don't match."); return; }
+    setBusy(true);
+    try {
+      const { ok, data } = await api("/api/account/password", "POST", { password: pw });
+      if (!ok) { setError(data?.error ?? "Something went wrong — try again."); return; }
+      setModal(false);
+      onChanged();
+    } catch {
+      setError("Could not connect. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <CardTitle right={
+        <button className="btn-ghost" onClick={openModal}>
+          {hasPassword ? "Change password" : "Set a password"}
+        </button>
+      }>
+        Sign-in &amp; security
+      </CardTitle>
+      <div style={{ padding: "12px 16px 14px" }}>
+        <p style={{ fontSize: 13, color: "var(--quiet)", margin: 0 }}>
+          {hasPassword
+            ? "You have a password — sign in with it, or with an emailed code whenever you like. Forgot it? Just sign in with a code and set a new one here."
+            : "You don't have a password yet — set one to sign in without waiting for an email. The emailed code always keeps working too."}
+        </p>
+      </div>
+
+      {modal && (
+        <div className="modal-overlay" onClick={() => !busy && setModal(false)}>
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <h3 className="modal-title">{hasPassword ? "Change password" : "Set a password"}</h3>
+            <label className="modal-label">New password (at least 8 characters)</label>
+            <input className="field" type="password" style={{ width: "100%", fontSize: 16 }}
+              value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
+            <label className="modal-label">Type it again</label>
+            <input className="field" type="password" style={{ width: "100%", fontSize: 16 }}
+              value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password"
+              onKeyDown={(e) => e.key === "Enter" && save()} />
+            {error && <p className="modal-error">{error}</p>}
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={save} disabled={busy}>
+                {busy ? "Saving…" : "Save password"}
+              </button>
+              <button className="btn-ghost" style={{ flex: 1 }} onClick={() => setModal(false)} disabled={busy}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ---------- Page ----------
 
 export default function AccountPage() {
@@ -643,6 +748,8 @@ export default function AccountPage() {
                 <HorsesCard m={primary} onChanged={fetchMe} />
               </>
             )}
+
+            <PasswordCard hasPassword={me?.has_password} onChanged={fetchMe} />
 
             {pastRows.length > 0 && (
               <details className="card" style={{ padding: "0 16px" }}>

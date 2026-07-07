@@ -13,6 +13,8 @@ export const CODE_TTL_MS = 10 * 60 * 1000;            // codes last 10 minutes
 export const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000; // sessions last 90 days
 export const MAX_CODE_ATTEMPTS = 5;
 export const RESEND_COOLDOWN_MS = 60 * 1000;
+export const MAX_PASSWORD_ATTEMPTS = 10;              // then locked for a while
+export const PASSWORD_LOCK_MS = 15 * 60 * 1000;       // (emailed code still works)
 
 export function normalizeEmail(email) {
   return String(email ?? "").trim().toLowerCase();
@@ -46,14 +48,38 @@ export function sessionCookieOptions() {
   };
 }
 
+// Both sign-in methods (emailed code, password) end here: a session row
+// keyed by the hash of a fresh random token, which goes into the cookie.
+export async function createMemberSession(db, accountId) {
+  const token = generateSessionToken();
+  const { error } = await db.from("member_sessions").insert({
+    account_id: accountId,
+    token_hash: sha256Hex(token),
+    expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+  });
+  if (error) throw new Error(error.message);
+
+  // Tidy up this account's already-expired sessions — cheap housekeeping so
+  // the table never needs a scheduled job.
+  await db
+    .from("member_sessions")
+    .delete()
+    .eq("account_id", accountId)
+    .lt("expires_at", new Date().toISOString());
+
+  return token;
+}
+
 // Cookie -> session row -> account. Returns { id, email, ... } or null.
+// (password_hash rides along for server-side use — e.g. the portal's
+// "do you have a password" flag — and must never be sent to the browser.)
 export async function getMemberAccount(db) {
   const raw = cookies().get(SESSION_COOKIE)?.value;
   if (!raw) return null;
 
   const { data: session } = await db
     .from("member_sessions")
-    .select("id, expires_at, account:member_accounts(id, email, created_at)")
+    .select("id, expires_at, account:member_accounts(id, email, created_at, password_hash)")
     .eq("token_hash", sha256Hex(raw))
     .maybeSingle();
   if (!session?.account) return null;
