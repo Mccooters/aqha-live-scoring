@@ -95,7 +95,8 @@ PR with a clear plain-English description.
   Keep this look — do not switch to Tailwind or a component library.
 - **Global nav**: `app/components/BottomNav.js` — sticky bar on every page
   (Events / High Pts / Registry / Members / Staff), rendered from
-  `app/layout.js`.
+  `app/layout.js`. The Members tab opens the `/account` sign-in portal
+  first; joining (`/membership`) is linked from beneath the sign-in card.
 
 ## Pages
 
