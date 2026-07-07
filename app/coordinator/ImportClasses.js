@@ -13,6 +13,9 @@ const ALIASES = {
   judge2:       ["judge 2", "judge2", "judge 2 name", "judge two", "judge two name", "second judge", "judge b"],
   scoring_mode: ["type", "scoring", "scoring mode", "scoring type", "mode", "score type", "class type"],
   hp_category:  ["hp category", "high points category", "high points cat", "hp cat", "high points", "hp"],
+  day:          ["day", "show day", "program day"],
+  capacity:     ["capacity", "spot capacity", "class capacity", "limit", "spots"],
+  pattern_url:  ["pattern", "pattern url", "pattern link", "pattern file", "pattern_url"],
 };
 
 const MODE_MAP = {
@@ -67,6 +70,13 @@ function uniqueMap(rows, keyFn) {
   return map;
 }
 
+function parseOptionalInt(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return null;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export default function ImportClasses({ eventId, onDone }) {
   const [rows, setRows]       = useState(null);
   const [warnings, setWarnings] = useState([]);
@@ -100,6 +110,9 @@ export default function ImportClasses({ eventId, onDone }) {
       const hasCategoryCol = headers.includes("program_category");
       const hasBreakCol = headers.includes("program_break_before");
       const hasBreakAfterCol = headers.includes("program_break_after");
+      const hasDayCol = headers.includes("day");
+      const hasCapacityCol = headers.includes("capacity");
+      const hasPatternCol = headers.includes("pattern_url");
       let currentCategory = "";
       let pendingBreak = "";
 
@@ -129,6 +142,10 @@ export default function ImportClasses({ eventId, onDone }) {
           mode = normaliseMode(obj.scoring_mode);
           if (!mode) warns.push(`Row ${i + 2}: Unrecognised type "${obj.scoring_mode}" — defaulting to Score`);
         }
+        const day = parseOptionalInt(obj.day);
+        if (hasDayCol && obj.day && !day) warns.push(`Row ${i + 2}: Day "${obj.day}" is not a number — defaulting to Day 1`);
+        const capacity = parseOptionalInt(obj.capacity);
+        if (hasCapacityCol && obj.capacity && !capacity) warns.push(`Row ${i + 2}: Capacity "${obj.capacity}" is not a number — leaving it unlimited`);
         parsed.push({
           num: isNaN(num) ? null : num,
           name: obj.name,
@@ -145,6 +162,12 @@ export default function ImportClasses({ eventId, onDone }) {
           hasBreakAfterCol,
           scoring_mode: mode ?? "score",
           hp_category: obj.hp_category || null,
+          day: day || 1,
+          hasDayCol,
+          capacity,
+          hasCapacityCol,
+          pattern_url: obj.pattern_url || null,
+          hasPatternCol,
         });
       });
 
@@ -189,6 +212,9 @@ export default function ImportClasses({ eventId, onDone }) {
           if (r.hasBreakCol) patch.program_break_before = normaliseBreakLabel(r.program_break_before) || null;
           if (r.hasBreakAfterCol) patch.program_break_after = normaliseBreakLabel(r.program_break_after) || null;
           if (r.hp_category !== null) patch.hp_category = r.hp_category;
+          if (r.hasDayCol) patch.day = r.day || 1;
+          if (r.hasCapacityCol) patch.capacity = r.capacity;
+          if (r.hasPatternCol) patch.pattern_url = r.pattern_url;
           if (r.num !== null) patch.num = r.num;
           toUpdate.push({ id: match.id, ...patch });
         } else {
@@ -206,6 +232,9 @@ export default function ImportClasses({ eventId, onDone }) {
             status:       "upcoming",
             scoring_mode: r.scoring_mode,
             hp_category:  r.hp_category,
+            day:          r.day || 1,
+            capacity:     r.capacity,
+            pattern_url:  r.pattern_url,
           };
           if (r.program_category) insertRow.program_category = normaliseCategoryLabel(r.program_category);
           if (r.program_break_before) insertRow.program_break_before = normaliseBreakLabel(r.program_break_before);
@@ -266,7 +295,8 @@ export default function ImportClasses({ eventId, onDone }) {
           <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 0 }}>
             Columns: <strong>Category</strong> (optional), <strong>Break Before</strong> (optional), <strong>Class #</strong>, <strong>Class Name</strong>, <strong>Judge 1</strong> (optional), <strong>Judge 2</strong> (optional), <strong>Break After</strong> (optional),
             Type (optional — <em>Score</em>, <em>Placing</em>, <em>Class Only</em>, <em>TBC (draw)</em>, or <em>TBC (whole class)</em>; defaults to Score),
-            <strong> HP Category</strong> (optional — e.g. <em>Amateur</em>, <em>Senior Horse</em>; sets which High Points table this class feeds into)
+            <strong> HP Category</strong> (optional — e.g. <em>Amateur</em>, <em>Senior Horse</em>; sets which High Points table this class feeds into),
+            <strong> Day</strong>, <strong>Capacity</strong>, and <strong>Pattern URL</strong>.
           </p>
           <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ marginBottom: 12 }} />
           {error && <p className="modal-error">{error}</p>}
@@ -288,7 +318,7 @@ export default function ImportClasses({ eventId, onDone }) {
           <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12 }}>
             <table>
               <thead>
-                <tr><th>Category</th><th>Break Before</th><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge 1</th><th>Judge 2</th><th>Break After</th><th>Type</th><th>HP Category</th></tr>
+                <tr><th>Category</th><th>Break Before</th><th style={{ width: 55 }}>Class #</th><th>Class Name</th><th>Judge 1</th><th>Judge 2</th><th>Break After</th><th>Type</th><th>HP Category</th><th>Day</th><th>Capacity</th><th>Pattern URL</th></tr>
               </thead>
               <tbody>
                 {rows.slice(0, 60).map((r, i) => (
@@ -312,10 +342,15 @@ export default function ImportClasses({ eventId, onDone }) {
                     <td style={{ fontSize: 12, color: r.hp_category ? "var(--brass)" : "var(--line)", fontWeight: r.hp_category ? 700 : 400 }}>
                       {r.hp_category || "—"}
                     </td>
+                    <td style={{ fontSize: 12, color: "var(--quiet)", textAlign: "center" }}>{r.day || 1}</td>
+                    <td style={{ fontSize: 12, color: r.capacity ? "var(--quiet)" : "var(--line)", textAlign: "center" }}>{r.capacity || "—"}</td>
+                    <td style={{ fontSize: 12, color: r.pattern_url ? "var(--brass)" : "var(--line)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.pattern_url || "—"}
+                    </td>
                   </tr>
                 ))}
                 {rows.length > 60 && (
-                  <tr><td colSpan={9} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
+                  <tr><td colSpan={12} style={{ color: "var(--quiet)", textAlign: "center", padding: 10 }}>…and {rows.length - 60} more</td></tr>
                 )}
               </tbody>
             </table>
