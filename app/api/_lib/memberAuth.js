@@ -97,6 +97,35 @@ export function escapeIlike(value) {
   return String(value ?? "").replace(/([\\%_])/g, "\\$1");
 }
 
+export function memberSignInConfigError() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return "Member sign-in couldn't access the account tables. Check the server database credentials.";
+  }
+  return null;
+}
+
+export function memberSignInReadError(error, tableName) {
+  const code = String(error?.code ?? "");
+  const message = String(error?.message ?? "");
+  const details = String(error?.details ?? "");
+  const haystack = `${message} ${details}`.toLowerCase();
+  const table = String(tableName ?? "").toLowerCase();
+
+  if (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    (table && haystack.includes(table) && (haystack.includes("schema cache") || haystack.includes("does not exist")))
+  ) {
+    return "Member sign-in tables aren't visible to the API yet. Check schema-v25 and refresh the Supabase API schema cache.";
+  }
+
+  if (code === "42501" || haystack.includes("permission denied") || haystack.includes("row-level security")) {
+    return "Member sign-in couldn't access the account tables. Check the server database credentials.";
+  }
+
+  return "Member sign-in couldn't access the account tables. Please try again or contact the club.";
+}
+
 // The single ownership rule for the whole portal: a club_members row belongs
 // to the account whose email matches the row's email.
 export async function assertOwnsMember(db, account, memberId) {

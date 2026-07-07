@@ -4,6 +4,7 @@ import { sendLoginCodeEmail } from "../../_lib/memberships";
 import {
   normalizeEmail, sha256Hex, generateCode,
   CODE_TTL_MS, RESEND_COOLDOWN_MS,
+  memberSignInConfigError, memberSignInReadError,
 } from "../../_lib/memberAuth";
 
 // Step 1 of member sign-in: email us -> we email back a 6-digit code.
@@ -29,6 +30,12 @@ export async function POST(req) {
       );
     }
 
+    const configError = memberSignInConfigError();
+    if (configError) {
+      console.error("member sign-in config missing: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+      return NextResponse.json({ error: configError }, { status: 503 });
+    }
+
     const db = adminClient();
 
     // 60-second cooldown per address: quietly absorb repeat requests so a
@@ -39,10 +46,9 @@ export async function POST(req) {
       .eq("email", email)
       .maybeSingle();
     if (readErr) {
-      // Most likely the v25 migration hasn't been run yet.
       console.error("member_login_codes read failed:", readErr.message);
       return NextResponse.json(
-        { error: "Member sign-in isn't set up yet — the club needs to run the schema-v25 database update." },
+        { error: memberSignInReadError(readErr, "member_login_codes") },
         { status: 503 }
       );
     }

@@ -4,6 +4,7 @@ import { adminClient } from "../../_lib/registrations";
 import {
   normalizeEmail, createMemberSession, sessionCookieOptions,
   SESSION_COOKIE, MAX_PASSWORD_ATTEMPTS, PASSWORD_LOCK_MS,
+  memberSignInConfigError, memberSignInReadError,
 } from "../../_lib/memberAuth";
 import { verifyPassword } from "../../_lib/passwords";
 
@@ -23,6 +24,12 @@ export async function POST(req) {
       return NextResponse.json({ error: "Enter your email and password." }, { status: 400 });
     }
 
+    const configError = memberSignInConfigError();
+    if (configError) {
+      console.error("member sign-in config missing: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+      return NextResponse.json({ error: configError }, { status: 503 });
+    }
+
     const db = adminClient();
 
     const { data: account, error: readErr } = await db
@@ -33,7 +40,7 @@ export async function POST(req) {
     if (readErr) {
       console.error("member_accounts read failed:", readErr.message);
       return NextResponse.json(
-        { error: "Member sign-in isn't set up yet — the club needs to run the schema-v25 database update." },
+        { error: memberSignInReadError(readErr, "member_accounts") },
         { status: 503 }
       );
     }
