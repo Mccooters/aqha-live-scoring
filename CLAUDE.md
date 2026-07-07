@@ -55,7 +55,10 @@ PR with a clear plain-English description.
   entirely and auto-approve. Env vars: `SQUARE_ACCESS_TOKEN`,
   `SQUARE_LOCATION_ID`, `SQUARE_ENVIRONMENT` (sandbox|production),
   `SQUARE_WEBHOOK_SIGNATURE_KEY` (required — webhook refuses without it),
-  `NEXT_PUBLIC_BASE_URL`.
+  `NEXT_PUBLIC_BASE_URL`. Membership payments (schema-v23) flow through the
+  same webhook: an order that doesn't match a registration is looked up in
+  `club_members` and marked paid (→ awaiting committee approval) via
+  `markMembershipPaid()` in `app/api/_lib/memberships.js`.
 - **Booking confirmation email** — after `approveRegistration()` creates the
   real `entries` rows and marks the registration paid, it sends an app-owned
   booking confirmation through Resend. This is separate from Square's payment
@@ -76,7 +79,8 @@ PR with a clear plain-English description.
   clay #C24A2E. Fonts: Zilla Slab (display) + Archivo (body) via Google Fonts.
   Keep this look — do not switch to Tailwind or a component library.
 - **Global nav**: `app/components/BottomNav.js` — sticky bar on every page
-  (Events / High Pts / Registry / Staff), rendered from `app/layout.js`.
+  (Events / High Pts / Registry / Members / Staff), rendered from
+  `app/layout.js`.
 
 ## Pages
 
@@ -126,7 +130,29 @@ PR with a clear plain-English description.
   horses and riders, category tabs, CSV import matching the club's existing
   spreadsheet format (season detected from the title row), manual add/edit/
   delete for staff. Self-service "create this table" instructions shown if
-  the `high_points` table/migration hasn't been run yet.
+  the `high_points` table/migration hasn't been run yet. Since schema-v24
+  there is a separate set of leaderboards per breed/colour association —
+  AQHA (all pre-existing data), Paint, Appaloosa, plus any the staff add
+  (tab list in `site_settings` key `high_points_breeds`). Writes carry a
+  `breed`; the AQHA tab falls back to legacy no-breed queries if v24 hasn't
+  been run, other breeds show a run-the-migration message.
+- `app/membership/page.js` — public "Become a member" form (schema-v23):
+  pick a membership type, contact details, optional horse details for the
+  committee to review, then Square checkout (skipped when the fee is $0).
+  `app/membership/success/page.js` polls `app/api/memberships/status`.
+  Membership seasons run 1 Aug – 31 Jul (`lib/membershipSeason.js`; July
+  sign-ups count for the coming season and are valid immediately).
+  Application flow: pending (unpaid) → paid (awaiting approval) → approved
+  (staff) or rejected. Emails via Resend on payment and on approval.
+- `app/coordinator/memberships/page.js` — staff: review/approve/reject
+  applications (approve goes through `app/api/memberships/approve` so the
+  welcome email sends), add members manually (cash/paper), edit membership
+  types & pricing, and toggle "membership required to enter events"
+  (`site_settings` key `membership_required`; separate include-clinics flag).
+  Enforcement is server-side in `app/api/registrations/create` (matches the
+  contact email against an approved `club_members` row for the active
+  season; fails open if the v23 migration hasn't been run). The entry form
+  warns non-members early via `app/api/memberships/check` (boolean only).
 
 ## Database (supabase/schema.sql + migrations schema-v2 … schema-v16)
 
@@ -149,8 +175,20 @@ PR with a clear plain-English description.
   with EACH club from the same class/placing.
 - `riders` — name, member_number, category (Amateur/Novice Amateur/Select/
   Beginner/Youth/EWD/Leadline/Non Pro/Open), notes. Independent of horses.
-- `high_points` — season, category, entity_type (horse|rider), entity_name,
-  show_name, points. Unique on (season, category, entity_name, show_name).
+- `high_points` — season, category, breed (default 'AQHA', schema-v24),
+  entity_type (horse|rider), entity_name, show_name, points. Unique on
+  (season, category, entity_name, show_name, breed).
+- `membership_types` — name, description, fee_cents, active, sort_order
+  (schema-v23; public read so the join form can list them, staff write).
+- `club_members` — season ('2026-2027', 1 Aug–31 Jul), membership_type_id +
+  membership_type_name snapshot, member_name, email, phone, address,
+  applicant_notes, status (pending|paid|approved|rejected), total_cents,
+  square ids, approved_at. Staff-only read (personal details) — public
+  access goes through `app/api/memberships/*` routes. NOTE: the table is
+  named `club_members` because schema-v18 already uses `memberships` for
+  staff↔club login roles.
+- `club_member_horses` — member_id (cascade delete), horse_name,
+  back_number, breed, registrations, notes. Staff-only read like its parent.
 - `registrations` — event_id, contact_name, contact_email, status
   (pending|paid|cancelled), square_order_id/checkout_url/payment_id,
   total_cents. Staff-read-only since schema-v16 (contains personal contact

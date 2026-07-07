@@ -55,6 +55,15 @@ hasn't been run.
 - [ ] **v22** — `schema-v22-site-settings.sql`
       → adds site-wide settings, currently used to toggle the **High Points
         results are not up to date / TBC** notice.
+- [ ] **v23** — `schema-v23-club-memberships.sql`
+      → adds **club memberships**: the public "Become a member" page (join and
+        pay online, with horse details), the coordinator Memberships page
+        (approve/reject, set prices), and the "membership required to enter
+        events" switch (starts OFF). Run v22 first — this uses site settings.
+- [ ] **v24** — `schema-v24-highpoints-breeds.sql`
+      → adds **breed-specific High Points**: separate leaderboards for Paint,
+        Appaloosa (and any other breed you add) alongside the existing AQHA
+        ones, which are not changed. Run v22 first — this uses site settings.
 
 Tick these off once you've run them.
 
@@ -86,6 +95,8 @@ Tick these off once you've run them.
 | `schema-v20-program-breaks.sql` | Program break headings before/after classes for printed-program-style schedules |
 | `schema-v21-event-patterns-pdf.sql` | Custom rider-facing Patterns PDF per event |
 | `schema-v22-site-settings.sql` | Site-wide settings, including the High Points TBC notice toggle |
+| `schema-v23-club-memberships.sql` | Club memberships: join + pay online, horse details, committee approval, members-only event entry switch |
+| `schema-v24-highpoints-breeds.sql` | Breed-specific High Points leaderboards (Paint, Appaloosa, …) alongside the AQHA ones |
 
 ## For whoever updates the code next
 

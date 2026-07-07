@@ -474,19 +474,36 @@ export default function Coordinator() {
 
     // Delete any previously pushed rows for this category+show, then insert fresh.
     // This removes stale rows for entries that dropped out of the top 3 since the last push.
-    await supabase.from("high_points")
+    // Scores pushed from a show go to the AQHA leaderboard — other breeds'
+    // leaderboards (Paint, Appaloosa, ...) are maintained on the High Points
+    // page and must not be touched here. On a database without the breed
+    // column yet (schema-v24 not run), fall back to the old behaviour.
+    const del = await supabase.from("high_points")
       .delete()
       .eq("season", season)
       .eq("category", category)
-      .eq("show_name", showName);
+      .eq("show_name", showName)
+      .eq("breed", "AQHA");
+    if (del.error?.message?.includes("breed")) {
+      await supabase.from("high_points")
+        .delete()
+        .eq("season", season)
+        .eq("category", category)
+        .eq("show_name", showName);
+    }
 
     const toInsert = Object.entries(pointsMap).map(([name, pts]) => ({
-      season, category,
+      season, category, breed: "AQHA",
       entity_type: isHorseCat ? "horse" : "rider",
       entity_name: name, show_name: showName, show_date: currentEvent.starts_on, points: pts,
     }));
     if (!toInsert.length) return;
-    await supabase.from("high_points").insert(toInsert);
+    const ins = await supabase.from("high_points").insert(toInsert);
+    if (ins.error?.message?.includes("breed")) {
+      await supabase.from("high_points").insert(
+        toInsert.map(({ breed: _breed, ...row }) => row)
+      );
+    }
   };
 
   const moveClass = async (cls, dir) => {
@@ -1264,6 +1281,9 @@ export default function Coordinator() {
             </button>
             <Link href="/coordinator/registrations" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
               Registrations
+            </Link>
+            <Link href="/coordinator/memberships" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
+              Memberships
             </Link>
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={exportClasses} disabled={exportingClasses || !eventId || classes.length === 0}>
