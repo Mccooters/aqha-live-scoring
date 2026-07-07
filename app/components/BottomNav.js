@@ -15,6 +15,8 @@ export default function BottomNav() {
 
   const isActive = (href) => {
     if (href === "/") return path === "/" || path.startsWith("/event/");
+    // The member portal lives under the "Members" tab.
+    if (href === "/membership") return path.startsWith(href) || path.startsWith("/account");
     return path.startsWith(href);
   };
 

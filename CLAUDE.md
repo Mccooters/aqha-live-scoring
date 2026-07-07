@@ -40,6 +40,21 @@ PR with a clear plain-English description.
   API routes use the service-role key intentionally to act on behalf of
   unauthenticated exhibitors. Public sign-ups should stay disabled in the
   Supabase dashboard — any authenticated user can write.
+- **Member accounts (schema-v25)** — the `/account` member portal. CRITICAL
+  INVARIANT: members are never Supabase auth users (see the security model
+  above — any authenticated user has staff-wide write). Member sessions are
+  app-managed instead: a 6-digit code emailed via Resend
+  (`sendLoginCodeEmail`) proves email ownership → a `member_sessions` row +
+  httpOnly `member_session` cookie (90 days; the cookie holds a random token,
+  the DB only its sha256 hash; codes are also stored hashed, single-use,
+  10-min expiry, 5 attempts, 60s resend cooldown). All `app/api/account/*`
+  routes (`app/api/_lib/memberAuth.js`) verify the cookie, then use the
+  service-role client, scoping every query to `club_members` rows whose
+  email matches the account (ilike, wildcards escaped — the same email-as-
+  identity rule as `hasCurrentMembership`). Known looseness, accepted: a
+  staff member manually adding a member with someone's email hands those
+  rows to that email's login. Ownership failures return 404, request-code
+  always returns ok (no email enumeration).
 - **Realtime**: pages subscribe to postgres_changes on the tables they care
   about (`entries`, `classes`, `events`, `registrations`, `horses`,
   `horse_registrations`, `high_points`) and simply re-fetch on any change.
@@ -139,22 +154,35 @@ PR with a clear plain-English description.
 - `app/membership/page.js` — public "Become a member" form (schema-v23):
   pick a membership type, contact details, optional horse details for the
   committee to review, then Square checkout (skipped when the fee is $0).
+  When the chosen type covers more than one person
+  (`membership_types.included_people` > 1, schema-v25 — e.g. Family = 4),
+  the form also collects the extra people's names (optional; blanks can be
+  added later in the member portal) into `club_member_people`.
   `app/membership/success/page.js` polls `app/api/memberships/status`.
   Membership seasons run 1 Aug – 31 Jul (`lib/membershipSeason.js`; July
   sign-ups count for the coming season and are valid immediately).
   Application flow: pending (unpaid) → paid (awaiting approval) → approved
   (staff) or rejected. Emails via Resend on payment and on approval.
+- `app/account/page.js` — member portal (schema-v25): sign in with an
+  emailed 6-digit code (no password; see Member accounts above), then see
+  membership status per season (with a "Finish payment" link for abandoned
+  checkouts), edit contact details (not name/email — name is what the
+  committee approved, email is the login identity), manage the people on
+  the membership (capped at `included_people`) and their horses. Rejected
+  applications are read-only. Lives under the "Members" nav tab.
 - `app/coordinator/memberships/page.js` — staff: review/approve/reject
   applications (approve goes through `app/api/memberships/approve` so the
   welcome email sends), add members manually (cash/paper), edit membership
-  types & pricing, and toggle "membership required to enter events"
+  types & pricing (incl. "people included" per type since v25; expanded
+  rows list the people on each membership), and toggle "membership
+  required to enter events"
   (`site_settings` key `membership_required`; separate include-clinics flag).
   Enforcement is server-side in `app/api/registrations/create` (matches the
   contact email against an approved `club_members` row for the active
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v16)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v25)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -193,6 +221,18 @@ PR with a clear plain-English description.
   staff↔club login roles.
 - `club_member_horses` — member_id (cascade delete), horse_name,
   back_number, breed, registrations, notes. Staff-only read like its parent.
+  Members manage their own via `app/api/account/horses` (schema-v25); these
+  stay separate from the official `horses` registry.
+- `club_member_people` — member_id (cascade delete), name, person_type
+  (adult|child), sort_order (schema-v25). The extra people covered by a
+  membership (the applicant is `club_members.member_name`, not a row here).
+  How many fit is `club_members.included_people`, snapshotted at application
+  time from `membership_types.included_people` (both v25).
+- `member_accounts` / `member_login_codes` / `member_sessions` — the member
+  portal's login tables (schema-v25): account per lowercase email, hashed
+  single-use sign-in codes, hashed 90-day session tokens. Locked down like
+  `push_subscriptions` — no anon OR authenticated access, service role only
+  via `app/api/account/*`.
 - `registrations` — event_id, contact_name, contact_email, status
   (pending|paid|cancelled), square_order_id/checkout_url/payment_id,
   total_cents. Staff-read-only since schema-v16 (contains personal contact

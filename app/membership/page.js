@@ -40,6 +40,7 @@ export default function MembershipPage() {
   const [interests, setInterests] = useState([]);
   const [applicantNotes, setApplicantNotes] = useState("");
   const [horses, setHorses] = useState([]);
+  const [people, setPeople] = useState([]);
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -70,6 +71,31 @@ export default function MembershipPage() {
 
   const selectedType = types.find((t) => t.id === typeId);
   const fee = selectedType?.fee_cents ?? 0;
+  // How many people the chosen membership covers, including the applicant
+  // (e.g. Family = 4). Needs the v25 migration; before that it's simply 1
+  // and the extra-people card below stays hidden.
+  const includedPeople = selectedType?.included_people ?? 1;
+  const extraSlots = Math.max(0, includedPeople - 1);
+
+  // Keep one name slot per extra person the membership covers. The array
+  // only ever grows — switching to a smaller type and back must not throw
+  // away names already typed (only the first extraSlots are shown and sent).
+  useEffect(() => {
+    setPeople((prev) =>
+      prev.length >= extraSlots
+        ? prev
+        : [
+            ...prev,
+            ...Array.from({ length: extraSlots - prev.length }, (_, i) => ({
+              name: "",
+              person_type: prev.length + i === 0 ? "adult" : "child",
+            })),
+          ]
+    );
+  }, [extraSlots]);
+
+  const updatePerson = (idx, field, value) =>
+    setPeople((prev) => prev.map((p, i) => (i === idx ? { ...p, [field]: value } : p)));
 
   const updateHorse = (id, field, value) =>
     setHorses((prev) => prev.map((h) => (h._id === id ? { ...h, [field]: value } : h)));
@@ -135,6 +161,10 @@ export default function MembershipPage() {
               registrations: h.registrations.trim(),
               notes: h.notes.trim(),
             })),
+          people: people
+            .slice(0, extraSlots)
+            .filter((p) => p.name.trim())
+            .map((p) => ({ name: p.name.trim(), person_type: p.person_type })),
         }),
       });
       const data = await res.json();
@@ -181,8 +211,16 @@ export default function MembershipPage() {
                 <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Already a member?</div>
               </div>
               <div style={{ paddingBottom: 10 }}>
+                <p style={{ fontSize: 14, margin: "0 0 10px" }}>
+                  <Link href="/account" style={{ color: "var(--brass)", fontWeight: 700 }}>
+                    Sign in to the member portal →
+                  </Link>{" "}
+                  <span style={{ color: "var(--quiet)", fontSize: 13 }}>
+                    to check your membership and update your details, family members and horses.
+                  </span>
+                </p>
                 <p style={{ fontSize: 13, color: "var(--quiet)", margin: "0 0 8px" }}>
-                  Check whether you have a current membership on file before joining again.
+                  Or do a quick check whether you have a current membership on file before joining again.
                 </p>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <input className="field" type="email" style={{ flex: "1 1 220px", fontSize: 15 }}
@@ -288,6 +326,42 @@ export default function MembershipPage() {
                   placeholder="e.g. PHAA, ApHC" />
               </div>
             </section>
+
+            {/* People covered by this membership (e.g. Family) */}
+            {extraSlots > 0 && (
+              <section className="card">
+                <div className="card-head">
+                  <div>
+                    <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>People covered by this membership</div>
+                    <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                      Your {selectedType?.name ?? "membership"} covers {includedPeople} people including you.
+                      Add the others so they&apos;re on the membership — you can also add or change them later
+                      from the member portal.
+                    </div>
+                  </div>
+                </div>
+                <div style={{ paddingBottom: 8 }}>
+                  {people.slice(0, extraSlots).map((p, idx) => (
+                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 10, alignItems: "end" }}>
+                      <div>
+                        <label className="modal-label">Person {idx + 2} name</label>
+                        <input className="field" style={{ width: "100%", fontSize: 16 }}
+                          value={p.name} onChange={(e) => updatePerson(idx, "name", e.target.value)}
+                          placeholder="Leave blank to add later" />
+                      </div>
+                      <div>
+                        <label className="modal-label">Adult / child</label>
+                        <select className="field" style={{ width: "100%", fontSize: 15 }}
+                          value={p.person_type} onChange={(e) => updatePerson(idx, "person_type", e.target.value)}>
+                          <option value="adult">Adult</option>
+                          <option value="child">Child</option>
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {/* Emergency contact */}
             <section className="card">

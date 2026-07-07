@@ -1,4 +1,5 @@
 import { activeSeasons, seasonLabel } from "../../../lib/membershipSeason";
+import { escapeIlike } from "./memberAuth";
 
 function formatMoney(cents) {
   return new Intl.NumberFormat("en-AU", {
@@ -15,7 +16,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-async function sendEmail({ to, subject, html, text }) {
+export async function sendEmail({ to, subject, html, text }) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.BOOKING_EMAIL_FROM;
   if (!apiKey || !from) {
@@ -68,14 +69,44 @@ async function sendApplicationReceivedEmail(member) {
   await sendEmail({ to: member.email, subject, html, text });
 }
 
+// The 6-digit code for signing in to the member portal (/account).
+export async function sendLoginCodeEmail(email, code) {
+  const subject = "Your sign-in code";
+  const html = `
+    <div style="font-family:Arial,sans-serif;color:#2f261d;line-height:1.45;">
+      <h1 style="font-size:22px;margin:0 0 12px;">Sign in to the member portal</h1>
+      <p>Hi, here's your code to sign in:</p>
+      <p style="font-size:32px;letter-spacing:.25em;font-weight:700;margin:16px 0;">${escapeHtml(code)}</p>
+      <p>It expires in 10 minutes.</p>
+      <p style="color:#6e6254;">If you didn't request this, you can safely ignore this email — no one can sign in without the code.</p>
+    </div>
+  `;
+  const text = [
+    "Sign in to the member portal",
+    "",
+    "Hi, here's your code to sign in:",
+    "",
+    code,
+    "",
+    "It expires in 10 minutes.",
+    "If you didn't request this, you can safely ignore this email — no one can sign in without the code.",
+  ].join("\n");
+  await sendEmail({ to: email, subject, html, text });
+}
+
 async function sendApprovedEmail(member) {
   const subject = "Welcome — your membership is approved";
+  const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+  const portalHtml = baseUrl
+    ? `<p>You can view and update your details any time at <a href="${baseUrl}/account">${baseUrl}/account</a>.</p>`
+    : "";
   const html = `
     <div style="font-family:Arial,sans-serif;color:#2f261d;line-height:1.45;">
       <h1 style="font-size:22px;margin:0 0 12px;">Membership approved</h1>
       <p>Hi ${escapeHtml(member.member_name)},</p>
       <p>Great news — your <strong>${escapeHtml(member.membership_type_name || "club membership")}</strong> for the <strong>${escapeHtml(seasonLabel(member.season))}</strong> has been approved. Welcome to the club!</p>
       <p>You can now enter our events online using this email address.</p>
+      ${portalHtml}
     </div>
   `;
   const text = [
@@ -84,7 +115,8 @@ async function sendApprovedEmail(member) {
     `Hi ${member.member_name},`,
     `Great news — your ${member.membership_type_name || "club membership"} for the ${seasonLabel(member.season)} has been approved. Welcome to the club!`,
     "You can now enter our events online using this email address.",
-  ].join("\n");
+    baseUrl ? `You can view and update your details any time at ${baseUrl}/account.` : null,
+  ].filter((line) => line != null).join("\n");
   await sendEmail({ to: member.email, subject, html, text });
 }
 
@@ -128,9 +160,9 @@ export async function approveMembership(db, memberId) {
 
 // Is there an approved membership for this email address right now?
 export async function hasCurrentMembership(db, email) {
-  // ilike gives case-insensitive matching; escape its wildcards so an email
-  // containing % or _ can only ever match itself.
-  const cleaned = String(email ?? "").trim().replace(/([\\%_])/g, "\\$1");
+  // ilike gives case-insensitive matching; escapeIlike (shared with the
+  // member portal's ownership rule) stops % or _ matching anything else.
+  const cleaned = escapeIlike(String(email ?? "").trim());
   const { data, error } = await db
     .from("club_members")
     .select("id")
