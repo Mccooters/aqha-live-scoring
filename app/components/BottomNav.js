@@ -6,7 +6,8 @@ const NAV = [
   { href: "/",            label: "Events"    },
   { href: "/highpoints",  label: "High Pts"  },
   { href: "/registry",    label: "Registry"  },
-  { href: "/membership",  label: "Members"   },
+  // Members lands on the sign-in portal; it links to the join form below.
+  { href: "/account",     label: "Members"   },
   { href: "/coordinator", label: "Staff"     },
 ];
 
@@ -15,6 +16,8 @@ export default function BottomNav() {
 
   const isActive = (href) => {
     if (href === "/") return path === "/" || path.startsWith("/event/");
+    // Both the portal and the join form live under the "Members" tab.
+    if (href === "/account") return path.startsWith(href) || path.startsWith("/membership");
     return path.startsWith(href);
   };
 

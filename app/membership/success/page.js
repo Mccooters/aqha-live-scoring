@@ -102,6 +102,9 @@ function SuccessContent() {
                 style={{ background: "var(--leather)", textDecoration: "none", display: "inline-block" }}>
                 View events →
               </Link>
+              <Link href="/account" style={{ display: "inline-flex", alignItems: "center", color: "var(--brass)", fontSize: 13, fontWeight: 700 }}>
+                Manage your membership →
+              </Link>
               <Link href="/membership" style={{ display: "inline-flex", alignItems: "center", color: "var(--brass)", fontSize: 13 }}>
                 ← Membership page
               </Link>

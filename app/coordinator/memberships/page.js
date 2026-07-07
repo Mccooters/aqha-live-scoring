@@ -41,19 +41,26 @@ export default function MembershipsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [{ data: memberData, error: memberErr }, { data: typeData }] = await Promise.all([
+    // club_member_people arrives with v25 — queried separately so this page
+    // keeps working (with no people shown) until that migration is run.
+    const [{ data: memberData, error: memberErr }, { data: typeData }, { data: peopleData }] = await Promise.all([
       supabase
         .from("club_members")
         .select("*, club_member_horses(*)")
         .order("created_at", { ascending: false }),
       supabase.from("membership_types").select("*").order("sort_order").order("name"),
+      supabase.from("club_member_people").select("*").order("sort_order"),
     ]);
     if (memberErr?.message?.includes("does not exist")) {
       setTableError(true);
       setLoading(false);
       return;
     }
-    setMembers(memberData ?? []);
+    const peopleByMember = {};
+    (peopleData ?? []).forEach((p) => {
+      (peopleByMember[p.member_id] ??= []).push(p);
+    });
+    setMembers((memberData ?? []).map((m) => ({ ...m, people: peopleByMember[m.id] ?? [] })));
     setTypes(typeData ?? []);
     setLoading(false);
   }, []);
@@ -80,7 +87,17 @@ export default function MembershipsPage() {
       .channel("club-members")
       .on("postgres_changes", { event: "*", schema: "public", table: "club_members" }, load)
       .subscribe();
-    return () => supabase.removeChannel(channel);
+    // Separate channel for the v25 tables: if that migration hasn't been run
+    // yet, only this channel fails — new-application updates keep flowing.
+    const detailsChannel = supabase
+      .channel("club-member-details")
+      .on("postgres_changes", { event: "*", schema: "public", table: "club_member_people" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "club_member_horses" }, load)
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(detailsChannel);
+    };
   }, [session, load]);
 
   const saveSetting = async (next) => {
@@ -152,6 +169,11 @@ export default function MembershipsPage() {
     closeModal();
   };
 
+  // The included_people column arrives with v25 — since types are loaded
+  // with select *, its presence on a loaded row tells us the migration ran.
+  const typesHavePeopleColumn =
+    types.length > 0 && Object.prototype.hasOwnProperty.call(types[0], "included_people");
+
   const saveType = async () => {
     if (!form.name?.trim()) { setFormError("Name is required"); return; }
     const fee = form.fee === "" || form.fee == null ? 0 : Math.round(parseFloat(form.fee) * 100);
@@ -163,6 +185,9 @@ export default function MembershipsPage() {
       active: form.active !== "no",
       sort_order: parseInt(form.sort_order, 10) || 0,
     };
+    if (typesHavePeopleColumn) {
+      row.included_people = Math.max(1, parseInt(form.included_people, 10) || 1);
+    }
     const { error } = modal.typeRow
       ? await supabase.from("membership_types").update(row).eq("id", modal.typeRow.id)
       : await supabase.from("membership_types").insert(row);
@@ -327,6 +352,11 @@ export default function MembershipsPage() {
                       <td>
                         <div style={{ fontWeight: 600 }}>{t.name}</div>
                         {t.description && <div style={{ fontSize: 12, color: "var(--quiet)" }}>{t.description}</div>}
+                        {(t.included_people ?? 1) > 1 && (
+                          <div style={{ fontSize: 12, color: "var(--brass)", fontWeight: 700 }}>
+                            covers {t.included_people} people
+                          </div>
+                        )}
                       </td>
                       <td style={{ textAlign: "right", fontWeight: 700 }}>{(t.fee_cents ?? 0) > 0 ? fmtMoney(t.fee_cents) : "Free"}</td>
                       <td>{t.active ? "Yes" : "Hidden"}</td>
@@ -339,6 +369,7 @@ export default function MembershipsPage() {
                             fee: ((t.fee_cents ?? 0) / 100).toFixed(2),
                             active: t.active ? "yes" : "no",
                             sort_order: String(t.sort_order ?? 0),
+                            included_people: String(t.included_people ?? 1),
                           });
                         }}>Edit</button>
                       </td>
@@ -367,6 +398,7 @@ export default function MembershipsPage() {
         {sortedMembers.map((m) => {
           const isExpanded = expanded === m.id;
           const horses = m.club_member_horses ?? [];
+          const people = m.people ?? [];
           // Green = done, clay = needs the committee's attention, amber = waiting on payment
           const badgeClass = m.status === "approved" ? "completed" : m.status === "paid" ? "live" : m.status === "pending" ? "closed" : "archived";
           return (
@@ -377,6 +409,7 @@ export default function MembershipsPage() {
                   <div style={{ fontWeight: 600, fontSize: 15 }}>{m.member_name}</div>
                   <div style={{ fontSize: 12.5, color: "var(--quiet)" }}>
                     {m.email} · {m.membership_type_name || "Membership"} · applied {fmtDate(m.created_at)}
+                    {people.length > 0 && <> · {people.length + 1} people</>}
                     {horses.length > 0 && <> · {horses.length} {horses.length === 1 ? "horse" : "horses"}</>}
                   </div>
                 </div>
@@ -400,6 +433,12 @@ export default function MembershipsPage() {
                     {m.interests && <div><strong>Wants from the club:</strong> {m.interests}</div>}
                     {m.applicant_notes && <div><strong>Feedback:</strong> {m.applicant_notes}</div>}
                     {m.approved_at && <div><strong>Approved:</strong> {fmtDate(m.approved_at)}</div>}
+                    {people.length > 0 && (
+                      <div>
+                        <strong>People on this membership:</strong>{" "}
+                        {[`${m.member_name} (applicant)`, ...people.map((p) => `${p.name} (${p.person_type === "child" ? "child" : "adult"})`)].join(" · ")}
+                      </div>
+                    )}
                   </div>
 
                   {horses.length > 0 && (
@@ -511,6 +550,22 @@ export default function MembershipsPage() {
                 <input className="field" type="number" step="0.01" min="0" style={{ width: "100%", fontSize: 16 }}
                   value={form.fee ?? ""} onChange={setField("fee")}
                   placeholder="0.00 = free" />
+                {typesHavePeopleColumn ? (
+                  <>
+                    <label className="modal-label">People included (counting the applicant)</label>
+                    <input className="field" type="number" min="1" style={{ width: "100%", fontSize: 16 }}
+                      value={form.included_people ?? "1"} onChange={setField("included_people")}
+                      placeholder="1" />
+                    <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>
+                      e.g. 4 for a family of 2 adults + 2 children. The join form and member portal
+                      collect the extra people&apos;s names.
+                    </p>
+                  </>
+                ) : types.length > 0 ? (
+                  <p style={{ fontSize: 12, color: "var(--quiet)", margin: "10px 0 0" }}>
+                    Run <code>schema-v25-member-accounts.sql</code> to set how many people a membership covers.
+                  </p>
+                ) : null}
                 <label className="modal-label">Shown on the join form?</label>
                 <select className="field" style={{ width: "100%", fontSize: 16 }}
                   value={form.active ?? "yes"} onChange={setField("active")}>

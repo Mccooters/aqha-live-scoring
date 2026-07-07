@@ -64,6 +64,14 @@ hasn't been run.
       → adds **breed-specific High Points**: separate leaderboards for Paint,
         Appaloosa (and any other breed you add) alongside the existing AQHA
         ones, which are not changed. Run v22 first — this uses site settings.
+- [ ] **v25** — `schema-v25-member-accounts.sql`
+      → adds **member accounts**: members sign in at `/account` with a 6-digit
+        emailed code (or a password they set themselves — the emailed code
+        doubles as "forgot password") to see and update their contact details,
+        the people on their membership (families) and their horses. Also lets
+        the join form collect family members' names, and adds a "people
+        included" setting on each membership type. Run v23 first — this
+        builds on club memberships.
 
 Tick these off once you've run them.
 
@@ -97,6 +105,7 @@ Tick these off once you've run them.
 | `schema-v22-site-settings.sql` | Site-wide settings, including the High Points TBC notice toggle |
 | `schema-v23-club-memberships.sql` | Club memberships: join + pay online, horse details, committee approval, members-only event entry switch |
 | `schema-v24-highpoints-breeds.sql` | Breed-specific High Points leaderboards (Paint, Appaloosa, …) alongside the AQHA ones |
+| `schema-v25-member-accounts.sql` | Member self-service portal: email-code or password sign-in, app-managed member sessions, people covered by a membership, "people included" on membership types |
 
 ## For whoever updates the code next
 
