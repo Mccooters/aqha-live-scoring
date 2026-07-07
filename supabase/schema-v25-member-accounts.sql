@@ -94,6 +94,7 @@ create policy "staff write club_member_people"
 
 grant select, insert, update, delete on club_member_people to authenticated;
 revoke select, insert, update, delete on club_member_people from anon;
+grant select, insert, update, delete on club_member_people to service_role;
 
 -- 5) How many people a membership covers (including the applicant).
 --    Editable per type on the coordinator Memberships page; snapshotted onto

@@ -38,6 +38,7 @@ create policy "staff write membership_types"
 
 grant select on membership_types to anon;
 grant select, insert, update, delete on membership_types to authenticated;
+grant select, insert, update, delete on membership_types to service_role;
 
 -- The club's membership types, matching the existing paper/Google form.
 -- Edit names and prices any time on the coordinator Memberships page.
@@ -105,6 +106,7 @@ create policy "staff write club_members"
 
 grant select, insert, update, delete on club_members to authenticated;
 revoke select, insert, update, delete on club_members from anon;
+grant select, insert, update, delete on club_members to service_role;
 
 -- 3) Horses supplied with a membership application, for the committee to
 --    review (and add to the permanent registry if appropriate).
@@ -133,6 +135,7 @@ create policy "staff write club_member_horses"
 
 grant select, insert, update, delete on club_member_horses to authenticated;
 revoke select, insert, update, delete on club_member_horses from anon;
+grant select, insert, update, delete on club_member_horses to service_role;
 
 -- 4) The "membership required to enter events" switch. Starts OFF so nothing
 --    changes until members have actually been signed up — turn it on from the

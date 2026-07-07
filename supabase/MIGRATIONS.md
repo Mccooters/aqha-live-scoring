@@ -76,6 +76,10 @@ hasn't been run.
       → grants the server-only `service_role` access to the private member
         account/session/code tables created by v25. Run this if account
         sign-in says Supabase rejected account-table access.
+- [ ] **v27** — `schema-v27-member-portal-service-role-grants.sql`
+      → grants the server-only `service_role` access to the membership rows
+        the `/account` portal reads after sign-in. Run this if the emailed code
+        works but the portal says it couldn't load your details.
 
 Tick these off once you've run them.
 
@@ -111,6 +115,7 @@ Tick these off once you've run them.
 | `schema-v24-highpoints-breeds.sql` | Breed-specific High Points leaderboards (Paint, Appaloosa, …) alongside the AQHA ones |
 | `schema-v25-member-accounts.sql` | Member self-service portal: email-code or password sign-in, app-managed member sessions, people covered by a membership, "people included" on membership types |
 | `schema-v26-member-service-role-grants.sql` | Grants service-role table access for private member account/session/code tables |
+| `schema-v27-member-portal-service-role-grants.sql` | Grants service-role table access for membership rows used by the member portal |
 
 ## For whoever updates the code next
 
