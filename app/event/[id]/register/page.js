@@ -6,6 +6,7 @@ import { supabase } from "../../../../lib/supabaseClient";
 import { groupedByProgramCategory } from "../../../../lib/classCategories";
 
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
+const DAY_MEMBERSHIP_CENTS = 2000;
 
 function basicClassLabel(cls, isClinic) {
   if (!cls) return "";
@@ -298,6 +299,7 @@ export default function RegisterPage() {
   const [contactEmail, setContactEmail] = useState("");
   const [membershipSetting, setMembershipSetting] = useState({ enabled: false, include_clinics: false });
   const [membershipStatus, setMembershipStatus] = useState(null); // null | "member" | "none" | "unknown"
+  const [dayMembership, setDayMembership] = useState(false);
   const [rulesAccepted, setRulesAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -355,7 +357,8 @@ export default function RegisterPage() {
   const checkMembership = async (email) => {
     if (!membershipRequired || !email?.trim() || !email.includes("@")) { setMembershipStatus(null); return; }
     try {
-      const res = await fetch(`/api/memberships/check?email=${encodeURIComponent(email.trim())}`);
+      const params = new URLSearchParams({ email: email.trim(), event_id: eventId });
+      const res = await fetch(`/api/memberships/check?${params.toString()}`);
       const data = res.ok ? await res.json() : null;
       setMembershipStatus(data?.member === true ? "member" : data?.member === false ? "none" : "unknown");
     } catch {
@@ -372,7 +375,12 @@ export default function RegisterPage() {
   }));
   const submissionEntries = isMultiMode ? multiEntries : entries;
   const filledEntries = submissionEntries.filter((e) => e.class_id);
-  const totalCents = filledEntries.length * feePerClass;
+  const dayMembershipSelected = membershipRequired && membershipStatus !== "member" && dayMembership;
+  const totalCents = filledEntries.length * feePerClass + (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0);
+
+  useEffect(() => {
+    if (membershipStatus === "member") setDayMembership(false);
+  }, [membershipStatus]);
 
   const classIsFull = (cls) => cls.capacity != null && (spotsTaken[cls.id] ?? 0) >= cls.capacity;
   const spotsLabel = (cls) => {
@@ -516,6 +524,10 @@ export default function RegisterPage() {
     if (duplicateInForm) { setError(duplicateInForm); return; }
     const existingDuplicate = valid.map((entry) => duplicateMessage(entry)).find(Boolean);
     if (existingDuplicate) { setError(`${existingDuplicate} Please check your details or contact the show secretary.`); return; }
+    if (membershipRequired && membershipStatus === "none" && !dayMembership) {
+      setError("Choose the $20 day membership for this event, or use the email address on a current annual membership.");
+      return;
+    }
     if (!rulesAccepted) {
       setError("Please confirm you have read and agree to the entry conditions.");
       return;
@@ -530,6 +542,7 @@ export default function RegisterPage() {
           event_id: eventId,
           contact_name: contactName.trim(),
           contact_email: contactEmail.trim(),
+          day_membership: dayMembership,
           entries: valid.map((e) => ({
             class_id: e.class_id,
             back_number: isClinic ? null : parseInt(e.back_number, 10),
@@ -633,8 +646,7 @@ export default function RegisterPage() {
         {membershipRequired && (
           <div className="card" style={{ padding: "12px 14px", borderColor: "#E0B15A", background: "#FFF7D6", marginBottom: 14 }}>
             <p style={{ margin: 0, color: "var(--leather)", fontSize: 13.5, fontWeight: 700 }}>
-              Members only — entries are open to current club members.
-              Not a member yet? <Link href="/membership" style={{ color: "var(--clay)" }}>Join online here</Link> (approval required before entering).
+              Annual membership or day membership required — non-members can add a {fmtMoney(DAY_MEMBERSHIP_CENTS)} day membership for this event at checkout.
             </p>
           </div>
         )}
@@ -652,20 +664,36 @@ export default function RegisterPage() {
             <label className="modal-label">Email address *</label>
             <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
               value={contactEmail}
-              onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); }}
+              onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); setDayMembership(false); }}
               onBlur={(e) => checkMembership(e.target.value)}
               placeholder="e.g. sarah@example.com" />
             {membershipRequired && membershipStatus === "member" && (
               <p style={{ fontSize: 12.5, color: "#2D7A52", fontWeight: 700, margin: "6px 0 0" }}>
-                ✓ Current club membership found for this email.
+                ✓ Annual club membership found for this event season.
               </p>
             )}
             {membershipRequired && membershipStatus === "none" && (
               <p style={{ fontSize: 12.5, color: "var(--clay)", fontWeight: 600, margin: "6px 0 0" }}>
-                No current club membership found for this email. You&apos;ll need to{" "}
-                <Link href="/membership" style={{ color: "var(--clay)", textDecoration: "underline" }}>become a member</Link>{" "}
-                (and be approved) before your entry can be accepted — use the same email address there.
+                No annual membership found for this event season.
               </p>
+            )}
+            {membershipRequired && membershipStatus !== "member" && (
+              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 10, background: dayMembership ? "#FFF7D6" : "#fff", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={dayMembership}
+                  onChange={(e) => setDayMembership(e.target.checked)}
+                  style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }}
+                />
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 14, fontWeight: 800, color: "var(--leather)" }}>
+                    Add day membership · {fmtMoney(DAY_MEMBERSHIP_CENTS)}
+                  </span>
+                  <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+                    Covers this event only. For annual membership instead, <Link href="/membership" style={{ color: "var(--brass)", fontWeight: 700 }}>join online</Link>.
+                  </span>
+                </span>
+              </label>
             )}
             <p style={{ fontSize: 12, color: "var(--quiet)", margin: "6px 0 0" }}>
               {feePerClass > 0
@@ -868,7 +896,12 @@ export default function RegisterPage() {
                 <div style={{ fontWeight: 600, fontSize: 15 }}>
                   {filledEntries.length} {isClinic ? (filledEntries.length === 1 ? "spot" : "spots") : (filledEntries.length === 1 ? "class" : "classes")} × {fmtMoney(feePerClass)}
                 </div>
-                {feePerClass > 0 && (
+                {dayMembershipSelected && (
+                  <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
+                    Day membership × {fmtMoney(DAY_MEMBERSHIP_CENTS)}
+                  </div>
+                )}
+                {totalCents > 0 && (
                   <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
                     Paid securely via Square · receipt and booking confirmation emailed to you
                   </div>
@@ -892,7 +925,7 @@ export default function RegisterPage() {
               onClick={submit} disabled={submitting}>
               {submitting
                 ? "Setting up payment…"
-                : feePerClass > 0
+                : totalCents > 0
                 ? `Register & Pay ${fmtMoney(totalCents)}`
                 : isClinic ? "Register" : "Submit entries"}
             </button>

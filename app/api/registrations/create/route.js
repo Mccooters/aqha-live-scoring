@@ -8,6 +8,8 @@ const squareBase =
     ? "https://connect.squareupsandbox.com"
     : "https://connect.squareup.com";
 
+const DAY_MEMBERSHIP_CENTS = 2000;
+
 function normalizeName(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -19,7 +21,7 @@ function classLabel(cls) {
 
 export async function POST(req) {
   try {
-    const { event_id, contact_name, contact_email, entries } = await req.json();
+    const { event_id, contact_name, contact_email, entries, day_membership } = await req.json();
 
     if (!event_id || !contact_name?.trim() || !contact_email?.trim() || !entries?.length) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -30,7 +32,7 @@ export async function POST(req) {
     // Load event to get the per-class fee and entries status
     const { data: event, error: evErr } = await db
       .from("events")
-      .select("id, name, entry_fee_cents, status, event_type")
+      .select("id, name, starts_on, entry_fee_cents, status, event_type")
       .eq("id", event_id)
       .single();
     if (evErr || !event) {
@@ -49,17 +51,26 @@ export async function POST(req) {
     // required", only email addresses with an approved, current club
     // membership may enter. Any lookup failure fails open so entries are
     // never blocked by a technical problem.
-    if (await membershipRequirement(db, event)) {
+    const requiresMembership = await membershipRequirement(db, event);
+    let includeDayMembership = false;
+    if (requiresMembership) {
       let isMember = false;
       try {
-        isMember = await hasCurrentMembership(db, contact_email);
+        isMember = await hasCurrentMembership(
+          db,
+          contact_email,
+          event.starts_on ? new Date(event.starts_on) : new Date()
+        );
       } catch (err) {
         console.error("Membership lookup failed (allowing entry):", err);
         isMember = true;
       }
       if (!isMember) {
+        includeDayMembership = Boolean(day_membership);
+      }
+      if (!isMember && !includeDayMembership) {
         return NextResponse.json(
-          { error: "We couldn't find a current club membership for this email address. You must be a member to enter — join on the Members page first, or contact the club if you believe this is a mistake." },
+          { error: "We couldn't find an annual club membership for this event season. Choose the $20 day membership for this event, join on the Members page, or contact the club if you believe this is a mistake." },
           { status: 403 }
         );
       }
@@ -183,21 +194,37 @@ export async function POST(req) {
     }
 
     const feePerClass = event.entry_fee_cents ?? 0;
-    const totalCents = normalEntries.length * feePerClass;
+    const dayMembershipCents = includeDayMembership ? DAY_MEMBERSHIP_CENTS : 0;
+    const totalCents = normalEntries.length * feePerClass + dayMembershipCents;
 
     // Create the registration record (pending)
+    const registrationRow = {
+      event_id,
+      contact_name: contact_name.trim(),
+      contact_email: contact_email.trim(),
+      total_cents: totalCents,
+      status: "pending",
+    };
+    if (includeDayMembership) {
+      registrationRow.day_membership = true;
+      registrationRow.day_membership_cents = dayMembershipCents;
+    }
+
     const { data: reg, error: regErr } = await db
       .from("registrations")
-      .insert({
-        event_id,
-        contact_name: contact_name.trim(),
-        contact_email: contact_email.trim(),
-        total_cents: totalCents,
-        status: "pending",
-      })
+      .insert(registrationRow)
       .select()
       .single();
-    if (regErr) return NextResponse.json({ error: regErr.message }, { status: 500 });
+    if (regErr) {
+      const msg = `${regErr.message ?? ""} ${regErr.details ?? ""}`.toLowerCase();
+      if (includeDayMembership && msg.includes("day_membership")) {
+        return NextResponse.json(
+          { error: "Day memberships need the schema-v29 database update before they can be sold." },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ error: regErr.message }, { status: 500 });
+    }
 
     // Store the pending entries
     const { error: entErr } = await db.from("registration_entries").insert(
@@ -229,20 +256,34 @@ export async function POST(req) {
 
     const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
 
-    const squarePayload = {
-      idempotency_key: randomUUID(),
-      order: {
-        location_id: process.env.SQUARE_LOCATION_ID,
-        reference_id: reg.id,
-        line_items: normalEntries.map((e) => {
+    const lineItems = feePerClass > 0
+      ? normalEntries.map((e) => {
           const cls = classMap[e.class_id];
           return {
             name: cls ? `Class ${cls.num}: ${cls.name}` : "Class entry",
             quantity: "1",
             base_price_money: { amount: feePerClass, currency: "AUD" },
-            note: `Back #${e.back_number} — ${e.horse_name} (${e.exhibitor})`,
+            note: isClinic
+              ? `${e.horse_name || "Participant"} (${e.exhibitor})`
+              : `Back #${e.back_number} — ${e.horse_name} (${e.exhibitor})`,
           };
-        }),
+        })
+      : [];
+    if (includeDayMembership) {
+      lineItems.push({
+        name: "Day membership",
+        quantity: "1",
+        base_price_money: { amount: dayMembershipCents, currency: "AUD" },
+        note: `One-event membership for ${contact_name.trim()}`,
+      });
+    }
+
+    const squarePayload = {
+      idempotency_key: randomUUID(),
+      order: {
+        location_id: process.env.SQUARE_LOCATION_ID,
+        reference_id: reg.id,
+        line_items: lineItems,
       },
       checkout_options: {
         redirect_url: `${baseUrl}/event/${event_id}/register/success?reg=${reg.id}`,

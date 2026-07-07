@@ -84,6 +84,9 @@ hasn't been run.
       → grants the server-only `service_role` read access to the official horse
         registry so member-added horses can use the existing back number, or the
         next available number when the horse is new.
+- [ ] **v29** — `schema-v29-day-memberships.sql`
+      → adds day-membership fields to online event registrations so non-annual
+        members can pay a $20 one-event membership at checkout.
 
 Tick these off once you've run them.
 
@@ -121,6 +124,7 @@ Tick these off once you've run them.
 | `schema-v26-member-service-role-grants.sql` | Grants service-role table access for private member account/session/code tables |
 | `schema-v27-member-portal-service-role-grants.sql` | Grants service-role table access for membership rows used by the member portal |
 | `schema-v28-member-horse-numbering-grants.sql` | Grants service-role registry reads for automatic member horse back numbers |
+| `schema-v29-day-memberships.sql` | Records $20 day memberships purchased during online event entry |
 
 ## For whoever updates the code next
 

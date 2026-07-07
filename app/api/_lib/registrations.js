@@ -51,13 +51,15 @@ async function sendBookingConfirmation(db, registrationId) {
     return;
   }
 
-  const { data: reg, error } = await db
+  let { data: reg, error } = await db
     .from("registrations")
     .select(`
       id,
       contact_name,
       contact_email,
       total_cents,
+      day_membership,
+      day_membership_cents,
       event:events(name, starts_on, location),
       registration_entries(
         id,
@@ -69,6 +71,31 @@ async function sendBookingConfirmation(db, registrationId) {
     `)
     .eq("id", registrationId)
     .single();
+  if (error) {
+    const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+    if (msg.includes("day_membership")) {
+      const retry = await db
+        .from("registrations")
+        .select(`
+          id,
+          contact_name,
+          contact_email,
+          total_cents,
+          event:events(name, starts_on, location),
+          registration_entries(
+            id,
+            back_number,
+            horse_name,
+            exhibitor,
+            class:classes(num, name)
+          )
+        `)
+        .eq("id", registrationId)
+        .single();
+      reg = retry.data ? { ...retry.data, day_membership: false, day_membership_cents: 0 } : null;
+      error = retry.error;
+    }
+  }
 
   if (error || !reg) throw new Error(error?.message ?? "Registration not found");
 
@@ -78,17 +105,27 @@ async function sendBookingConfirmation(db, registrationId) {
   const eventMeta = [eventDate, reg.event?.location].filter(Boolean).join(" - ");
   const subject = `Booking confirmation - ${eventName}`;
   const hasPayment = (reg.total_cents ?? 0) > 0;
+  const hasDayMembership = !!reg.day_membership;
+  const dayMembershipAmount = reg.day_membership_cents ?? 2000;
 
   const rowsHtml = entries.map((entry) => `
     <tr>
       <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">${escapeHtml(classLabel(entry))}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">${escapeHtml(entryLabel(entry))}</td>
     </tr>
-  `).join("");
+  `).join("") + (hasDayMembership ? `
+    <tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">Day membership</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">One-event membership (${escapeHtml(formatMoney(dayMembershipAmount))})</td>
+    </tr>
+  ` : "");
 
   const entriesText = entries
     .map((entry) => `- ${classLabel(entry)}: ${entryLabel(entry)}`)
     .join("\n");
+  const dayMembershipText = hasDayMembership
+    ? `- Day membership: One-event membership (${formatMoney(dayMembershipAmount)})`
+    : null;
 
   const html = `
     <div style="font-family:Arial,sans-serif;color:#2f261d;line-height:1.45;">
@@ -118,6 +155,7 @@ async function sendBookingConfirmation(db, registrationId) {
     `Your entries have been confirmed and added to the draw.`,
     "",
     entriesText,
+    dayMembershipText,
     "",
     `Total paid: ${formatMoney(reg.total_cents)}`,
     hasPayment ? "Square sends the payment receipt separately." : null,

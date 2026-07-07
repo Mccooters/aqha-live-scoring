@@ -83,6 +83,7 @@ export default function RegistrationsPage() {
   const pending = registrations.filter((r) => r.status !== "paid");
   const revenue = paid.reduce((s, r) => s + (r.total_cents ?? 0), 0);
   const entryCount = registrations.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
+  const dayMembershipCount = paid.filter((r) => r.day_membership).length;
 
   return (
     <>
@@ -120,6 +121,7 @@ export default function RegistrationsPage() {
               { label: "Confirmed", value: paid.length },
               { label: "Pending payment", value: pending.length },
               { label: "Total entries", value: entryCount },
+              { label: "Day memberships", value: dayMembershipCount },
               { label: "Revenue", value: fmtMoney(revenue) },
             ].map((s) => (
               <div key={s.label} className="card" style={{ flex: "1 1 120px", padding: "12px 16px", margin: 0 }}>
@@ -158,6 +160,7 @@ export default function RegistrationsPage() {
                   <div style={{ fontSize: 12.5, color: "var(--quiet)" }}>
                     {reg.contact_email} · {fmtDate(reg.created_at)}
                     {" · "}{reg.registration_entries?.length ?? 0} {reg.registration_entries?.length === 1 ? "entry" : "entries"}
+                    {reg.day_membership && ` · day membership ${fmtMoney(reg.day_membership_cents ?? 2000)}`}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -171,6 +174,11 @@ export default function RegistrationsPage() {
 
               {isExpanded && (
                 <div style={{ paddingBottom: 12 }}>
+                  {reg.day_membership && (
+                    <p style={{ color: "var(--leather)", fontSize: 13, fontWeight: 700, padding: "4px 0 0", margin: 0 }}>
+                      Includes day membership for this event ({fmtMoney(reg.day_membership_cents ?? 2000)}).
+                    </p>
+                  )}
                   {(reg.registration_entries ?? []).length > 0 ? (
                     <table>
                       <thead>

@@ -57,6 +57,7 @@ function SuccessContent() {
 
   const isPaid = reg.status === "paid";
   const hasPayment = (reg.total_cents ?? 0) > 0;
+  const hasDayMembership = !!reg.day_membership;
 
   return (
     <>
@@ -83,6 +84,11 @@ function SuccessContent() {
                   {hasPayment ? "Square will email your payment receipt, and we will email your booking confirmation" : "We will email your booking confirmation"} to <strong>{reg.contact_email}</strong>.
                   If you don&apos;t see it within a few minutes, check your spam folder.
                 </p>
+                {hasDayMembership && (
+                  <p style={{ fontSize: 13.5, color: "var(--leather)", fontWeight: 700, marginTop: 0 }}>
+                    Includes a day membership for this event ({`$${((reg.day_membership_cents ?? 2000) / 100).toFixed(2)}`}).
+                  </p>
+                )}
               </>
             ) : (
               <p style={{ fontSize: 14, color: "var(--quiet)", marginTop: 4 }}>

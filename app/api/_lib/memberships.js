@@ -1,4 +1,4 @@
-import { activeSeasons, seasonLabel } from "../../../lib/membershipSeason";
+import { currentSeason, seasonLabel } from "../../../lib/membershipSeason";
 import { escapeIlike } from "./memberAuth";
 
 function formatMoney(cents) {
@@ -158,16 +158,18 @@ export async function approveMembership(db, memberId) {
   }
 }
 
-// Is there an approved membership for this email address right now?
-export async function hasCurrentMembership(db, email) {
+// Is there an approved annual membership for this email address in the season
+// the event belongs to?
+export async function hasCurrentMembership(db, email, date = new Date()) {
   // ilike gives case-insensitive matching; escapeIlike (shared with the
   // member portal's ownership rule) stops % or _ matching anything else.
   const cleaned = escapeIlike(String(email ?? "").trim());
+  const season = currentSeason(date);
   const { data, error } = await db
     .from("club_members")
     .select("id")
     .eq("status", "approved")
-    .in("season", activeSeasons())
+    .eq("season", season)
     .ilike("email", cleaned)
     .limit(1);
   if (error) throw new Error(error.message);

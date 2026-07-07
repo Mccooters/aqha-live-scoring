@@ -13,13 +13,27 @@ export async function GET(req) {
   }
 
   const db = adminClient();
-  const { data: reg, error } = await db
+  let { data: reg, error } = await db
     .from("registrations")
     .select(
-      "id, status, contact_name, contact_email, total_cents, registration_entries(id, back_number, horse_name, exhibitor)"
+      "id, status, contact_name, contact_email, total_cents, day_membership, day_membership_cents, registration_entries(id, back_number, horse_name, exhibitor)"
     )
     .eq("id", regId)
     .maybeSingle();
+  if (error) {
+    const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+    if (msg.includes("day_membership")) {
+      const retry = await db
+        .from("registrations")
+        .select(
+          "id, status, contact_name, contact_email, total_cents, registration_entries(id, back_number, horse_name, exhibitor)"
+        )
+        .eq("id", regId)
+        .maybeSingle();
+      reg = retry.data ? { ...retry.data, day_membership: false, day_membership_cents: 0 } : null;
+      error = retry.error;
+    }
+  }
 
   if (error || !reg) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

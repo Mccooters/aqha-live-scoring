@@ -6,13 +6,25 @@ import { hasCurrentMembership } from "../../_lib/memberships";
 // before they fill everything in. Returns only a boolean — never any member
 // details — so it can't be used to look people up.
 export async function GET(req) {
-  const email = new URL(req.url).searchParams.get("email");
+  const url = new URL(req.url);
+  const email = url.searchParams.get("email");
+  const eventId = url.searchParams.get("event_id");
   if (!email?.trim() || !email.includes("@")) {
     return NextResponse.json({ error: "email required" }, { status: 400 });
   }
 
   try {
-    const member = await hasCurrentMembership(adminClient(), email);
+    const db = adminClient();
+    let membershipDate = new Date();
+    if (eventId) {
+      const { data: event } = await db
+        .from("events")
+        .select("starts_on")
+        .eq("id", eventId)
+        .maybeSingle();
+      if (event?.starts_on) membershipDate = new Date(event.starts_on);
+    }
+    const member = await hasCurrentMembership(db, email, membershipDate);
     return NextResponse.json({ member });
   } catch (err) {
     // Membership tables not set up yet (migration not run) — treat as
