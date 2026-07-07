@@ -26,7 +26,7 @@ export async function POST(req) {
 
     const configError = memberSignInConfigError();
     if (configError) {
-      console.error("member sign-in config missing: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+      console.error("member sign-in config missing:", configError);
       return NextResponse.json({ error: configError }, { status: 503 });
     }
 

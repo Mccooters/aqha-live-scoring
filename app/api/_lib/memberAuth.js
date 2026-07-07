@@ -98,8 +98,12 @@ export function escapeIlike(value) {
 }
 
 export function memberSignInConfigError() {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return "Member sign-in couldn't access the account tables. Check the server database credentials.";
+  const missing = [
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ? "NEXT_PUBLIC_SUPABASE_URL" : null,
+    !process.env.SUPABASE_SERVICE_ROLE_KEY ? "SUPABASE_SERVICE_ROLE_KEY" : null,
+  ].filter(Boolean);
+  if (missing.length) {
+    return `Member sign-in is missing server config: ${missing.join(", ")}.`;
   }
   return null;
 }
