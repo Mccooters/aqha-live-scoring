@@ -15,6 +15,8 @@ const STATUS_BADGE = {
   rejected: { className: "archived", label: "Not approved" },
 };
 
+const fmtBack = (n) => String(n).padStart(3, "0");
+
 async function api(path, method = "GET", body) {
   const res = await fetch(path, {
     method,
@@ -444,7 +446,9 @@ function PeopleCard({ m, onChanged }) {
 
 function HorsesCard({ m, onChanged }) {
   const horses = m.horses ?? [];
-  const [modal, setModal] = useState(null); // { id?, horse_name, back_number, breed, registrations, notes }
+  const [modal, setModal] = useState(null); // { id?, horse_name, current_back_number?, breed, registrations, notes }
+  const [numberSuggestion, setNumberSuggestion] = useState(null);
+  const [checkingNumber, setCheckingNumber] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -453,7 +457,8 @@ function HorsesCard({ m, onChanged }) {
     if (!modal.horse_name.trim()) { setError("Enter the horse's name."); return; }
     setBusy(true);
     try {
-      const body = { ...modal, member_id: m.id };
+      const { current_back_number, ...payload } = modal;
+      const body = { ...payload, member_id: m.id };
       const { ok, data } = modal.id
         ? await api("/api/account/horses", "PATCH", body)
         : await api("/api/account/horses", "POST", body);
@@ -475,6 +480,51 @@ function HorsesCard({ m, onChanged }) {
   };
 
   const setField = (field) => (e) => setModal((v) => ({ ...v, [field]: e.target.value }));
+  const suggestedBackNumber = numberSuggestion?.back_number ?? modal?.current_back_number ?? null;
+  const numberNote = checkingNumber
+    ? "Checking the horse registry…"
+    : numberSuggestion?.matched_registry
+      ? `Matched ${numberSuggestion.horse_name} in the registry.`
+      : modal?.id && modal.current_back_number != null
+        ? "This horse keeps its assigned number."
+        : suggestedBackNumber != null
+          ? "Next available number."
+          : "The next available number is added when you save.";
+
+  useEffect(() => {
+    if (!modal) {
+      setNumberSuggestion(null);
+      setCheckingNumber(false);
+      return undefined;
+    }
+
+    const horseName = modal.horse_name.trim();
+    if (!horseName) {
+      setNumberSuggestion(null);
+      setCheckingNumber(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setCheckingNumber(true);
+      try {
+        const params = new URLSearchParams({ name: horseName });
+        if (modal.id) params.set("id", modal.id);
+        const { ok, data } = await api(`/api/account/horses?${params.toString()}`);
+        if (!cancelled) setNumberSuggestion(ok ? data?.suggestion ?? null : null);
+      } catch {
+        if (!cancelled) setNumberSuggestion(null);
+      } finally {
+        if (!cancelled) setCheckingNumber(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [modal?.horse_name, modal?.id]);
 
   return (
     <section className="card">
@@ -490,7 +540,7 @@ function HorsesCard({ m, onChanged }) {
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 15 }}>
                 {h.back_number != null && (
-                  <span style={{ color: "var(--brass)", marginRight: 6 }}>#{h.back_number}</span>
+                  <span style={{ color: "var(--brass)", marginRight: 6 }}>#{fmtBack(h.back_number)}</span>
                 )}
                 {h.horse_name}
               </div>
@@ -502,10 +552,12 @@ function HorsesCard({ m, onChanged }) {
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                 <button className="btn-ghost" onClick={() => {
                   setError("");
+                  setNumberSuggestion(null);
+                  setCheckingNumber(false);
                   setModal({
                     id: h.id,
                     horse_name: h.horse_name ?? "",
-                    back_number: h.back_number ?? "",
+                    current_back_number: h.back_number ?? null,
                     breed: h.breed ?? "",
                     registrations: h.registrations ?? "",
                     notes: h.notes ?? "",
@@ -520,7 +572,7 @@ function HorsesCard({ m, onChanged }) {
         ))}
         {m.editable && (
           <button className="btn-ghost" style={{ width: "100%", marginTop: 12, fontSize: 14, padding: "8px 0" }}
-            onClick={() => { setError(""); setModal({ horse_name: "", back_number: "", breed: "", registrations: "", notes: "" }); }}>
+            onClick={() => { setError(""); setNumberSuggestion(null); setCheckingNumber(false); setModal({ horse_name: "", breed: "", registrations: "", notes: "" }); }}>
             + Add a horse
           </button>
         )}
@@ -536,8 +588,10 @@ function HorsesCard({ m, onChanged }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
                 <label className="modal-label">Back number</label>
-                <input className="field" type="number" style={{ width: "100%", fontSize: 16 }}
-                  value={modal.back_number} onChange={setField("back_number")} placeholder="If it has one" />
+                <div className="field" style={{ width: "100%", minHeight: 48, display: "flex", alignItems: "center", fontSize: 16, fontWeight: 800, color: "var(--brass)", background: "#fbf8f2" }}>
+                  {checkingNumber ? "Checking…" : suggestedBackNumber != null ? `#${fmtBack(suggestedBackNumber)}` : "Auto"}
+                </div>
+                <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>{numberNote}</p>
               </div>
               <div>
                 <label className="modal-label">Breed / colour</label>

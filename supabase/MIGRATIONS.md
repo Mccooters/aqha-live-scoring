@@ -80,6 +80,10 @@ hasn't been run.
       → grants the server-only `service_role` access to the membership rows
         the `/account` portal reads after sign-in. Run this if the emailed code
         works but the portal says it couldn't load your details.
+- [ ] **v28** — `schema-v28-member-horse-numbering-grants.sql`
+      → grants the server-only `service_role` read access to the official horse
+        registry so member-added horses can use the existing back number, or the
+        next available number when the horse is new.
 
 Tick these off once you've run them.
 
@@ -116,6 +120,7 @@ Tick these off once you've run them.
 | `schema-v25-member-accounts.sql` | Member self-service portal: email-code or password sign-in, app-managed member sessions, people covered by a membership, "people included" on membership types |
 | `schema-v26-member-service-role-grants.sql` | Grants service-role table access for private member account/session/code tables |
 | `schema-v27-member-portal-service-role-grants.sql` | Grants service-role table access for membership rows used by the member portal |
+| `schema-v28-member-horse-numbering-grants.sql` | Grants service-role registry reads for automatic member horse back numbers |
 
 ## For whoever updates the code next
 
