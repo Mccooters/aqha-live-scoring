@@ -426,6 +426,8 @@ export default function HighPoints() {
       if (error) throw error;
       await load();
       setSeason(importedSeason);
+      setBreed(importBreed);
+      setActiveCategory("");
       closeModal();
     } catch (err) {
       setImportError("Import failed: " + (err?.message ?? String(err)));
