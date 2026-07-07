@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { adminClient, approveRegistration } from "../../_lib/registrations";
+import { markMembershipPaid } from "../../_lib/memberships";
 
 export async function POST(req) {
   const body = await req.text();
@@ -58,7 +59,12 @@ export async function POST(req) {
     .eq("square_order_id", orderId)
     .maybeSingle();
 
-  if (!reg || reg.status === "paid") return NextResponse.json({ ok: true });
+  // Not an event entry — it may be a membership payment instead.
+  if (!reg) {
+    return handleMembershipPayment(db, payment, orderId);
+  }
+
+  if (reg.status === "paid") return NextResponse.json({ ok: true });
 
   // The completed payment must cover the registration total — a partial
   // payment should never place entries.
@@ -76,6 +82,42 @@ export async function POST(req) {
     .eq("id", reg.id);
 
   await approveRegistration(db, reg.id);
+
+  return NextResponse.json({ ok: true });
+}
+
+// Membership payments come through the same Square webhook as event entries.
+// Marking one paid does NOT make the person a member yet — it moves the
+// application to "awaiting committee approval" on the coordinator's
+// Memberships page.
+async function handleMembershipPayment(db, payment, orderId) {
+  const { data: member, error } = await db
+    .from("club_members")
+    .select("id, status, total_cents")
+    .eq("square_order_id", orderId)
+    .maybeSingle();
+
+  // Table missing (migration not run) or no match — nothing for us to do.
+  if (error || !member || member.status !== "pending") {
+    return NextResponse.json({ ok: true });
+  }
+
+  // The completed payment must cover the membership fee — a partial payment
+  // should never advance the application.
+  const paidCents = payment?.amount_money?.amount;
+  if (typeof paidCents === "number" && paidCents < (member.total_cents ?? 0)) {
+    console.error(
+      `Square payment ${payment.id} paid ${paidCents}c but membership ${member.id} totals ${member.total_cents}c — not marking paid`
+    );
+    return NextResponse.json({ ok: true });
+  }
+
+  await db
+    .from("club_members")
+    .update({ square_payment_id: payment.id })
+    .eq("id", member.id);
+
+  await markMembershipPaid(db, member.id);
 
   return NextResponse.json({ ok: true });
 }

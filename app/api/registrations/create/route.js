@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { adminClient, approveRegistration } from "../../_lib/registrations";
+import { membershipRequirement, hasCurrentMembership } from "../../_lib/memberships";
 
 const squareBase =
   process.env.SQUARE_ENVIRONMENT === "sandbox"
@@ -42,6 +43,26 @@ export async function POST(req) {
         ? "Entries for this event have not opened yet."
         : "Entries for this event are now closed. Please contact the show secretary.";
       return NextResponse.json({ error: msg }, { status: 400 });
+    }
+
+    // Membership check — when the coordinator has turned on "membership
+    // required", only email addresses with an approved, current club
+    // membership may enter. Any lookup failure fails open so entries are
+    // never blocked by a technical problem.
+    if (await membershipRequirement(db, event)) {
+      let isMember = false;
+      try {
+        isMember = await hasCurrentMembership(db, contact_email);
+      } catch (err) {
+        console.error("Membership lookup failed (allowing entry):", err);
+        isMember = true;
+      }
+      if (!isMember) {
+        return NextResponse.json(
+          { error: "We couldn't find a current club membership for this email address. You must be a member to enter — join on the Members page first, or contact the club if you believe this is a mistake." },
+          { status: 403 }
+        );
+      }
     }
 
     // Load classes (with capacity) to build Square line items and enforce spot limits.

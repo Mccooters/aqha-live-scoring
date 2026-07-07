@@ -1,0 +1,535 @@
+"use client";
+import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
+import { supabase } from "../../../lib/supabaseClient";
+import { currentSeason, signupSeason, seasonLabel } from "../../../lib/membershipSeason";
+
+const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
+const fmtDate = (s) =>
+  s ? new Date(s).toLocaleString("en-AU", { dateStyle: "short", timeStyle: "short" }) : "—";
+
+const STATUS_LABEL = {
+  pending: "pending payment",
+  paid: "awaiting approval",
+  approved: "approved",
+  rejected: "rejected",
+};
+
+export default function MembershipsPage() {
+  const [session, setSession] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [types, setTypes] = useState([]);
+  const [season, setSeason] = useState(signupSeason());
+  const [loading, setLoading] = useState(true);
+  const [tableError, setTableError] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+  const [acting, setActing] = useState(null);
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState({});
+  const [formError, setFormError] = useState("");
+
+  // "membership required to enter" switch
+  const [requireSetting, setRequireSetting] = useState({ enabled: false, include_clinics: false });
+  const [settingReady, setSettingReady] = useState(false);
+  const [settingSaving, setSettingSaving] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [{ data: memberData, error: memberErr }, { data: typeData }] = await Promise.all([
+      supabase
+        .from("club_members")
+        .select("*, club_member_horses(*)")
+        .order("created_at", { ascending: false }),
+      supabase.from("membership_types").select("*").order("sort_order").order("name"),
+    ]);
+    if (memberErr?.message?.includes("does not exist")) {
+      setTableError(true);
+      setLoading(false);
+      return;
+    }
+    setMembers(memberData ?? []);
+    setTypes(typeData ?? []);
+    setLoading(false);
+  }, []);
+
+  const loadSetting = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "membership_required")
+      .maybeSingle();
+    if (error) { setSettingReady(false); return; }
+    setSettingReady(true);
+    setRequireSetting({
+      enabled: Boolean(data?.value?.enabled),
+      include_clinics: Boolean(data?.value?.include_clinics),
+    });
+  }, []);
+
+  useEffect(() => { if (session) { load(); loadSetting(); } }, [session, load, loadSetting]);
+
+  useEffect(() => {
+    if (!session) return;
+    const channel = supabase
+      .channel("club-members")
+      .on("postgres_changes", { event: "*", schema: "public", table: "club_members" }, load)
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [session, load]);
+
+  const saveSetting = async (next) => {
+    setSettingSaving(true);
+    const { error } = await supabase
+      .from("site_settings")
+      .upsert({
+        key: "membership_required",
+        value: next,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+    if (error) alert("Could not save the setting: " + error.message);
+    else { setRequireSetting(next); setSettingReady(true); }
+    setSettingSaving(false);
+  };
+
+  const act = async (memberId, action) => {
+    const confirmMsg = action === "approve"
+      ? "Approve this membership? The member will get a welcome email and can enter events online."
+      : "Reject this application? The applicant will NOT be emailed automatically — contact them about any refund.";
+    if (!confirm(confirmMsg)) return;
+    setActing(memberId);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const res = await fetch("/api/memberships/approve", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({ member_id: memberId, action }),
+    });
+    const data = await res.json();
+    if (data.error) alert("Error: " + data.error);
+    else await load();
+    setActing(null);
+  };
+
+  const markPaidManually = async (member) => {
+    if (!confirm(`Mark ${member.member_name}'s application as paid?\n\nOnly do this if the fee was received outside Square (cash, bank transfer, or a payment confirmed manually).`)) return;
+    const { error } = await supabase
+      .from("club_members")
+      .update({ status: "paid" })
+      .eq("id", member.id)
+      .eq("status", "pending");
+    if (error) alert(error.message);
+    else await load();
+  };
+
+  const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const closeModal = () => { setModal(null); setForm({}); setFormError(""); };
+
+  const saveManualMember = async () => {
+    if (!form.member_name?.trim()) { setFormError("Name is required"); return; }
+    if (!form.email?.trim() || !form.email.includes("@")) { setFormError("A valid email is required"); return; }
+    const type = types.find((t) => t.id === form.type_id);
+    const { error } = await supabase.from("club_members").insert({
+      season,
+      membership_type_id: type?.id ?? null,
+      membership_type_name: type?.name ?? null,
+      member_name: form.member_name.trim(),
+      email: form.email.trim(),
+      phone: form.phone?.trim() || null,
+      total_cents: type?.fee_cents ?? 0,
+      status: "approved",
+      approved_at: new Date().toISOString(),
+    });
+    if (error) { setFormError(error.message); return; }
+    await load();
+    closeModal();
+  };
+
+  const saveType = async () => {
+    if (!form.name?.trim()) { setFormError("Name is required"); return; }
+    const fee = form.fee === "" || form.fee == null ? 0 : Math.round(parseFloat(form.fee) * 100);
+    if (isNaN(fee) || fee < 0) { setFormError("Enter a valid price (or 0 for free)"); return; }
+    const row = {
+      name: form.name.trim(),
+      description: form.description?.trim() || null,
+      fee_cents: fee,
+      active: form.active !== "no",
+      sort_order: parseInt(form.sort_order, 10) || 0,
+    };
+    const { error } = modal.typeRow
+      ? await supabase.from("membership_types").update(row).eq("id", modal.typeRow.id)
+      : await supabase.from("membership_types").insert(row);
+    if (error) { setFormError(error.message); return; }
+    await load();
+    closeModal();
+  };
+
+  if (!session) {
+    return (
+      <main className="wrap" style={{ maxWidth: 440 }}>
+        <h1 className="display" style={{ fontWeight: 700, fontSize: 22 }}>Staff only</h1>
+        <Link href="/coordinator" style={{ color: "var(--brass)" }}>← Sign in at coordinator dashboard</Link>
+      </main>
+    );
+  }
+
+  if (tableError) {
+    return (
+      <main className="wrap" style={{ maxWidth: 640 }}>
+        <h1 className="display" style={{ fontWeight: 700, fontSize: 24, margin: "0 0 12px" }}>Memberships</h1>
+        <div className="card" style={{ padding: 20 }}>
+          <p style={{ color: "var(--clay)", fontWeight: 700, margin: "0 0 8px" }}>One-time database setup required</p>
+          <p style={{ fontSize: 13.5, margin: 0 }}>
+            Run <strong>schema-v23-club-memberships.sql</strong> in the Supabase SQL Editor
+            (see <code>supabase/MIGRATIONS.md</code> for the steps), then reload this page.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  const dataSeasons = [...new Set(members.map((m) => m.season))];
+  const seasons = [...new Set([signupSeason(), currentSeason(), ...dataSeasons])].sort().reverse();
+  const seasonMembers = members.filter((m) => m.season === season);
+  const byStatus = (s) => seasonMembers.filter((m) => m.status === s);
+  const revenue = seasonMembers
+    .filter((m) => m.status === "paid" || m.status === "approved")
+    .reduce((sum, m) => sum + (m.total_cents ?? 0), 0);
+  // Awaiting-approval applications first, then pending payment, then the rest
+  const statusRank = { paid: 0, pending: 1, approved: 2, rejected: 3 };
+  const sortedMembers = [...seasonMembers].sort((a, b) =>
+    (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9) ||
+    new Date(b.created_at) - new Date(a.created_at)
+  );
+
+  return (
+    <>
+      <header className="header">
+        <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)" }}>
+              Coordinator
+            </div>
+            <h1 className="display" style={{ fontWeight: 700, fontSize: 22, margin: "2px 0", color: "#F2EADB" }}>
+              Memberships
+            </h1>
+          </div>
+          <Link href="/coordinator" style={{ color: "var(--brass-soft)", fontSize: 13, alignSelf: "center" }}>
+            ← Dashboard
+          </Link>
+        </div>
+      </header>
+
+      <main className="wrap">
+        {/* Season selector + add */}
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 20 }}>
+          <div style={{ flex: "1 1 220px" }}>
+            <label style={{ display: "block", fontSize: 12, color: "var(--quiet)", marginBottom: 4 }}>Season (1 Aug – 31 Jul)</label>
+            <select className="field" value={season} onChange={(e) => setSeason(e.target.value)} style={{ fontSize: 15, width: "100%" }}>
+              {seasons.map((s) => (
+                <option key={s} value={s}>{s}{s === signupSeason() ? " (new sign-ups)" : s === currentSeason() ? " (current)" : ""}</option>
+              ))}
+            </select>
+          </div>
+          <button className="btn-ghost" onClick={() => { setModal({ type: "addMember" }); setForm({ type_id: types[0]?.id ?? "" }); }}>
+            + Add member manually
+          </button>
+        </div>
+
+        {/* Summary */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Approved members", value: byStatus("approved").length },
+            { label: "Awaiting approval", value: byStatus("paid").length },
+            { label: "Pending payment", value: byStatus("pending").length },
+            { label: "Membership revenue", value: fmtMoney(revenue) },
+          ].map((s) => (
+            <div key={s.label} className="card" style={{ flex: "1 1 120px", padding: "12px 16px", margin: 0 }}>
+              <div className="display" style={{ fontWeight: 700, fontSize: 22 }}>{s.value}</div>
+              <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Membership-required switch */}
+        <section className="card">
+          <div className="card-head">
+            <div>
+              <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Require membership to enter events</div>
+              <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                When on, the online entry form only accepts entries from email addresses with an approved,
+                current membership. Turn this on once your members have been signed up.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingBottom: 10 }}>
+            <button className="btn-ghost"
+              style={requireSetting.enabled
+                ? { background: "#2D7A52", borderColor: "#2D7A52", color: "#fff" }
+                : {}}
+              disabled={settingSaving}
+              onClick={() => saveSetting({ ...requireSetting, enabled: !requireSetting.enabled })}>
+              {requireSetting.enabled ? "✓ Required for shows" : "Not required (off)"}
+            </button>
+            <button className="btn-ghost"
+              style={requireSetting.include_clinics
+                ? { background: "#2D7A52", borderColor: "#2D7A52", color: "#fff" }
+                : {}}
+              disabled={settingSaving || !requireSetting.enabled}
+              onClick={() => saveSetting({ ...requireSetting, include_clinics: !requireSetting.include_clinics })}>
+              {requireSetting.include_clinics ? "✓ Also required for clinics" : "Clinics open to everyone"}
+            </button>
+          </div>
+          {!settingReady && (
+            <p style={{ fontSize: 12, color: "var(--quiet)", margin: "0 0 10px" }}>
+              Run <code>schema-v22-site-settings.sql</code> and <code>schema-v23-club-memberships.sql</code> to enable this switch.
+            </p>
+          )}
+        </section>
+
+        {/* Membership types */}
+        <section className="card">
+          <div className="card-head">
+            <div>
+              <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Membership types & pricing</div>
+              <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                These appear on the public join form. Set prices here once they&apos;re decided — $0 means
+                applications skip payment and go straight to approval.
+              </div>
+            </div>
+            <button className="btn-ghost" onClick={() => { setModal({ type: "editType" }); setForm({ active: "yes", fee: "", sort_order: String(types.length + 1) }); }}>
+              + Add type
+            </button>
+          </div>
+          {types.length === 0 ? (
+            <p style={{ padding: "0 0 12px", color: "var(--quiet)", fontSize: 13, margin: 0 }}>No membership types yet — add one so people can join.</p>
+          ) : (
+            <div style={{ overflowX: "auto", paddingBottom: 8 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th style={{ textAlign: "right" }}>Price</th>
+                    <th>Shown on form</th>
+                    <th style={{ width: 1 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {types.map((t) => (
+                    <tr key={t.id} style={{ opacity: t.active ? 1 : 0.55 }}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{t.name}</div>
+                        {t.description && <div style={{ fontSize: 12, color: "var(--quiet)" }}>{t.description}</div>}
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 700 }}>{(t.fee_cents ?? 0) > 0 ? fmtMoney(t.fee_cents) : "Free"}</td>
+                      <td>{t.active ? "Yes" : "Hidden"}</td>
+                      <td>
+                        <button className="btn-ghost" onClick={() => {
+                          setModal({ type: "editType", typeRow: t });
+                          setForm({
+                            name: t.name,
+                            description: t.description ?? "",
+                            fee: ((t.fee_cents ?? 0) / 100).toFixed(2),
+                            active: t.active ? "yes" : "no",
+                            sort_order: String(t.sort_order ?? 0),
+                          });
+                        }}>Edit</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* Applications list */}
+        {loading && <p style={{ color: "var(--quiet)" }}>Loading…</p>}
+
+        {!loading && seasonMembers.length === 0 && (
+          <div className="card" style={{ textAlign: "center", padding: "30px 20px" }}>
+            <p className="display" style={{ fontSize: 18, color: "var(--quiet)", margin: 0 }}>
+              No memberships for the {season} season yet.
+            </p>
+            <p style={{ fontSize: 13, color: "var(--quiet)", marginTop: 8 }}>
+              Share the Members page so people can join online, or add members manually.
+            </p>
+          </div>
+        )}
+
+        {sortedMembers.map((m) => {
+          const isExpanded = expanded === m.id;
+          const horses = m.club_member_horses ?? [];
+          // Green = done, clay = needs the committee's attention, amber = waiting on payment
+          const badgeClass = m.status === "approved" ? "completed" : m.status === "paid" ? "live" : m.status === "pending" ? "closed" : "archived";
+          return (
+            <section key={m.id} className="card" style={{ opacity: m.status === "rejected" ? 0.6 : 1 }}>
+              <div className="card-head" style={{ cursor: "pointer" }}
+                onClick={() => setExpanded(isExpanded ? null : m.id)}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>{m.member_name}</div>
+                  <div style={{ fontSize: 12.5, color: "var(--quiet)" }}>
+                    {m.email} · {m.membership_type_name || "Membership"} · applied {fmtDate(m.created_at)}
+                    {horses.length > 0 && <> · {horses.length} {horses.length === 1 ? "horse" : "horses"}</>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{fmtMoney(m.total_cents)}</span>
+                  <span className={`badge ${badgeClass}`}>{STATUS_LABEL[m.status] ?? m.status}</span>
+                  <span style={{ fontSize: 13, color: "var(--quiet)" }}>{isExpanded ? "▲" : "▼"}</span>
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div style={{ paddingBottom: 12 }}>
+                  <div style={{ fontSize: 13.5, color: "var(--ink)", display: "grid", gap: 3 }}>
+                    {m.phone && <div><strong>Phone:</strong> {m.phone}</div>}
+                    {m.address && <div><strong>Address:</strong> {m.address}</div>}
+                    {m.aqha_member_number && <div><strong>AQHA member number:</strong> {m.aqha_member_number}</div>}
+                    {m.other_memberships && <div><strong>Other associations:</strong> {m.other_memberships}</div>}
+                    {(m.emergency_contact_name || m.emergency_contact_phone) && (
+                      <div><strong>Emergency contact:</strong> {[m.emergency_contact_name, m.emergency_contact_phone].filter(Boolean).join(" · ")}</div>
+                    )}
+                    {m.interests && <div><strong>Wants from the club:</strong> {m.interests}</div>}
+                    {m.applicant_notes && <div><strong>Feedback:</strong> {m.applicant_notes}</div>}
+                    {m.approved_at && <div><strong>Approved:</strong> {fmtDate(m.approved_at)}</div>}
+                  </div>
+
+                  {horses.length > 0 && (
+                    <div style={{ marginTop: 10, overflowX: "auto" }}>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Horse</th>
+                            <th>Back #</th>
+                            <th>Breed / colour</th>
+                            <th>Registrations</th>
+                            <th>Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {horses.map((h) => (
+                            <tr key={h.id}>
+                              <td style={{ fontWeight: 600 }}>{h.horse_name}</td>
+                              <td className="display" style={{ fontWeight: 700, color: "var(--brass)" }}>
+                                {h.back_number != null ? `#${String(h.back_number).padStart(3, "0")}` : "—"}
+                              </td>
+                              <td>{h.breed || "—"}</td>
+                              <td>{h.registrations || "—"}</td>
+                              <td style={{ color: "var(--quiet)" }}>{h.notes || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <p style={{ fontSize: 12, color: "var(--quiet)", margin: "6px 0 0" }}>
+                        New horses aren&apos;t added to the registry automatically — add them on the{" "}
+                        <Link href="/registry" style={{ color: "var(--brass)" }}>Registry page</Link> once approved.
+                      </p>
+                    </div>
+                  )}
+
+                  <div style={{ padding: "12px 0 0", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {(m.status === "paid" || m.status === "pending") && (
+                      <button className="btn" style={{ background: "#2D7A52", fontSize: 13, padding: "8px 16px" }}
+                        onClick={() => act(m.id, "approve")} disabled={acting === m.id}>
+                        {acting === m.id ? "Working…" : "✓ Approve membership"}
+                      </button>
+                    )}
+                    {m.status === "pending" && (m.total_cents ?? 0) > 0 && (
+                      <button className="btn-ghost" style={{ fontSize: 13 }}
+                        onClick={() => markPaidManually(m)}>
+                        Mark paid (received outside Square)
+                      </button>
+                    )}
+                    {(m.status === "paid" || m.status === "pending") && (
+                      <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)", fontSize: 13 }}
+                        onClick={() => act(m.id, "reject")} disabled={acting === m.id}>
+                        Reject
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </main>
+
+      {modal && (
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
+          <div className="modal-sheet">
+            {modal.type === "addMember" && (
+              <>
+                <h2 className="display modal-title">Add member manually</h2>
+                <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
+                  For members who joined on paper or paid in person. They&apos;re approved immediately —
+                  {" "}{seasonLabel(season)}.
+                </p>
+                <label className="modal-label">Full name *</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }}
+                  value={form.member_name ?? ""} onChange={setField("member_name")} autoFocus />
+                <label className="modal-label">Email *</label>
+                <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
+                  value={form.email ?? ""} onChange={setField("email")} />
+                <label className="modal-label">Phone</label>
+                <input className="field" type="tel" style={{ width: "100%", fontSize: 16 }}
+                  value={form.phone ?? ""} onChange={setField("phone")} />
+                <label className="modal-label">Membership type</label>
+                <select className="field" style={{ width: "100%", fontSize: 16 }}
+                  value={form.type_id ?? ""} onChange={setField("type_id")}>
+                  {types.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name} ({(t.fee_cents ?? 0) > 0 ? fmtMoney(t.fee_cents) : "Free"})</option>
+                  ))}
+                </select>
+                {formError && <p className="modal-error">{formError}</p>}
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={saveManualMember}>Add member</button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                </div>
+              </>
+            )}
+
+            {modal.type === "editType" && (
+              <>
+                <h2 className="display modal-title">{modal.typeRow ? "Edit membership type" : "Add membership type"}</h2>
+                <label className="modal-label">Name *</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }}
+                  value={form.name ?? ""} onChange={setField("name")}
+                  placeholder="e.g. Senior membership" autoFocus={!modal.typeRow} />
+                <label className="modal-label">Description</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }}
+                  value={form.description ?? ""} onChange={setField("description")}
+                  placeholder="Shown under the name on the join form" />
+                <label className="modal-label">Price (AUD)</label>
+                <input className="field" type="number" step="0.01" min="0" style={{ width: "100%", fontSize: 16 }}
+                  value={form.fee ?? ""} onChange={setField("fee")}
+                  placeholder="0.00 = free" />
+                <label className="modal-label">Shown on the join form?</label>
+                <select className="field" style={{ width: "100%", fontSize: 16 }}
+                  value={form.active ?? "yes"} onChange={setField("active")}>
+                  <option value="yes">Yes — people can pick it</option>
+                  <option value="no">No — hidden</option>
+                </select>
+                <label className="modal-label">Sort order</label>
+                <input className="field" type="number" style={{ width: "100%", fontSize: 16 }}
+                  value={form.sort_order ?? ""} onChange={setField("sort_order")} />
+                {formError && <p className="modal-error">{formError}</p>}
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={saveType}>Save</button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

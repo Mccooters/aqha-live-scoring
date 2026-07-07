@@ -296,6 +296,8 @@ export default function RegisterPage() {
   });
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  const [membershipSetting, setMembershipSetting] = useState({ enabled: false, include_clinics: false });
+  const [membershipStatus, setMembershipStatus] = useState(null); // null | "member" | "none" | "unknown"
   const [rulesAccepted, setRulesAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -316,6 +318,18 @@ export default function RegisterPage() {
       ]);
       setEvent(ev);
       setClasses(cls ?? []);
+      // Is club membership required to enter? (Coordinator switch; public read.)
+      const { data: reqSetting } = await supabase
+        .from("site_settings")
+        .select("value")
+        .eq("key", "membership_required")
+        .maybeSingle();
+      if (reqSetting?.value) {
+        setMembershipSetting({
+          enabled: Boolean(reqSetting.value.enabled),
+          include_clinics: Boolean(reqSetting.value.include_clinics),
+        });
+      }
       if (cls?.length) {
         const { data: taken } = await supabase
           .from("entries")
@@ -334,6 +348,20 @@ export default function RegisterPage() {
 
   const isClinic = event?.event_type === "clinic";
   const isMultiMode = !isClinic && entryMode === "multi";
+  const membershipRequired = membershipSetting.enabled && (!isClinic || membershipSetting.include_clinics);
+
+  // Early membership check on email blur — the server enforces this again at
+  // submission; this just saves people filling in a whole form first.
+  const checkMembership = async (email) => {
+    if (!membershipRequired || !email?.trim() || !email.includes("@")) { setMembershipStatus(null); return; }
+    try {
+      const res = await fetch(`/api/memberships/check?email=${encodeURIComponent(email.trim())}`);
+      const data = res.ok ? await res.json() : null;
+      setMembershipStatus(data?.member === true ? "member" : data?.member === false ? "none" : "unknown");
+    } catch {
+      setMembershipStatus("unknown");
+    }
+  };
   const feePerClass = event?.entry_fee_cents ?? 0;
   const multiEntries = multiEntry.class_ids.map((classId) => ({
     _id: `multi-${classId}`,
@@ -602,6 +630,15 @@ export default function RegisterPage() {
 
       <main className="wrap">
 
+        {membershipRequired && (
+          <div className="card" style={{ padding: "12px 14px", borderColor: "#E0B15A", background: "#FFF7D6", marginBottom: 14 }}>
+            <p style={{ margin: 0, color: "var(--leather)", fontSize: 13.5, fontWeight: 700 }}>
+              Members only — entries are open to current club members.
+              Not a member yet? <Link href="/membership" style={{ color: "var(--clay)" }}>Join online here</Link> (approval required before entering).
+            </p>
+          </div>
+        )}
+
         {/* ---- Contact info ---- */}
         <section className="card">
           <div className="card-head">
@@ -614,8 +651,22 @@ export default function RegisterPage() {
               placeholder="e.g. Sarah O'Brien" />
             <label className="modal-label">Email address *</label>
             <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
-              value={contactEmail} onChange={(e) => setContactEmail(e.target.value)}
+              value={contactEmail}
+              onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); }}
+              onBlur={(e) => checkMembership(e.target.value)}
               placeholder="e.g. sarah@example.com" />
+            {membershipRequired && membershipStatus === "member" && (
+              <p style={{ fontSize: 12.5, color: "#2D7A52", fontWeight: 700, margin: "6px 0 0" }}>
+                ✓ Current club membership found for this email.
+              </p>
+            )}
+            {membershipRequired && membershipStatus === "none" && (
+              <p style={{ fontSize: 12.5, color: "var(--clay)", fontWeight: 600, margin: "6px 0 0" }}>
+                No current club membership found for this email. You&apos;ll need to{" "}
+                <Link href="/membership" style={{ color: "var(--clay)", textDecoration: "underline" }}>become a member</Link>{" "}
+                (and be approved) before your entry can be accepted — use the same email address there.
+              </p>
+            )}
             <p style={{ fontSize: 12, color: "var(--quiet)", margin: "6px 0 0" }}>
               {feePerClass > 0
                 ? "Square will send your payment receipt to this address. We will also email your booking confirmation here."
