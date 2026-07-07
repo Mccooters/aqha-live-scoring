@@ -87,6 +87,9 @@ hasn't been run.
 - [ ] **v29** — `schema-v29-day-memberships.sql`
       → adds day-membership fields to online event registrations so non-annual
         members can pay a $20 one-event membership at checkout.
+- [ ] **v30** — `schema-v30-replacement-numbers.sql`
+      → adds replacement-number fields to online event registrations so entrants
+        can buy replacement numbers for $5 during event checkout.
 
 Tick these off once you've run them.
 
@@ -125,6 +128,7 @@ Tick these off once you've run them.
 | `schema-v27-member-portal-service-role-grants.sql` | Grants service-role table access for membership rows used by the member portal |
 | `schema-v28-member-horse-numbering-grants.sql` | Grants service-role registry reads for automatic member horse back numbers |
 | `schema-v29-day-memberships.sql` | Records $20 day memberships purchased during online event entry |
+| `schema-v30-replacement-numbers.sql` | Records $5 replacement numbers purchased during online event entry |
 
 ## For whoever updates the code next
 

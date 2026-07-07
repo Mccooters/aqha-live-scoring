@@ -58,6 +58,7 @@ function SuccessContent() {
   const isPaid = reg.status === "paid";
   const hasPayment = (reg.total_cents ?? 0) > 0;
   const hasDayMembership = !!reg.day_membership;
+  const hasReplacementNumbers = !!reg.replacement_numbers;
 
   return (
     <>
@@ -87,6 +88,11 @@ function SuccessContent() {
                 {hasDayMembership && (
                   <p style={{ fontSize: 13.5, color: "var(--leather)", fontWeight: 700, marginTop: 0 }}>
                     Includes a day membership for this event ({`$${((reg.day_membership_cents ?? 2000) / 100).toFixed(2)}`}).
+                  </p>
+                )}
+                {hasReplacementNumbers && (
+                  <p style={{ fontSize: 13.5, color: "var(--leather)", fontWeight: 700, marginTop: 0 }}>
+                    Includes replacement numbers ({`$${((reg.replacement_numbers_cents ?? 500) / 100).toFixed(2)}`}).
                   </p>
                 )}
               </>

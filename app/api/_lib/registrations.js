@@ -60,6 +60,8 @@ async function sendBookingConfirmation(db, registrationId) {
       total_cents,
       day_membership,
       day_membership_cents,
+      replacement_numbers,
+      replacement_numbers_cents,
       event:events(name, starts_on, location),
       registration_entries(
         id,
@@ -73,7 +75,7 @@ async function sendBookingConfirmation(db, registrationId) {
     .single();
   if (error) {
     const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
-    if (msg.includes("day_membership")) {
+    if (msg.includes("day_membership") || msg.includes("replacement_numbers")) {
       const retry = await db
         .from("registrations")
         .select(`
@@ -92,7 +94,15 @@ async function sendBookingConfirmation(db, registrationId) {
         `)
         .eq("id", registrationId)
         .single();
-      reg = retry.data ? { ...retry.data, day_membership: false, day_membership_cents: 0 } : null;
+      reg = retry.data
+        ? {
+            ...retry.data,
+            day_membership: false,
+            day_membership_cents: 0,
+            replacement_numbers: false,
+            replacement_numbers_cents: 0,
+          }
+        : null;
       error = retry.error;
     }
   }
@@ -107,6 +117,8 @@ async function sendBookingConfirmation(db, registrationId) {
   const hasPayment = (reg.total_cents ?? 0) > 0;
   const hasDayMembership = !!reg.day_membership;
   const dayMembershipAmount = reg.day_membership_cents ?? 2000;
+  const hasReplacementNumbers = !!reg.replacement_numbers;
+  const replacementNumbersAmount = reg.replacement_numbers_cents ?? 500;
 
   const rowsHtml = entries.map((entry) => `
     <tr>
@@ -118,6 +130,11 @@ async function sendBookingConfirmation(db, registrationId) {
       <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">Day membership</td>
       <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">One-event membership (${escapeHtml(formatMoney(dayMembershipAmount))})</td>
     </tr>
+  ` : "") + (hasReplacementNumbers ? `
+    <tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">Replacement numbers</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">${escapeHtml(formatMoney(replacementNumbersAmount))}</td>
+    </tr>
   ` : "");
 
   const entriesText = entries
@@ -125,6 +142,9 @@ async function sendBookingConfirmation(db, registrationId) {
     .join("\n");
   const dayMembershipText = hasDayMembership
     ? `- Day membership: One-event membership (${formatMoney(dayMembershipAmount)})`
+    : null;
+  const replacementNumbersText = hasReplacementNumbers
+    ? `- Replacement numbers: ${formatMoney(replacementNumbersAmount)}`
     : null;
 
   const html = `
@@ -156,6 +176,7 @@ async function sendBookingConfirmation(db, registrationId) {
     "",
     entriesText,
     dayMembershipText,
+    replacementNumbersText,
     "",
     `Total paid: ${formatMoney(reg.total_cents)}`,
     hasPayment ? "Square sends the payment receipt separately." : null,

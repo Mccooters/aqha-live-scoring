@@ -7,6 +7,7 @@ import { groupedByProgramCategory } from "../../../../lib/classCategories";
 
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 const DAY_MEMBERSHIP_CENTS = 2000;
+const REPLACEMENT_NUMBERS_CENTS = 500;
 
 function basicClassLabel(cls, isClinic) {
   if (!cls) return "";
@@ -300,6 +301,7 @@ export default function RegisterPage() {
   const [membershipSetting, setMembershipSetting] = useState({ enabled: false, include_clinics: false });
   const [membershipStatus, setMembershipStatus] = useState(null); // null | "member" | "none" | "unknown"
   const [dayMembership, setDayMembership] = useState(false);
+  const [replacementNumbers, setReplacementNumbers] = useState(false);
   const [rulesAccepted, setRulesAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -376,7 +378,9 @@ export default function RegisterPage() {
   const submissionEntries = isMultiMode ? multiEntries : entries;
   const filledEntries = submissionEntries.filter((e) => e.class_id);
   const dayMembershipSelected = membershipRequired && membershipStatus !== "member" && dayMembership;
-  const totalCents = filledEntries.length * feePerClass + (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0);
+  const totalCents = filledEntries.length * feePerClass
+    + (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0)
+    + (replacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0);
 
   useEffect(() => {
     if (membershipStatus === "member") setDayMembership(false);
@@ -543,6 +547,7 @@ export default function RegisterPage() {
           contact_name: contactName.trim(),
           contact_email: contactEmail.trim(),
           day_membership: dayMembership,
+          replacement_numbers: replacementNumbers,
           entries: valid.map((e) => ({
             class_id: e.class_id,
             back_number: isClinic ? null : parseInt(e.back_number, 10),
@@ -901,6 +906,11 @@ export default function RegisterPage() {
                     Day membership × {fmtMoney(DAY_MEMBERSHIP_CENTS)}
                   </div>
                 )}
+                {replacementNumbers && (
+                  <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
+                    Replacement numbers × {fmtMoney(REPLACEMENT_NUMBERS_CENTS)}
+                  </div>
+                )}
                 {totalCents > 0 && (
                   <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
                     Paid securely via Square · receipt and booking confirmation emailed to you
@@ -916,6 +926,13 @@ export default function RegisterPage() {
                 {error}
               </p>
             )}
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
+              <input type="checkbox" checked={replacementNumbers} onChange={(e) => setReplacementNumbers(e.target.checked)}
+                style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
+              <span>
+                I need replacement numbers for this event ({fmtMoney(REPLACEMENT_NUMBERS_CENTS)}).
+              </span>
+            </label>
             <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
               <input type="checkbox" checked={rulesAccepted} onChange={(e) => setRulesAccepted(e.target.checked)}
                 style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />

@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { adminClient } from "../../_lib/registrations";
 import { markMembershipPaid } from "../../_lib/memberships";
 import { escapeIlike } from "../../_lib/memberAuth";
+import { assignHorseNumber, cleanHorseFields } from "../../_lib/horseNumbers";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
 const squareBase =
@@ -92,17 +93,16 @@ export async function POST(req) {
       .single();
     if (memberErr) return NextResponse.json({ error: memberErr.message }, { status: 500 });
 
-    const horseRows = (horses ?? [])
-      .map((h) => ({
-        member_id: member.id,
-        horse_name: String(h.horse_name ?? "").trim(),
-        back_number:
-          h.back_number == null || h.back_number === "" ? null : parseInt(h.back_number, 10),
-        breed: String(h.breed ?? "").trim() || null,
-        registrations: String(h.registrations ?? "").trim() || null,
-        notes: String(h.notes ?? "").trim() || null,
-      }))
+    const rawHorseRows = (horses ?? [])
+      .map(cleanHorseFields)
       .filter((h) => h.horse_name);
+    const horseRows = [];
+    const reservedBackNumbers = [];
+    for (const rawHorse of rawHorseRows) {
+      const { fields } = await assignHorseNumber(db, rawHorse, null, reservedBackNumbers);
+      horseRows.push({ member_id: member.id, ...fields });
+      if (fields.back_number != null) reservedBackNumbers.push(fields.back_number);
+    }
     if (horseRows.length) {
       const { error: horseErr } = await db.from("club_member_horses").insert(horseRows);
       if (horseErr) return NextResponse.json({ error: horseErr.message }, { status: 500 });

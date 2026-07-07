@@ -9,6 +9,7 @@ const squareBase =
     : "https://connect.squareup.com";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
+const REPLACEMENT_NUMBERS_CENTS = 500;
 
 function normalizeName(value) {
   return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -21,7 +22,10 @@ function classLabel(cls) {
 
 export async function POST(req) {
   try {
-    const { event_id, contact_name, contact_email, entries, day_membership } = await req.json();
+    const {
+      event_id, contact_name, contact_email, entries,
+      day_membership, replacement_numbers,
+    } = await req.json();
 
     if (!event_id || !contact_name?.trim() || !contact_email?.trim() || !entries?.length) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -195,7 +199,9 @@ export async function POST(req) {
 
     const feePerClass = event.entry_fee_cents ?? 0;
     const dayMembershipCents = includeDayMembership ? DAY_MEMBERSHIP_CENTS : 0;
-    const totalCents = normalEntries.length * feePerClass + dayMembershipCents;
+    const includeReplacementNumbers = Boolean(replacement_numbers);
+    const replacementNumbersCents = includeReplacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0;
+    const totalCents = normalEntries.length * feePerClass + dayMembershipCents + replacementNumbersCents;
 
     // Create the registration record (pending)
     const registrationRow = {
@@ -209,6 +215,10 @@ export async function POST(req) {
       registrationRow.day_membership = true;
       registrationRow.day_membership_cents = dayMembershipCents;
     }
+    if (includeReplacementNumbers) {
+      registrationRow.replacement_numbers = true;
+      registrationRow.replacement_numbers_cents = replacementNumbersCents;
+    }
 
     const { data: reg, error: regErr } = await db
       .from("registrations")
@@ -217,9 +227,9 @@ export async function POST(req) {
       .single();
     if (regErr) {
       const msg = `${regErr.message ?? ""} ${regErr.details ?? ""}`.toLowerCase();
-      if (includeDayMembership && msg.includes("day_membership")) {
+      if ((includeDayMembership && msg.includes("day_membership")) || (includeReplacementNumbers && msg.includes("replacement_numbers"))) {
         return NextResponse.json(
-          { error: "Day memberships need the schema-v29 database update before they can be sold." },
+          { error: "Registration add-ons need the latest database update before they can be sold. Run schema-v29 and schema-v30." },
           { status: 500 }
         );
       }
@@ -275,6 +285,14 @@ export async function POST(req) {
         quantity: "1",
         base_price_money: { amount: dayMembershipCents, currency: "AUD" },
         note: `One-event membership for ${contact_name.trim()}`,
+      });
+    }
+    if (includeReplacementNumbers) {
+      lineItems.push({
+        name: "Replacement numbers",
+        quantity: "1",
+        base_price_money: { amount: replacementNumbersCents, currency: "AUD" },
+        note: `Replacement numbers for ${contact_name.trim()}`,
       });
     }
 

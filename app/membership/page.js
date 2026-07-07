@@ -10,12 +10,12 @@ const INTEREST_OPTIONS = ["Shows", "Clinics", "To connect with locals"];
 const ACCOUNT_ONLY_ID = "account-only";
 
 const fmtMoney = (cents) => `$${((cents ?? 0) / 100).toFixed(2)}`;
+const fmtBack = (n) => String(n).padStart(3, "0");
 
 function blankHorse() {
   return {
     _id: Math.random().toString(36).slice(2),
     horse_name: "",
-    back_number: "",
     breed: "",
     registrations: "",
     notes: "",
@@ -41,6 +41,8 @@ export default function MembershipPage() {
   const [interests, setInterests] = useState([]);
   const [applicantNotes, setApplicantNotes] = useState("");
   const [horses, setHorses] = useState([]);
+  const [horseNumberSuggestions, setHorseNumberSuggestions] = useState({});
+  const [checkingHorseNumbers, setCheckingHorseNumbers] = useState({});
   const [people, setPeople] = useState([]);
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -103,6 +105,69 @@ export default function MembershipPage() {
   const updateHorse = (id, field, value) =>
     setHorses((prev) => prev.map((h) => (h._id === id ? { ...h, [field]: value } : h)));
   const removeHorse = (id) => setHorses((prev) => prev.filter((h) => h._id !== id));
+  const horseNameKey = horses.map((h) => `${h._id}:${h.horse_name.trim()}`).join("|");
+  const horseSuggestion = (horse) =>
+    horseNumberSuggestions[horse._id]?.for_name === horse.horse_name.trim()
+      ? horseNumberSuggestions[horse._id]
+      : null;
+  const displayBackNumberForHorse = (horse, index) => {
+    const suggestion = horseSuggestion(horse);
+    if (suggestion?.back_number == null) return null;
+    if (suggestion.matched_registry) return suggestion.back_number;
+
+    const priorUsed = new Set();
+    horses.slice(0, index).forEach((priorHorse, priorIndex) => {
+      const priorBackNumber = displayBackNumberForHorse(priorHorse, priorIndex);
+      if (priorBackNumber != null) priorUsed.add(priorBackNumber);
+    });
+
+    let candidate = suggestion.back_number;
+    while (priorUsed.has(candidate)) candidate += 1;
+    return candidate;
+  };
+
+  useEffect(() => {
+    const activeHorseIds = new Set(horses.map((h) => h._id));
+    setHorseNumberSuggestions((prev) => {
+      const next = {};
+      horses.forEach((h) => {
+        if (h.horse_name.trim() && prev[h._id]) next[h._id] = prev[h._id];
+      });
+      return next;
+    });
+    setCheckingHorseNumbers((prev) => {
+      const next = {};
+      Object.entries(prev).forEach(([id, value]) => {
+        if (activeHorseIds.has(id)) next[id] = value;
+      });
+      return next;
+    });
+
+    const timers = horses
+      .map((h) => {
+        const horseName = h.horse_name.trim();
+        if (!horseName) return null;
+        return setTimeout(async () => {
+          setCheckingHorseNumbers((prev) => ({ ...prev, [h._id]: true }));
+          try {
+            const params = new URLSearchParams({ name: horseName });
+            const res = await fetch(`/api/memberships/horse-number?${params.toString()}`);
+            const data = res.ok ? await res.json() : null;
+            setHorseNumberSuggestions((prev) => ({
+              ...prev,
+              [h._id]: data?.suggestion ? { ...data.suggestion, for_name: horseName } : null,
+            }));
+          } catch {
+            setHorseNumberSuggestions((prev) => ({ ...prev, [h._id]: null }));
+          } finally {
+            setCheckingHorseNumbers((prev) => ({ ...prev, [h._id]: false }));
+          }
+        }, 350);
+      })
+      .filter(Boolean);
+
+    return () => timers.forEach(clearTimeout);
+  }, [horseNameKey]);
 
   const chooseType = (id) => {
     setTypeId(id);
@@ -183,7 +248,7 @@ export default function MembershipPage() {
     if (!address.trim()) { setError("Please enter your address."); return; }
     if (!emergencyName.trim() || !emergencyPhone.trim()) { setError("Please enter an emergency contact name and phone number."); return; }
     const incompleteHorse = horses.find((h) =>
-      !h.horse_name.trim() && (h.back_number || h.breed.trim() || h.registrations.trim() || h.notes.trim())
+      !h.horse_name.trim() && (h.breed.trim() || h.registrations.trim() || h.notes.trim())
     );
     if (incompleteHorse) { setError("One of your horses is missing its name. Please fill it in or remove that horse."); return; }
     if (!agreed) { setError("Please confirm you have read and agree to the membership terms, liability waiver and declaration."); return; }
@@ -209,7 +274,6 @@ export default function MembershipPage() {
             .filter((h) => h.horse_name.trim())
             .map((h) => ({
               horse_name: h.horse_name.trim(),
-              back_number: h.back_number || null,
               breed: h.breed.trim(),
               registrations: h.registrations.trim(),
               notes: h.notes.trim(),
@@ -502,43 +566,55 @@ export default function MembershipPage() {
                 </div>
               </div>
               <div style={{ paddingBottom: 8 }}>
-                {horses.map((h, idx) => (
-                  <div key={h._id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, background: "#fff" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: "var(--quiet)" }}>Horse {idx + 1}</div>
-                      <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)", padding: "3px 9px", fontSize: 12 }}
-                        onClick={() => removeHorse(h._id)}>
-                        Remove
-                      </button>
-                    </div>
-                    <label className="modal-label">Horse name *</label>
-                    <input className="field" style={{ width: "100%", fontSize: 16 }}
-                      value={h.horse_name} onChange={(e) => updateHorse(h._id, "horse_name", e.target.value)}
-                      placeholder="e.g. Machine Made Lady" />
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      <div>
-                        <label className="modal-label">Back number (if it has one)</label>
-                        <input className="field" type="number" style={{ width: "100%", fontSize: 16 }}
-                          value={h.back_number} onChange={(e) => updateHorse(h._id, "back_number", e.target.value)}
-                          placeholder="e.g. 301" />
-                      </div>
-                      <div>
-                        <label className="modal-label">Breed / colour</label>
+                {horses.map((h, idx) => {
+                  const suggestion = horseSuggestion(h);
+                  const suggestedBackNumber = displayBackNumberForHorse(h, idx);
+                  const numberNote = checkingHorseNumbers[h._id]
+                    ? "Checking the horse registry..."
+                    : suggestion?.matched_registry
+                      ? `Matched ${suggestion.horse_name} in the registry.`
+                      : suggestedBackNumber != null
+                        ? "Next available number."
+                        : "The next available number is added when you save.";
+                  return (
+                      <div key={h._id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, background: "#fff" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: "var(--quiet)" }}>Horse {idx + 1}</div>
+                          <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)", padding: "3px 9px", fontSize: 12 }}
+                            onClick={() => removeHorse(h._id)}>
+                            Remove
+                          </button>
+                        </div>
+                        <label className="modal-label">Horse name *</label>
                         <input className="field" style={{ width: "100%", fontSize: 16 }}
-                          value={h.breed} onChange={(e) => updateHorse(h._id, "breed", e.target.value)}
-                          placeholder="e.g. Quarter Horse, Paint" />
+                          value={h.horse_name} onChange={(e) => updateHorse(h._id, "horse_name", e.target.value)}
+                          placeholder="e.g. Machine Made Lady" />
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <div>
+                            <label className="modal-label">Back number</label>
+                            <div className="field" style={{ width: "100%", minHeight: 44, display: "flex", alignItems: "center", fontSize: 16, fontWeight: 800, color: "var(--brass)", background: "#fbf8f2" }}>
+                              {checkingHorseNumbers[h._id] ? "Checking..." : suggestedBackNumber != null ? `#${fmtBack(suggestedBackNumber)}` : "Auto"}
+                            </div>
+                            <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>{numberNote}</p>
+                          </div>
+                          <div>
+                            <label className="modal-label">Breed / colour</label>
+                            <input className="field" style={{ width: "100%", fontSize: 16 }}
+                              value={h.breed} onChange={(e) => updateHorse(h._id, "breed", e.target.value)}
+                              placeholder="e.g. Quarter Horse, Paint" />
+                          </div>
+                        </div>
+                        <label className="modal-label">Association registrations</label>
+                        <input className="field" style={{ width: "100%", fontSize: 16 }}
+                          value={h.registrations} onChange={(e) => updateHorse(h._id, "registrations", e.target.value)}
+                          placeholder="e.g. AQHA Q-12345, PHAA P-678" />
+                        <label className="modal-label">Anything else about this horse</label>
+                        <input className="field" style={{ width: "100%", fontSize: 16 }}
+                          value={h.notes} onChange={(e) => updateHorse(h._id, "notes", e.target.value)}
+                          placeholder="Optional" />
                       </div>
-                    </div>
-                    <label className="modal-label">Association registrations</label>
-                    <input className="field" style={{ width: "100%", fontSize: 16 }}
-                      value={h.registrations} onChange={(e) => updateHorse(h._id, "registrations", e.target.value)}
-                      placeholder="e.g. AQHA Q-12345, PHAA P-678" />
-                    <label className="modal-label">Anything else about this horse</label>
-                    <input className="field" style={{ width: "100%", fontSize: 16 }}
-                      value={h.notes} onChange={(e) => updateHorse(h._id, "notes", e.target.value)}
-                      placeholder="Optional" />
-                  </div>
-                ))}
+                  );
+                })}
                 <button className="btn-ghost" style={{ width: "100%", fontSize: 14 }}
                   onClick={() => setHorses((p) => [...p, blankHorse()])}>
                   + Add a horse

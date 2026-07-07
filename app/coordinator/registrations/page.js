@@ -84,6 +84,7 @@ export default function RegistrationsPage() {
   const revenue = paid.reduce((s, r) => s + (r.total_cents ?? 0), 0);
   const entryCount = registrations.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
   const dayMembershipCount = paid.filter((r) => r.day_membership).length;
+  const replacementNumbersCount = paid.filter((r) => r.replacement_numbers).length;
 
   return (
     <>
@@ -122,6 +123,7 @@ export default function RegistrationsPage() {
               { label: "Pending payment", value: pending.length },
               { label: "Total entries", value: entryCount },
               { label: "Day memberships", value: dayMembershipCount },
+              { label: "Replacement numbers", value: replacementNumbersCount },
               { label: "Revenue", value: fmtMoney(revenue) },
             ].map((s) => (
               <div key={s.label} className="card" style={{ flex: "1 1 120px", padding: "12px 16px", margin: 0 }}>
@@ -161,6 +163,7 @@ export default function RegistrationsPage() {
                     {reg.contact_email} · {fmtDate(reg.created_at)}
                     {" · "}{reg.registration_entries?.length ?? 0} {reg.registration_entries?.length === 1 ? "entry" : "entries"}
                     {reg.day_membership && ` · day membership ${fmtMoney(reg.day_membership_cents ?? 2000)}`}
+                    {reg.replacement_numbers && ` · replacement numbers ${fmtMoney(reg.replacement_numbers_cents ?? 500)}`}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -177,6 +180,11 @@ export default function RegistrationsPage() {
                   {reg.day_membership && (
                     <p style={{ color: "var(--leather)", fontSize: 13, fontWeight: 700, padding: "4px 0 0", margin: 0 }}>
                       Includes day membership for this event ({fmtMoney(reg.day_membership_cents ?? 2000)}).
+                    </p>
+                  )}
+                  {reg.replacement_numbers && (
+                    <p style={{ color: "var(--leather)", fontSize: 13, fontWeight: 700, padding: "4px 0 0", margin: 0 }}>
+                      Includes replacement numbers ({fmtMoney(reg.replacement_numbers_cents ?? 500)}).
                     </p>
                   )}
                   {(reg.registration_entries ?? []).length > 0 ? (
