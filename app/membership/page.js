@@ -45,11 +45,6 @@ export default function MembershipPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // "Already a member?" quick check
-  const [checkEmail, setCheckEmail] = useState("");
-  const [checkResult, setCheckResult] = useState(null); // null | "member" | "none" | "unknown"
-  const [checking, setChecking] = useState(false);
-
   const season = signupSeason();
 
   useEffect(() => {
@@ -100,21 +95,6 @@ export default function MembershipPage() {
   const updateHorse = (id, field, value) =>
     setHorses((prev) => prev.map((h) => (h._id === id ? { ...h, [field]: value } : h)));
   const removeHorse = (id) => setHorses((prev) => prev.filter((h) => h._id !== id));
-
-  const runCheck = async () => {
-    if (!checkEmail.trim() || !checkEmail.includes("@")) return;
-    setChecking(true);
-    setCheckResult(null);
-    try {
-      const res = await fetch(`/api/memberships/check?email=${encodeURIComponent(checkEmail.trim())}`);
-      const data = res.ok ? await res.json() : null;
-      setCheckResult(data?.member === true ? "member" : data?.member === false ? "none" : "unknown");
-    } catch {
-      setCheckResult("unknown");
-    } finally {
-      setChecking(false);
-    }
-  };
 
   const toggleInterest = (option) =>
     setInterests((prev) =>
@@ -205,49 +185,6 @@ export default function MembershipPage() {
 
         {typesReady && (
           <>
-            {/* Already a member? */}
-            <section className="card">
-              <div className="card-head">
-                <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Already a member?</div>
-              </div>
-              <div style={{ paddingBottom: 10 }}>
-                <p style={{ fontSize: 14, margin: "0 0 10px" }}>
-                  <Link href="/account" style={{ color: "var(--brass)", fontWeight: 700 }}>
-                    Sign in to the member portal →
-                  </Link>{" "}
-                  <span style={{ color: "var(--quiet)", fontSize: 13 }}>
-                    to check your membership and update your details, family members and horses.
-                  </span>
-                </p>
-                <p style={{ fontSize: 13, color: "var(--quiet)", margin: "0 0 8px" }}>
-                  Or do a quick check whether you have a current membership on file before joining again.
-                </p>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <input className="field" type="email" style={{ flex: "1 1 220px", fontSize: 15 }}
-                    value={checkEmail} onChange={(e) => { setCheckEmail(e.target.value); setCheckResult(null); }}
-                    placeholder="Your email address" />
-                  <button className="btn-ghost" onClick={runCheck} disabled={checking}>
-                    {checking ? "Checking…" : "Check"}
-                  </button>
-                </div>
-                {checkResult === "member" && (
-                  <p style={{ fontSize: 13.5, color: "#2D7A52", fontWeight: 700, margin: "8px 0 0" }}>
-                    ✓ You have a current membership — no need to join again.
-                  </p>
-                )}
-                {checkResult === "none" && (
-                  <p style={{ fontSize: 13.5, color: "var(--quiet)", margin: "8px 0 0" }}>
-                    No current membership found for that email — you can join below.
-                  </p>
-                )}
-                {checkResult === "unknown" && (
-                  <p style={{ fontSize: 13.5, color: "var(--quiet)", margin: "8px 0 0" }}>
-                    We couldn&apos;t check right now — you can still join below.
-                  </p>
-                )}
-              </div>
-            </section>
-
             {/* Membership type */}
             <section className="card">
               <div className="card-head">

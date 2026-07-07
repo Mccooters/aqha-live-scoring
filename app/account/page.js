@@ -131,12 +131,13 @@ function SignIn({ onSignedIn }) {
   return (
     <>
       <section className="card">
-        <CardTitle>Member sign in</CardTitle>
+        <CardTitle>Sign in or create an account</CardTitle>
         <div style={{ padding: "0 16px 14px" }}>
           {step === "email" && (
             <>
               <p style={{ fontSize: 13.5, color: "var(--quiet)", margin: "10px 0 8px" }}>
-                Sign in with the email address on your membership application.
+                Anyone can have an account — you don&apos;t need a membership. If you have one,
+                use the same email address as your membership so it shows up here.
               </p>
               <label className="modal-label">Email address</label>
               <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
@@ -153,8 +154,8 @@ function SignIn({ onSignedIn }) {
                 {busy ? "Signing in…" : "Sign in"}
               </button>
               <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "14px 0 8px", textAlign: "center" }}>
-                No password yet, or forgotten it? We&apos;ll email you a code instead —
-                once you&apos;re in, you can set a new password.
+                First time here, no password yet, or forgotten it? We&apos;ll email you a code —
+                signing in with it creates your account, and you can set a password once you&apos;re in.
               </p>
               <button className="btn-ghost" style={{ width: "100%", fontSize: 14, padding: "9px 0" }}
                 onClick={requestCode} disabled={busy}>
