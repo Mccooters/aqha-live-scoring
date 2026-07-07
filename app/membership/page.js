@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
@@ -7,6 +7,7 @@ import { signupSeason, seasonLabel } from "../../lib/membershipSeason";
 import { WAIVER_INTRO, WAIVER_BODY, WAIVER_DECLARATION } from "../../lib/membershipWaiver";
 
 const INTEREST_OPTIONS = ["Shows", "Clinics", "To connect with locals"];
+const ACCOUNT_ONLY_ID = "account-only";
 
 const fmtMoney = (cents) => `$${((cents ?? 0) / 100).toFixed(2)}`;
 
@@ -44,8 +45,14 @@ export default function MembershipPage() {
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [accountStep, setAccountStep] = useState("email"); // email | code
+  const [accountCode, setAccountCode] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+  const timer = useRef(null);
 
   const season = signupSeason();
+
+  useEffect(() => () => clearInterval(timer.current), []);
 
   useEffect(() => {
     supabase
@@ -64,6 +71,7 @@ export default function MembershipPage() {
       });
   }, []);
 
+  const accountOnly = typeId === ACCOUNT_ONLY_ID;
   const selectedType = types.find((t) => t.id === typeId);
   const fee = selectedType?.fee_cents ?? 0;
   // How many people the chosen membership covers, including the applicant
@@ -95,6 +103,71 @@ export default function MembershipPage() {
   const updateHorse = (id, field, value) =>
     setHorses((prev) => prev.map((h) => (h._id === id ? { ...h, [field]: value } : h)));
   const removeHorse = (id) => setHorses((prev) => prev.filter((h) => h._id !== id));
+
+  const chooseType = (id) => {
+    setTypeId(id);
+    setError("");
+    if (id !== ACCOUNT_ONLY_ID) {
+      setAccountStep("email");
+      setAccountCode("");
+    }
+  };
+
+  const startCooldown = () => {
+    setCooldown(60);
+    clearInterval(timer.current);
+    timer.current = setInterval(() => {
+      setCooldown((s) => {
+        if (s <= 1) { clearInterval(timer.current); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+  };
+
+  const requestAccountCode = async () => {
+    setError("");
+    if (!email.trim() || !email.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/account/request-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { setError(data.error ?? "Something went wrong. Please try again."); return; }
+      setAccountStep("code");
+      setAccountCode("");
+      startCooldown();
+    } catch {
+      setError("Could not connect. Please check your internet and try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const verifyAccountCode = async () => {
+    setError("");
+    if (!accountCode.trim()) { setError("Enter the 6-digit code from the email."); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/account/verify-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), code: accountCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { setError(data.error ?? "Something went wrong. Please try again."); return; }
+      router.push("/account");
+    } catch {
+      setError("Could not connect. Please check your internet and try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const toggleInterest = (option) =>
     setInterests((prev) =>
@@ -188,11 +261,36 @@ export default function MembershipPage() {
             {/* Membership type */}
             <section className="card">
               <div className="card-head">
-                <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Membership type</div>
+                <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Sign-up type</div>
               </div>
               <div style={{ display: "grid", gap: 10, paddingBottom: 10 }}>
+                <button type="button" onClick={() => chooseType(ACCOUNT_ONLY_ID)}
+                  style={{
+                    textAlign: "left",
+                    borderRadius: 10,
+                    border: `2px solid ${accountOnly ? "var(--leather)" : "var(--line)"}`,
+                    background: accountOnly ? "var(--sand)" : "#fff",
+                    padding: "12px 14px",
+                    cursor: "pointer",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 10,
+                  }}>
+                  <span style={{ minWidth: 0 }}>
+                    <span className="display" style={{ display: "block", fontWeight: 700, fontSize: 15, color: "var(--leather)" }}>
+                      Account only
+                    </span>
+                    <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+                      Create a login without buying a membership
+                    </span>
+                  </span>
+                  <span className="display" style={{ fontWeight: 700, fontSize: 18, color: "var(--brass)", flexShrink: 0 }}>
+                    Free
+                  </span>
+                </button>
                 {types.map((t) => (
-                  <button key={t.id} type="button" onClick={() => setTypeId(t.id)}
+                  <button key={t.id} type="button" onClick={() => chooseType(t.id)}
                     style={{
                       textAlign: "left",
                       borderRadius: 10,
@@ -228,6 +326,65 @@ export default function MembershipPage() {
               </div>
             </section>
 
+            {accountOnly ? (
+              <section className="card">
+                <div className="card-head">
+                  <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Create your account</div>
+                </div>
+                <div style={{ paddingBottom: 10 }}>
+                  {accountStep === "email" && (
+                    <>
+                      <p style={{ fontSize: 13.5, color: "var(--quiet)", margin: "0 0 10px" }}>
+                        We&apos;ll email you a secure code. Entering it creates your account and signs you in.
+                      </p>
+                      <label className="modal-label">Email address *</label>
+                      <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
+                        value={email} onChange={(e) => setEmail(e.target.value)}
+                        placeholder="e.g. sarah@example.com" autoComplete="email" />
+                      {error && (
+                        <p style={{ color: "var(--clay)", fontSize: 13.5, fontWeight: 600, marginBottom: 10, marginTop: 10 }}>
+                          {error}
+                        </p>
+                      )}
+                      <button className="btn" style={{ width: "100%", marginTop: 12, padding: 12, background: "var(--leather)" }}
+                        onClick={requestAccountCode} disabled={submitting}>
+                        {submitting ? "Sending…" : "Email me a code"}
+                      </button>
+                    </>
+                  )}
+                  {accountStep === "code" && (
+                    <>
+                      <p style={{ fontSize: 13.5, color: "var(--quiet)", margin: "0 0 10px" }}>
+                        We&apos;ve emailed a 6-digit code to <strong style={{ color: "var(--ink)" }}>{email.trim()}</strong>.
+                      </p>
+                      <input className="field" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+                        style={{ width: "100%", fontSize: 26, letterSpacing: ".35em", textAlign: "center" }}
+                        value={accountCode} onChange={(e) => setAccountCode(e.target.value.replace(/\D/g, ""))}
+                        onKeyDown={(e) => e.key === "Enter" && verifyAccountCode()}
+                        placeholder="000000" />
+                      {error && (
+                        <p style={{ color: "var(--clay)", fontSize: 13.5, fontWeight: 600, marginBottom: 10, marginTop: 10 }}>
+                          {error}
+                        </p>
+                      )}
+                      <button className="btn" style={{ width: "100%", marginTop: 12, padding: 12, background: "var(--leather)" }}
+                        onClick={verifyAccountCode} disabled={submitting}>
+                        {submitting ? "Checking…" : "Create account"}
+                      </button>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                        <button className="btn-ghost" onClick={requestAccountCode} disabled={submitting || cooldown > 0}>
+                          {cooldown > 0 ? `Send a new code (${cooldown}s)` : "Send a new code"}
+                        </button>
+                        <button className="btn-ghost" onClick={() => { setAccountStep("email"); setAccountCode(""); setError(""); }} disabled={submitting}>
+                          Use a different email
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </section>
+            ) : (
+              <>
             {/* Your details */}
             <section className="card">
               <div className="card-head">
@@ -470,6 +627,8 @@ export default function MembershipPage() {
                 </p>
               </div>
             </section>
+              </>
+            )}
 
             <p style={{ textAlign: "center", marginTop: 10 }}>
               <Link href="/" style={{ color: "var(--brass)", fontSize: 13 }}>← Back to events</Link>
