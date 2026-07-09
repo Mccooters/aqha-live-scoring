@@ -104,8 +104,10 @@ export async function getSquareConnection(db) {
 // Ground truth for the coordinator's Square card: which credentials are
 // live, and — straight from Square — which locations they can actually see.
 // This is what turns "Invalid location id" from a mystery into a reading.
-export async function squareDiagnostics(db) {
-  const connection = await getSquareConnection(db);
+// Pass the already-loaded connection so caller and diagnostics can never
+// disagree about whether one exists.
+export async function squareDiagnostics(db, connectionArg) {
+  const connection = connectionArg !== undefined ? connectionArg : await getSquareConnection(db);
   const token = connection?.access_token ?? process.env.SQUARE_ACCESS_TOKEN;
   const configuredLocation = process.env.SQUARE_LOCATION_ID ?? null;
   const result = {

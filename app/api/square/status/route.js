@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { adminClient } from "../../_lib/registrations";
-import { appFeeBps, squareDiagnostics } from "../../_lib/squarePayments";
+import { appFeeBps, squareDiagnostics, getSquareConnection } from "../../_lib/squarePayments";
 
 // What the coordinator Registrations page shows in its "Square connection"
 // card. Staff-only, and never returns the tokens themselves.
@@ -31,24 +31,15 @@ export async function GET(req) {
     }
 
     const db = adminClient();
-    let connection = null;
-    try {
-      const { data } = await db
-        .from("square_connection")
-        .select("merchant_id, connected_at, expires_at, updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      connection = data ?? null;
-    } catch {
-      connection = null; // table missing — migration v31 not run yet
-    }
+    // One lookup feeds both the "Connected" headline and the health check,
+    // so the card can't contradict itself.
+    const connection = await getSquareConnection(db);
 
     // Live check against Square: which locations can the active credentials
     // actually see? Never fatal — the card still renders if Square is down.
     let diagnostics = null;
     try {
-      diagnostics = await squareDiagnostics(db);
+      diagnostics = await squareDiagnostics(db, connection);
     } catch (err) {
       console.error("square diagnostics failed:", err);
     }
