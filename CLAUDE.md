@@ -281,7 +281,11 @@ PR with a clear plain-English description.
   money and entries stay consistent).
 - `registration_entries` — registration_id (cascade delete), class_id
   (cascade delete — schema-v10), back_number (nullable — clinics auto-assign
-  sequentially on approval), horse_name, exhibitor.
+  sequentially on approval), horse_name, exhibitor, rider_registrations +
+  horse_registrations (schema-v35 — jsonb lists of {club, number} pairs for
+  points checking; [] = declared not registered, null = not collected;
+  required on show entries, auto-filled from the registry by back number,
+  and copied back into `horse_registrations` on approval).
 - `push_subscriptions` — endpoint (unique), p256dh, auth_key. Not publicly
   accessible since schema-v16; subscribing goes through
   `app/api/push/subscribe` (service role), and the send-push edge function
@@ -384,6 +388,25 @@ day membership). Renewal money is NOT in `registrations.total_cents` — it
 lives on the `club_members` row. `hasCurrentMembership` accepts any season
 in `activeSeasons(event date)`, so during July both outgoing-season members
 and early new-season sign-ups can enter.
+
+Non-members (no portal sign-in) get the same deal via **join at checkout**:
+alongside the day membership, the entry form offers every active
+`membership_types` row ("Join the club — annual membership",
+`annual_membership_type_id` in the create route). It creates a normal
+pending `club_members` application from the entry's contact name/email,
+sharing the Square order like a renewal; the member completes their details
+in the portal after committee approval. Mutually exclusive with day
+membership and with a renewal, and it satisfies the membership requirement
+only when `signupSeason()` is in `activeSeasons(event date)`.
+
+Show entries also collect **association registration numbers** for points
+checking (schema-v35): per entry, structured {club, number} rows for the
+horse and for the rider (AQHA/PHAA/AAA suggestions, free text allowed), each
+with a "not registered with any association" opt-out. Required server-side
+for shows (never clinics); horse rows auto-fill from `horse_registrations`
+via the back-number lookup, staff see them on the coordinator Registrations
+page, and `approveRegistration` copies new horse numbers into the registry
+(insert-only — never overwrites staff data).
 
 ## Domain rules (from the AQHA Australia rule book, 2024 edition)
 

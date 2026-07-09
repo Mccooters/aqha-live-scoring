@@ -319,6 +319,54 @@ async function lockInNewHorseNumber(db, horseName, owner, reservedNumbers) {
   throw new Error(`Could not reserve a back number for ${fields.horse_name}`);
 }
 
+// Copy the horse registration numbers supplied with paid entries into the
+// permanent horse registry, so they auto-fill next time and the office's
+// list stays current. Never overwrites what staff already recorded — only
+// fills in associations the horse doesn't have yet (the unique
+// (horse_id, club) index arbitrates).
+async function saveHorseRegistrationsToRegistry(db, regEntries) {
+  const byBackNumber = new Map(); // back_number → [{club, number}]
+  for (const entry of regEntries ?? []) {
+    if (entry.back_number == null || !Array.isArray(entry.horse_registrations)) continue;
+    const list = byBackNumber.get(entry.back_number) ?? [];
+    for (const r of entry.horse_registrations) {
+      const club = String(r?.club ?? "").trim();
+      const number = String(r?.number ?? "").trim();
+      if (!club || !number) continue;
+      if (!list.some((x) => x.club.toLowerCase() === club.toLowerCase())) {
+        list.push({ club, number });
+      }
+    }
+    if (list.length) byBackNumber.set(entry.back_number, list);
+  }
+  if (!byBackNumber.size) return;
+
+  const { data: horses } = await db
+    .from("horses")
+    .select("id, back_number")
+    .in("back_number", [...byBackNumber.keys()]);
+
+  const rows = [];
+  for (const horse of horses ?? []) {
+    const { data: existing } = await db
+      .from("horse_registrations")
+      .select("club")
+      .eq("horse_id", horse.id);
+    const known = new Set((existing ?? []).map((r) => r.club.toLowerCase()));
+    for (const r of byBackNumber.get(horse.back_number) ?? []) {
+      if (!known.has(r.club.toLowerCase())) {
+        rows.push({ horse_id: horse.id, club: r.club, registration_number: r.number });
+      }
+    }
+  }
+  if (!rows.length) return;
+
+  const { error } = await db
+    .from("horse_registrations")
+    .upsert(rows, { onConflict: "horse_id,club", ignoreDuplicates: true });
+  if (error) throw new Error(error.message);
+}
+
 export async function approveRegistration(db, registrationId) {
   // Claim the registration first: flip it to paid only if it isn't already.
   // Square retries webhooks, so this can be called twice for one payment —
@@ -405,6 +453,15 @@ export async function approveRegistration(db, registrationId) {
       // coordinator's force-approve button can try again.
       await db.from("registrations").update({ status: "pending" }).eq("id", registrationId);
       throw new Error(insertErr.message);
+    }
+  }
+
+  if (!isClinic) {
+    try {
+      await saveHorseRegistrationsToRegistry(db, regEntries);
+    } catch (err) {
+      // Registry enrichment is a bonus — the entries are already placed.
+      console.error("Saving horse registrations to the registry failed:", err);
     }
   }
 

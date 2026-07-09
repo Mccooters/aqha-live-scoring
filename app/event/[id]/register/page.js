@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
 import { groupedByProgramCategory } from "../../../../lib/classCategories";
-import { activeSeasons } from "../../../../lib/membershipSeason";
+import { activeSeasons, signupSeason } from "../../../../lib/membershipSeason";
 
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 // "2026-2027" → "2026–27"
@@ -272,6 +272,14 @@ function MultiClassPicker({ selectedIds, classes, onToggle, classIsFull, spotsLa
   );
 }
 
+// Associations offered as suggestions for registration numbers — anything
+// else can be typed in freely.
+const ASSOCIATIONS = ["AQHA", "PHAA", "AAA"];
+
+function blankRegRow() {
+  return { _id: Math.random().toString(36).slice(2), club: "", number: "" };
+}
+
 function blankEntry() {
   return {
     _id: Math.random().toString(36).slice(2),
@@ -282,7 +290,57 @@ function blankEntry() {
     exhibitor: "",
     registryChecked: false,
     registryMatched: false,
+    horse_regs: [blankRegRow()],
+    horse_not_registered: false,
+    rider_regs: [blankRegRow()],
+    rider_not_registered: false,
   };
+}
+
+// Structured "association + number" rows used for both the horse's
+// registration numbers and the rider's association memberships. Points are
+// checked against each association, so the office needs these with the entry.
+function RegNumbersSection({ title, hint, rows, notRegistered, notRegisteredLabel, onRowsChange, onNotRegisteredChange }) {
+  const updateRow = (id, field, value) =>
+    onRowsChange(rows.map((r) => (r._id === id ? { ...r, [field]: value } : r)));
+  const removeRow = (id) =>
+    onRowsChange(rows.length > 1 ? rows.filter((r) => r._id !== id) : rows.map((r) => ({ ...r, club: "", number: "" })));
+  return (
+    <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 10, background: "#FDFBF7" }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: "var(--leather)" }}>{title}</div>
+      {hint && <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>{hint}</div>}
+      {!notRegistered && rows.map((row) => (
+        <div key={row._id} style={{ display: "grid", gridTemplateColumns: "minmax(90px, 130px) 1fr 30px", gap: 8, marginTop: 8 }}>
+          <input className="field" style={{ width: "100%", fontSize: 15 }}
+            list="association-options"
+            value={row.club}
+            onChange={(e) => updateRow(row._id, "club", e.target.value)}
+            placeholder="e.g. AQHA" />
+          <input className="field" style={{ width: "100%", fontSize: 15 }}
+            value={row.number}
+            onChange={(e) => updateRow(row._id, "number", e.target.value)}
+            placeholder="Registration / member no." />
+          <button type="button" aria-label="Remove this association"
+            onClick={() => removeRow(row._id)}
+            style={{ border: "1px solid var(--line)", borderRadius: 8, background: "#fff", color: "var(--quiet)", fontSize: 14, cursor: "pointer" }}>
+            ✕
+          </button>
+        </div>
+      ))}
+      {!notRegistered && (
+        <button type="button" className="btn-ghost" style={{ marginTop: 8, padding: "5px 10px", fontSize: 12 }}
+          onClick={() => onRowsChange([...rows, blankRegRow()])}>
+          + Another association
+        </button>
+      )}
+      <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, fontSize: 12.5, color: "var(--leather)", fontWeight: 700, cursor: "pointer" }}>
+        <input type="checkbox" checked={notRegistered}
+          onChange={(e) => onNotRegisteredChange(e.target.checked)}
+          style={{ width: 16, height: 16, flexShrink: 0 }} />
+        <span>{notRegisteredLabel}</span>
+      </label>
+    </div>
+  );
 }
 
 // The tick-box + note shown under the back-number field in both entry modes.
@@ -327,6 +385,10 @@ export default function RegisterPage() {
     exhibitor: "",
     registryChecked: false,
     registryMatched: false,
+    horse_regs: [blankRegRow()],
+    horse_not_registered: false,
+    rider_regs: [blankRegRow()],
+    rider_not_registered: false,
   });
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
@@ -338,6 +400,8 @@ export default function RegisterPage() {
   const [membershipSetting, setMembershipSetting] = useState({ enabled: false, include_clinics: false });
   const [membershipStatus, setMembershipStatus] = useState(null); // null | "member" | "none" | "unknown"
   const [dayMembership, setDayMembership] = useState(false);
+  const [annualJoin, setAnnualJoin] = useState(false); // buy a full membership with this entry
+  const [annualTypeId, setAnnualTypeId] = useState("");
   const [replacementNumbers, setReplacementNumbers] = useState(false);
   const [feesDue, setFeesDue] = useState(null); // null = unknown (assume due), false = already paid for this event
   const [rulesAccepted, setRulesAccepted] = useState(false);
@@ -371,6 +435,16 @@ export default function RegisterPage() {
           enabled: Boolean(reqSetting.value.enabled),
           include_clinics: Boolean(reqSetting.value.include_clinics),
         });
+        // Non-members can buy an annual membership at checkout — load the
+        // types on offer (public read; also used by the renewal dropdown).
+        if (reqSetting.value.enabled) {
+          const { data: types } = await supabase
+            .from("membership_types")
+            .select("*")
+            .eq("active", true)
+            .order("sort_order");
+          if (types?.length) setMembershipTypes((prev) => (prev.length ? prev : types));
+        }
       }
       if (cls?.length) {
         const { data: taken } = await supabase
@@ -485,6 +559,10 @@ export default function RegisterPage() {
     no_back_number: multiEntry.no_back_number,
     horse_name: multiEntry.horse_name,
     exhibitor: multiEntry.exhibitor,
+    horse_regs: multiEntry.horse_regs,
+    horse_not_registered: multiEntry.horse_not_registered,
+    rider_regs: multiEntry.rider_regs,
+    rider_not_registered: multiEntry.rider_not_registered,
   }));
   const submissionEntries = isMultiMode ? multiEntries : entries;
   const filledEntries = submissionEntries.filter((e) => e.class_id);
@@ -499,15 +577,25 @@ export default function RegisterPage() {
   const renewalCoversEvent = Boolean(renewalType) && Boolean(renewalOffer) &&
     activeSeasons(event?.starts_on ? new Date(event.starts_on) : new Date()).includes(renewalOffer.season);
   const needsDayMembership = membershipRequired && membershipStatus !== "member" && !renewalCoversEvent;
-  const dayMembershipSelected = needsDayMembership && dayMembership;
+  // Buying a full membership with the entry (offered alongside the day
+  // membership; only for people who aren't signed-in members with a renewal).
+  const annualJoinAvailable = needsDayMembership && !renewalOffer && membershipTypes.length > 0 &&
+    activeSeasons(event?.starts_on ? new Date(event.starts_on) : new Date()).includes(signupSeason());
+  const annualType = annualJoinAvailable && annualJoin
+    ? membershipTypes.find((t) => t.id === annualTypeId)
+    : null;
+  const annualCents = annualType?.fee_cents ?? 0;
+  const annualSelected = annualJoinAvailable && annualJoin;
+  const dayMembershipSelected = needsDayMembership && dayMembership && !annualSelected;
   const totalCents = filledEntries.length * feePerClass
     + (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0)
+    + (annualSelected ? annualCents : 0)
     + (replacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0)
     + (chargeFees ? oneOffFees : 0)
     + renewalCents;
 
   useEffect(() => {
-    if (membershipStatus === "member") setDayMembership(false);
+    if (membershipStatus === "member") { setDayMembership(false); setAnnualJoin(false); }
   }, [membershipStatus]);
 
   const classIsFull = (cls) => cls.capacity != null && (spotsTaken[cls.id] ?? 0) >= cls.capacity;
@@ -597,13 +685,27 @@ export default function RegisterPage() {
   // to a registered horse, the horse name is locked to whatever's on file —
   // it can't be typed differently. Unregistered back numbers (new horses not
   // yet added to the registry) leave the name field open for manual entry.
+  // The horse's known association registrations come back with the lookup so
+  // the number fields pre-fill from the registry (still editable — the entrant
+  // can correct or add associations).
+  const registryRegRows = (data) =>
+    (data?.horse_registrations ?? [])
+      .filter((r) => r.registration_number)
+      .map((r) => ({ _id: Math.random().toString(36).slice(2), club: r.club, number: r.registration_number }));
+  const mergeRegRows = (current, fromRegistry) => {
+    if (!fromRegistry.length) return current;
+    const hasTyped = current.some((r) => r.club.trim() || r.number.trim());
+    return hasTyped ? current : fromRegistry;
+  };
+
   const lookupHorse = async (entryId, backNum) => {
     if (!backNum) return;
     const { data } = await supabase
       .from("horses")
-      .select("name, owner")
+      .select("name, owner, horse_registrations(club, registration_number)")
       .eq("back_number", parseInt(backNum, 10))
       .maybeSingle();
+    const regRows = registryRegRows(data);
     setEntries((prev) =>
       prev.map((e) =>
         e._id === entryId
@@ -613,6 +715,8 @@ export default function RegisterPage() {
               exhibitor: e.exhibitor || (data?.owner ?? ""),
               registryChecked: true,
               registryMatched: !!data,
+              horse_regs: mergeRegRows(e.horse_regs, regRows),
+              horse_not_registered: regRows.length ? false : e.horse_not_registered,
             }
           : e
       )
@@ -623,15 +727,18 @@ export default function RegisterPage() {
     if (!backNum) return;
     const { data } = await supabase
       .from("horses")
-      .select("name, owner")
+      .select("name, owner, horse_registrations(club, registration_number)")
       .eq("back_number", parseInt(backNum, 10))
       .maybeSingle();
+    const regRows = registryRegRows(data);
     setMultiEntry((prev) => ({
       ...prev,
       horse_name: data ? data.name : prev.horse_name,
       exhibitor: prev.exhibitor || (data?.owner ?? ""),
       registryChecked: true,
       registryMatched: !!data,
+      horse_regs: mergeRegRows(prev.horse_regs, regRows),
+      horse_not_registered: regRows.length ? false : prev.horse_not_registered,
     }));
   };
 
@@ -663,6 +770,23 @@ export default function RegisterPage() {
         : "Some entries are missing details. Please fill in back number (or tick “no back number yet”), horse name, and exhibitor for each class selected.");
       return;
     }
+    if (!isClinic) {
+      // Points checking: every entry needs the rider's and the horse's
+      // association numbers, or an explicit "not registered".
+      const completeRow = (r) => r.club.trim() && r.number.trim();
+      const halfRow = (r) => (r.club.trim() || r.number.trim()) && !completeRow(r);
+      for (const e of valid) {
+        const horseLabel = e.horse_name.trim() || "each horse";
+        if (!e.horse_not_registered && (!e.horse_regs.some(completeRow) || e.horse_regs.some(halfRow))) {
+          setError(`Please fill in ${horseLabel}'s registration number for each association listed — or tick "This horse isn't registered with any association".`);
+          return;
+        }
+        if (!e.rider_not_registered && (!e.rider_regs.some(completeRow) || e.rider_regs.some(halfRow))) {
+          setError(`Please fill in the rider's association membership number(s) for ${horseLabel}'s entry — or tick "The rider isn't a member of any association".`);
+          return;
+        }
+      }
+    }
     const duplicateInForm = duplicateInFormMessage(valid);
     if (duplicateInForm) { setError(duplicateInForm); return; }
     const existingDuplicate = valid.map((entry) => duplicateMessage(entry)).find(Boolean);
@@ -671,8 +795,12 @@ export default function RegisterPage() {
       setError("Please choose a membership type for your renewal (or untick the renewal option).");
       return;
     }
-    if (membershipRequired && membershipStatus === "none" && !dayMembership && !renewalCoversEvent) {
-      setError("Choose the $20 day membership for this event, or use the email address on a current annual membership.");
+    if (annualSelected && !annualType) {
+      setError("Please choose a membership type to join with (or untick the membership option).");
+      return;
+    }
+    if (membershipRequired && membershipStatus === "none" && !dayMembership && !annualSelected && !renewalCoversEvent) {
+      setError("Add an annual membership or the $20 day membership to your entry, or use the email address on a current annual membership.");
       return;
     }
     if (!rulesAccepted) {
@@ -689,16 +817,24 @@ export default function RegisterPage() {
           event_id: eventId,
           contact_name: contactName.trim(),
           contact_email: contactEmail.trim(),
-          day_membership: dayMembership,
+          day_membership: dayMembershipSelected,
+          annual_membership_type_id: annualSelected ? annualTypeId : null,
           replacement_numbers: replacementNumbers,
           membership_renewal: Boolean(renewMembership && renewalOffer),
           membership_renewal_type_id: renewalTypeId || null,
-          entries: valid.map((e) => ({
-            class_id: e.class_id,
-            back_number: isClinic || e.no_back_number ? null : parseInt(e.back_number, 10),
-            horse_name: e.horse_name.trim() || "",
-            exhibitor: e.exhibitor.trim(),
-          })),
+          entries: valid.map((e) => {
+            const regList = (rows, none) => (isClinic ? null : none ? [] : rows
+              .filter((r) => r.club.trim() && r.number.trim())
+              .map((r) => ({ club: r.club.trim(), number: r.number.trim() })));
+            return {
+              class_id: e.class_id,
+              back_number: isClinic || e.no_back_number ? null : parseInt(e.back_number, 10),
+              horse_name: e.horse_name.trim() || "",
+              exhibitor: e.exhibitor.trim(),
+              rider_registrations: regList(e.rider_regs, e.rider_not_registered),
+              horse_registrations: regList(e.horse_regs, e.horse_not_registered),
+            };
+          }),
         }),
       });
 
@@ -792,11 +928,14 @@ export default function RegisterPage() {
       </header>
 
       <main className="wrap">
+        <datalist id="association-options">
+          {ASSOCIATIONS.map((a) => <option key={a} value={a} />)}
+        </datalist>
 
         {membershipRequired && membershipStatus !== "member" && (
           <div className="card" style={{ padding: "12px 14px", borderColor: "#E0B15A", background: "#FFF7D6", marginBottom: 14 }}>
             <p style={{ margin: 0, color: "var(--leather)", fontSize: 13.5, fontWeight: 700 }}>
-              Annual membership or day membership required — non-members can add a {fmtMoney(DAY_MEMBERSHIP_CENTS)} day membership for this event at checkout.
+              Membership required — non-members can join the club or add a {fmtMoney(DAY_MEMBERSHIP_CENTS)} day membership as part of their entry below.
             </p>
           </div>
         )}
@@ -828,7 +967,7 @@ export default function RegisterPage() {
                 <label className="modal-label">Email address *</label>
                 <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
                   value={contactEmail}
-                  onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); setDayMembership(false); setFeesDue(null); }}
+                  onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); setDayMembership(false); setAnnualJoin(false); setFeesDue(null); }}
                   onBlur={(e) => { checkMembership(e.target.value); checkFees(e.target.value); }}
                   placeholder="e.g. sarah@example.com" />
               </>
@@ -848,12 +987,48 @@ export default function RegisterPage() {
                 ✓ Your membership renewal below covers this event season.
               </p>
             )}
+            {annualJoinAvailable && (
+              <div style={{ border: "1px solid #E0B15A", borderRadius: 10, padding: "10px 12px", marginTop: 10, background: annualJoin ? "#FFF7D6" : "#fff" }}>
+                <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={annualJoin}
+                    onChange={(e) => { setAnnualJoin(e.target.checked); if (e.target.checked) setDayMembership(false); }}
+                    style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }}
+                  />
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14, fontWeight: 800, color: "var(--leather)" }}>
+                      Join the club — annual membership
+                    </span>
+                    <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+                      Full membership until 31 July, added to this payment. The committee confirms your
+                      application as usual, and you can finish your member details on the{" "}
+                      <Link href="/membership" style={{ color: "var(--brass)", fontWeight: 700 }}>Members page</Link> later.
+                    </span>
+                  </span>
+                </label>
+                {annualJoin && (
+                  <select
+                    className="field"
+                    style={{ width: "100%", fontSize: 15, marginTop: 8 }}
+                    value={annualTypeId}
+                    onChange={(e) => setAnnualTypeId(e.target.value)}>
+                    <option value="">Choose membership type…</option>
+                    {membershipTypes.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} — {(t.fee_cents ?? 0) > 0 ? fmtMoney(t.fee_cents) : "Free"}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
             {needsDayMembership && (
-              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 10, background: dayMembership ? "#FFF7D6" : "#fff", cursor: "pointer" }}>
+              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 10, background: dayMembershipSelected ? "#FFF7D6" : "#fff", cursor: "pointer", opacity: annualSelected ? 0.55 : 1 }}>
                 <input
                   type="checkbox"
-                  checked={dayMembership}
-                  onChange={(e) => setDayMembership(e.target.checked)}
+                  checked={dayMembershipSelected}
+                  onChange={(e) => { setDayMembership(e.target.checked); if (e.target.checked) setAnnualJoin(false); }}
                   style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }}
                 />
                 <span style={{ minWidth: 0 }}>
@@ -861,7 +1036,7 @@ export default function RegisterPage() {
                     Add day membership · {fmtMoney(DAY_MEMBERSHIP_CENTS)}
                   </span>
                   <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                    Covers this event only. For annual membership instead, <Link href="/membership" style={{ color: "var(--brass)", fontWeight: 700 }}>join online</Link>.
+                    Covers this event only{annualJoinAvailable ? " — or join as an annual member above" : ""}.
                   </span>
                 </span>
               </label>
@@ -944,11 +1119,31 @@ export default function RegisterPage() {
                 </p>
               )}
 
+              <RegNumbersSection
+                title="Horse registration numbers *"
+                hint="Needed for points checking — one per association the horse is registered with (AQHA, PHAA, AAA, …)."
+                rows={multiEntry.horse_regs}
+                notRegistered={multiEntry.horse_not_registered}
+                notRegisteredLabel="This horse isn't registered with any association"
+                onRowsChange={(rows) => updateMultiEntry("horse_regs", rows)}
+                onNotRegisteredChange={(v) => updateMultiEntry("horse_not_registered", v)}
+              />
+
               <label className="modal-label">Exhibitor name *</label>
               <input className="field" style={{ width: "100%", fontSize: 16 }}
                 value={multiEntry.exhibitor}
                 onChange={(e) => updateMultiEntry("exhibitor", e.target.value)}
                 placeholder="e.g. S. O'Brien" />
+
+              <RegNumbersSection
+                title="Rider/owner association memberships *"
+                hint="The exhibitor's membership number with each association they're a member of."
+                rows={multiEntry.rider_regs}
+                notRegistered={multiEntry.rider_not_registered}
+                notRegisteredLabel="The rider isn't a member of any association"
+                onRowsChange={(rows) => updateMultiEntry("rider_regs", rows)}
+                onNotRegisteredChange={(v) => updateMultiEntry("rider_not_registered", v)}
+              />
 
               <label className="modal-label">Classes *</label>
               <MultiClassPicker
@@ -1046,6 +1241,18 @@ export default function RegisterPage() {
                   </p>
                 )}
 
+                {!isClinic && (
+                  <RegNumbersSection
+                    title="Horse registration numbers *"
+                    hint="Needed for points checking — one per association the horse is registered with (AQHA, PHAA, AAA, …)."
+                    rows={entry.horse_regs}
+                    notRegistered={entry.horse_not_registered}
+                    notRegisteredLabel="This horse isn't registered with any association"
+                    onRowsChange={(rows) => updateEntry(entry._id, "horse_regs", rows)}
+                    onNotRegisteredChange={(v) => updateEntry(entry._id, "horse_not_registered", v)}
+                  />
+                )}
+
                 {duplicateWarning && (
                   <p style={{ fontSize: 12.5, color: "var(--clay)", marginTop: 4, fontWeight: 600 }}>
                     {duplicateWarning} Please check your details before submitting.
@@ -1057,6 +1264,18 @@ export default function RegisterPage() {
                   value={entry.exhibitor}
                   onChange={(e) => updateEntry(entry._id, "exhibitor", e.target.value)}
                   placeholder="e.g. S. O'Brien" />
+
+                {!isClinic && (
+                  <RegNumbersSection
+                    title="Rider/owner association memberships *"
+                    hint="The exhibitor's membership number with each association they're a member of."
+                    rows={entry.rider_regs}
+                    notRegistered={entry.rider_not_registered}
+                    notRegisteredLabel="The rider isn't a member of any association"
+                    onRowsChange={(rows) => updateEntry(entry._id, "rider_regs", rows)}
+                    onNotRegisteredChange={(v) => updateEntry(entry._id, "rider_not_registered", v)}
+                  />
+                )}
               </div>
             </section>
           );
@@ -1080,6 +1299,11 @@ export default function RegisterPage() {
                 {dayMembershipSelected && (
                   <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
                     Day membership × {fmtMoney(DAY_MEMBERSHIP_CENTS)}
+                  </div>
+                )}
+                {annualSelected && annualType && (
+                  <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
+                    Annual membership ({annualType.name}) × {fmtMoney(annualCents)}
                   </div>
                 )}
                 {renewalType && (

@@ -4,6 +4,14 @@ import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 
 const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
+// "AQHA 12345 · PHAA 678" from an entry's stored registration numbers.
+// [] = the entrant declared "not registered"; null = collected before this
+// feature existed (or a clinic), shown as a dash.
+const regNumbersLabel = (list, noneLabel) => {
+  if (!Array.isArray(list)) return "—";
+  if (!list.length) return noneLabel;
+  return list.map((r) => `${r.club} ${r.number}`).join(" · ");
+};
 const fmtDate = (s) =>
   s ? new Date(s).toLocaleString("en-AU", { dateStyle: "short", timeStyle: "short" }) : "—";
 
@@ -398,6 +406,7 @@ export default function RegistrationsPage() {
                           <th style={{ width: 70 }}>Back #</th>
                           <th>Horse</th>
                           <th>Exhibitor</th>
+                          <th>Registration numbers</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -408,6 +417,10 @@ export default function RegistrationsPage() {
                             </td>
                             <td style={{ fontWeight: 600 }}>{e.horse_name}</td>
                             <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
+                            <td style={{ fontSize: 12, color: "var(--quiet)", whiteSpace: "nowrap" }}>
+                              <div>Horse: {regNumbersLabel(e.horse_registrations, "not registered")}</div>
+                              <div>Rider: {regNumbersLabel(e.rider_registrations, "not a member")}</div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>

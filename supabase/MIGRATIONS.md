@@ -107,6 +107,10 @@ hasn't been run.
       → adds a per-event **ground fee** and **admin fee** on top of the
         per-class entry fee, charged once per person per event (coming back
         to add more entries doesn't charge them again).
+- [ ] **v35** — `schema-v35-entry-registration-numbers.sql`
+      → show entries now collect the **rider's and horse's association
+        registration numbers** (AQHA / PHAA / AAA / …) for points checking.
+        Without this, entries still work but the numbers aren't stored.
 
 Tick these off once you've run them.
 
@@ -150,6 +154,7 @@ Tick these off once you've run them.
 | `schema-v32-registration-cancellation.sql` | Staff cancel + 48h auto-expiry for unpaid registrations, incl. Square link deletion |
 | `schema-v33-entry-horse-numbering.sql` | Auto-assign + permanently register back numbers for new horses entered online |
 | `schema-v34-event-fees.sql` | Per-event ground fee + admin fee, charged once per person per event |
+| `schema-v35-entry-registration-numbers.sql` | Rider + horse association registration numbers on show entries (points checking) |
 
 ## For whoever updates the code next
 
