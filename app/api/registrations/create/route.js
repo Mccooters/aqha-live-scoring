@@ -3,12 +3,8 @@ import { randomUUID } from "crypto";
 import { adminClient, approveRegistration } from "../../_lib/registrations";
 import { membershipRequirement, hasCurrentMembership, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
 import { getMemberAccount } from "../../_lib/memberAuth";
+import { createSquarePaymentLink } from "../../_lib/squarePayments";
 import { activeSeasons } from "../../../../lib/membershipSeason";
-
-const squareBase =
-  process.env.SQUARE_ENVIRONMENT === "sandbox"
-    ? "https://connect.squareupsandbox.com"
-    : "https://connect.squareup.com";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
 const REPLACEMENT_NUMBERS_CENTS = 500;
@@ -370,14 +366,9 @@ export async function POST(req) {
       });
     }
 
-    // Paid entry — create a Square payment link
-    if (!process.env.SQUARE_ACCESS_TOKEN || !process.env.SQUARE_LOCATION_ID) {
-      return NextResponse.json(
-        { error: "Payment is not configured yet. Please contact the show secretary." },
-        { status: 503 }
-      );
-    }
-
+    // Paid entry — create a Square payment link (squarePayments.js picks the
+    // OAuth connection when the club has linked Square, else the club's own
+    // access token, and applies the developer fee when configured)
     const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
 
     const lineItems = feePerClass > 0
@@ -432,22 +423,10 @@ export async function POST(req) {
       pre_populated_data: { buyer_email: contact_email.trim() },
     };
 
-    const squareRes = await fetch(
-      `${squareBase}/v2/online-checkout/payment-links`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
-          "Content-Type": "application/json",
-          "Square-Version": "2024-01-18",
-        },
-        body: JSON.stringify(squarePayload),
-      }
-    );
+    const { link, error: squareError, status: squareStatus } =
+      await createSquarePaymentLink(db, squarePayload);
 
-    const squareData = await squareRes.json();
-
-    if (!squareRes.ok) {
+    if (squareError) {
       // Remove the renewal application we just created — it never got a
       // checkout, so leaving it would show a dead "finish payment" in the
       // portal and block the offer from appearing again.
@@ -458,11 +437,8 @@ export async function POST(req) {
           .eq("id", renewalMember.id)
           .eq("status", "pending");
       }
-      const msg = squareData.errors?.[0]?.detail ?? "Square payment setup failed";
-      return NextResponse.json({ error: msg }, { status: 500 });
+      return NextResponse.json({ error: squareError }, { status: squareStatus ?? 500 });
     }
-
-    const link = squareData.payment_link;
 
     // Save the Square order ID so the webhook can find this registration
     await db

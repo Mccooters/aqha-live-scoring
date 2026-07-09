@@ -15,6 +15,9 @@ export default function RegistrationsPage() {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [approving, setApproving] = useState(null);
+  const [squareStatus, setSquareStatus] = useState(null);
+  const [connecting, setConnecting] = useState(false);
+  const [squareNotice, setSquareNotice] = useState("");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -70,6 +73,49 @@ export default function RegistrationsPage() {
     setApproving(null);
   };
 
+  // Square connection card: current status, plus the outcome message when
+  // Square has just redirected back here (?square=connected / denied / ...).
+  useEffect(() => {
+    if (!session) return;
+    fetch("/api/square/status", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setSquareStatus(data))
+      .catch(() => setSquareStatus(null));
+
+    const outcome = new URLSearchParams(window.location.search).get("square");
+    if (outcome) {
+      setSquareNotice(
+        {
+          connected: "✓ Square connected — online payments now run through the club's authorised connection.",
+          denied: "The Square connection was declined. Payments continue through the existing setup.",
+          state_mismatch: "The connection attempt expired or didn't start from this page — please try again.",
+          migration_needed: "Square approved the connection, but the database needs migration schema-v31 before it can be saved. Run it, then connect again.",
+          failed: "Connecting to Square didn't work. Please try again or contact support.",
+        }[outcome] ?? ""
+      );
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, [session]);
+
+  const connectSquare = async () => {
+    setConnecting(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const res = await fetch("/api/square/connect", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}` },
+      });
+      const data = await res.json();
+      if (data.error) { alert("Error: " + data.error); setConnecting(false); return; }
+      window.location.href = data.url; // off to Square to sign in as the club and approve
+    } catch {
+      alert("Could not reach Square. Please try again.");
+      setConnecting(false);
+    }
+  };
+
   if (!session) {
     return (
       <main className="wrap" style={{ maxWidth: 440 }}>
@@ -105,6 +151,55 @@ export default function RegistrationsPage() {
       </header>
 
       <main className="wrap">
+        {squareNotice && (
+          <div className="card" style={{ padding: "12px 14px", marginBottom: 14, borderColor: squareNotice.startsWith("✓") ? "#2D7A52" : "#E0B15A", background: squareNotice.startsWith("✓") ? "#EAF5EE" : "#FFF7D6" }}>
+            <p style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--leather)" }}>{squareNotice}</p>
+          </div>
+        )}
+
+        {/* Square connection — how online payments are authorised */}
+        {squareStatus && (
+          <section className="card" style={{ marginBottom: 20 }}>
+            <div className="card-head">
+              <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Square connection</div>
+              {squareStatus.connected && (
+                <span style={{ fontSize: 12.5, fontWeight: 800, color: "#2D7A52" }}>● Connected</span>
+              )}
+            </div>
+            <div style={{ paddingBottom: 10, fontSize: 13.5, color: "var(--quiet)" }}>
+              {squareStatus.connected ? (
+                <p style={{ margin: "0 0 10px" }}>
+                  Online payments run through the club&apos;s authorised Square connection
+                  (merchant {squareStatus.merchant_id}
+                  {squareStatus.connected_at ? `, connected ${fmtDate(squareStatus.connected_at)}` : ""}).
+                  {squareStatus.fee_bps > 0
+                    ? ` A ${(squareStatus.fee_bps / 100).toFixed(2)}% platform fee applies to each payment.`
+                    : " No platform fee is currently configured."}
+                </p>
+              ) : (
+                <p style={{ margin: "0 0 10px" }}>
+                  {squareStatus.fallback_token
+                    ? "Online payments currently use the club's own Square access token."
+                    : "Online payments are not configured yet."}
+                  {" "}Connecting Square authorises this app with the club&apos;s Square account
+                  {squareStatus.fee_bps > 0
+                    ? ` and enables the ${(squareStatus.fee_bps / 100).toFixed(2)}% platform fee per payment.`
+                    : "."}
+                </p>
+              )}
+              {squareStatus.app_configured ? (
+                <button className="btn-ghost" onClick={connectSquare} disabled={connecting} style={{ fontSize: 13 }}>
+                  {connecting ? "Opening Square…" : squareStatus.connected ? "Reconnect Square" : "Connect Square"}
+                </button>
+              ) : (
+                <p style={{ margin: 0, fontSize: 12.5 }}>
+                  To enable connecting, add SQUARE_APP_ID and SQUARE_APP_SECRET in Vercel first.
+                </p>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Event selector */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: "block", fontSize: 12, color: "var(--quiet)", marginBottom: 4 }}>Event</label>

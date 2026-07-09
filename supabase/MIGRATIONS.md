@@ -90,6 +90,10 @@ hasn't been run.
 - [ ] **v30** — `schema-v30-replacement-numbers.sql`
       → adds replacement-number fields to online event registrations so entrants
         can buy replacement numbers for $5 during event checkout.
+- [ ] **v31** — `schema-v31-square-oauth.sql`
+      → stores the club's Square authorisation (OAuth) so online payments can
+        run through the app's Square connection and carry the platform fee.
+        Needed before the "Connect Square" button on the Registrations page works.
 
 Tick these off once you've run them.
 
@@ -129,6 +133,7 @@ Tick these off once you've run them.
 | `schema-v28-member-horse-numbering-grants.sql` | Grants service-role registry reads for automatic member horse back numbers |
 | `schema-v29-day-memberships.sql` | Records $20 day memberships purchased during online event entry |
 | `schema-v30-replacement-numbers.sql` | Records $5 replacement numbers purchased during online event entry |
+| `schema-v31-square-oauth.sql` | Stores the club's Square OAuth connection for payments + the platform fee split |
 
 ## For whoever updates the code next
 

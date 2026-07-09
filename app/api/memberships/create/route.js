@@ -4,12 +4,8 @@ import { adminClient } from "../../_lib/registrations";
 import { markMembershipPaid } from "../../_lib/memberships";
 import { escapeIlike } from "../../_lib/memberAuth";
 import { assignHorseNumber, cleanHorseFields } from "../../_lib/horseNumbers";
+import { createSquarePaymentLink } from "../../_lib/squarePayments";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
-
-const squareBase =
-  process.env.SQUARE_ENVIRONMENT === "sandbox"
-    ? "https://connect.squareupsandbox.com"
-    : "https://connect.squareup.com";
 
 export async function POST(req) {
   try {
@@ -136,13 +132,6 @@ export async function POST(req) {
       return NextResponse.json({ redirect: `/membership/success?m=${member.id}` });
     }
 
-    if (!process.env.SQUARE_ACCESS_TOKEN || !process.env.SQUARE_LOCATION_ID) {
-      return NextResponse.json(
-        { error: "Payment is not configured yet. Please contact the club." },
-        { status: 503 }
-      );
-    }
-
     const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
 
     const squarePayload = {
@@ -166,23 +155,11 @@ export async function POST(req) {
       pre_populated_data: { buyer_email: cleanedEmail },
     };
 
-    const squareRes = await fetch(`${squareBase}/v2/online-checkout/payment-links`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-        "Square-Version": "2024-01-18",
-      },
-      body: JSON.stringify(squarePayload),
-    });
-
-    const squareData = await squareRes.json();
-    if (!squareRes.ok) {
-      const msg = squareData.errors?.[0]?.detail ?? "Square payment setup failed";
-      return NextResponse.json({ error: msg }, { status: 500 });
+    const { link, error: squareError, status: squareStatus } =
+      await createSquarePaymentLink(db, squarePayload);
+    if (squareError) {
+      return NextResponse.json({ error: squareError }, { status: squareStatus ?? 500 });
     }
-
-    const link = squareData.payment_link;
 
     // Save the Square order ID so the webhook can find this application
     await db

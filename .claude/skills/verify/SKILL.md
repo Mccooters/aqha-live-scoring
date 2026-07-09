@@ -21,6 +21,12 @@ description: How to run and verify changes to this app locally (Next.js + live S
   `/api/memberships/check`) with a realistic signed-in payload; drive the
   proxy origin in a browser. Real DB data (classes, membership_types) still
   flows through.
+- Staff (coordinator) pages check `supabase.auth.getSession()` client-side —
+  no server roundtrip. To render them signed-in without real credentials,
+  `addInitScript` a fabricated session JSON into localStorage under
+  `sb-<project-ref>-auth-token` (ref = subdomain of the Supabase URL). Data
+  queries made with the fake token just return empty; staff API routes still
+  401 (verify those separately with curl).
 - Browser driving: system Chrome + `playwright-core` (npm i in the
   scratchpad, `chromium.launch({ channel: "chrome", headless: true })`).
   Quick screenshots without Playwright: `"/Applications/Google

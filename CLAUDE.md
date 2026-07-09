@@ -63,7 +63,27 @@ PR with a clear plain-English description.
 - **Realtime**: pages subscribe to postgres_changes on the tables they care
   about (`entries`, `classes`, `events`, `registrations`, `horses`,
   `horse_registrations`, `high_points`) and simply re-fetch on any change.
-- **Payments (Square)** — `app/api/registrations/create/route.js` creates a
+- **Payments (Square)** — all payment links are created through
+  `app/api/_lib/squarePayments.js` (`createSquarePaymentLink()`), which picks
+  its credentials in this order: (1) the club's OAuth connection
+  (schema-v31 `square_connection` table, service-role only — created via the
+  "Connect Square" button on the coordinator Registrations page, routes under
+  `app/api/square/`: connect [staff JWT] → Square authorize → callback
+  [state-cookie CSRF check] stores access/refresh tokens; access tokens are
+  auto-refreshed when <3 days from expiry), else (2) the club's own
+  `SQUARE_ACCESS_TOKEN` env var — the original setup and permanent fallback,
+  so payments never break if the connection is absent. When the OAuth
+  connection is in use AND `SQUARE_APP_FEE_BPS` is set (e.g. 50 = 0.5%), each
+  checkout carries `checkout_options.app_fee_money` — Square automatically
+  pays that slice to the Square account that OWNS the OAuth application (the
+  developer's), per Square's app-fee model (requires the
+  PAYMENTS_WRITE_ADDITIONAL_RECIPIENTS scope, granted during connect). The
+  fee is buyer-invisible (not a line item) and comes out of the seller's net.
+  Env vars for the connection: `SQUARE_APP_ID`, `SQUARE_APP_SECRET`,
+  `SQUARE_APP_FEE_BPS` (unset/0 = no fee). NOTE: once OAuth is live, the
+  webhook subscription (and `SQUARE_WEBHOOK_SIGNATURE_KEY`) must belong to
+  that same Square application.
+  `app/api/registrations/create/route.js` creates a
   Square Payment Link (online-checkout) for paid class entry fees; the
   webhook (`app/api/webhooks/square/route.js`) verifies the HMAC signature
   (fail-closed: rejects everything if `SQUARE_WEBHOOK_SIGNATURE_KEY` is
