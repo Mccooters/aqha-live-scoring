@@ -116,6 +116,18 @@ export default function RegistrationsPage() {
     }
   };
 
+  const disconnectSquare = async () => {
+    if (!confirm("Disconnect Square?\n\nPayments will go back to using the club's own Square access token. You can reconnect at any time.")) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const res = await fetch("/api/square/connect", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}` },
+    });
+    const data = await res.json();
+    if (data.error) { alert("Error: " + data.error); return; }
+    window.location.reload();
+  };
+
   if (!session) {
     return (
       <main className="wrap" style={{ maxWidth: 440 }}>
@@ -187,10 +199,43 @@ export default function RegistrationsPage() {
                     : "."}
                 </p>
               )}
+              {squareStatus.diagnostics && (
+                <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, background: "#fff", fontSize: 12.5 }}>
+                  <div style={{ fontWeight: 800, color: "var(--leather)", marginBottom: 4 }}>Health check (live from Square)</div>
+                  <div>Mode: <strong>{squareStatus.diagnostics.environment}</strong> · Credentials in use: <strong>{
+                    { oauth: "connected Square account", fallback_token: "club's own access token", none: "none — payments can't run" }[squareStatus.diagnostics.source]
+                  }</strong></div>
+                  {squareStatus.diagnostics.square_error ? (
+                    <div style={{ color: "var(--clay)", fontWeight: 700, marginTop: 4 }}>
+                      ✗ Square rejected these credentials: {squareStatus.diagnostics.square_error}
+                    </div>
+                  ) : squareStatus.diagnostics.location_ok === false ? (
+                    <div style={{ color: "var(--clay)", fontWeight: 700, marginTop: 4 }}>
+                      ✗ These credentials can NOT see the configured location {squareStatus.diagnostics.configured_location} — this is exactly what causes &quot;Invalid location id&quot; at checkout. They belong to{" "}
+                      {squareStatus.diagnostics.locations.length
+                        ? `a Square account whose locations are: ${squareStatus.diagnostics.locations.map((l) => `${l.name} (${l.id})`).join(", ")}`
+                        : "a Square account with no locations — almost certainly the wrong account"}.
+                    </div>
+                  ) : squareStatus.diagnostics.location_ok === true ? (
+                    <div style={{ color: "#2D7A52", fontWeight: 700, marginTop: 4 }}>
+                      ✓ Location {squareStatus.diagnostics.configured_location} is visible to these credentials — payments should work.
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 4 }}>No location configured (SQUARE_LOCATION_ID).</div>
+                  )}
+                </div>
+              )}
               {squareStatus.app_configured ? (
-                <button className="btn-ghost" onClick={connectSquare} disabled={connecting} style={{ fontSize: 13 }}>
-                  {connecting ? "Opening Square…" : squareStatus.connected ? "Reconnect Square" : "Connect Square"}
-                </button>
+                <span style={{ display: "inline-flex", gap: 8, flexWrap: "wrap" }}>
+                  <button className="btn-ghost" onClick={connectSquare} disabled={connecting} style={{ fontSize: 13 }}>
+                    {connecting ? "Opening Square…" : squareStatus.connected ? "Reconnect Square" : "Connect Square"}
+                  </button>
+                  {squareStatus.connected && (
+                    <button className="btn-ghost" onClick={disconnectSquare} style={{ fontSize: 13, color: "var(--clay)", borderColor: "var(--clay)" }}>
+                      Disconnect
+                    </button>
+                  )}
+                </span>
               ) : (
                 <p style={{ margin: 0, fontSize: 12.5 }}>
                   To enable connecting, add SQUARE_APP_ID and SQUARE_APP_SECRET in Vercel first.

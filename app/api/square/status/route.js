@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { adminClient } from "../../_lib/registrations";
-import { appFeeBps } from "../../_lib/squarePayments";
+import { appFeeBps, squareDiagnostics } from "../../_lib/squarePayments";
 
 // What the coordinator Registrations page shows in its "Square connection"
 // card. Staff-only, and never returns the tokens themselves.
@@ -44,6 +44,15 @@ export async function GET(req) {
       connection = null; // table missing — migration v31 not run yet
     }
 
+    // Live check against Square: which locations can the active credentials
+    // actually see? Never fatal — the card still renders if Square is down.
+    let diagnostics = null;
+    try {
+      diagnostics = await squareDiagnostics(db);
+    } catch (err) {
+      console.error("square diagnostics failed:", err);
+    }
+
     return NextResponse.json({
       connected: Boolean(connection),
       merchant_id: connection?.merchant_id ?? null,
@@ -51,6 +60,7 @@ export async function GET(req) {
       app_configured: Boolean(process.env.SQUARE_APP_ID && process.env.SQUARE_APP_SECRET),
       fallback_token: Boolean(process.env.SQUARE_ACCESS_TOKEN),
       fee_bps: appFeeBps(),
+      diagnostics,
     });
   } catch (err) {
     console.error("square/status error:", err);

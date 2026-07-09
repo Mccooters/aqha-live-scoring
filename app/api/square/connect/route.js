@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "crypto";
+import { adminClient } from "../../_lib/registrations";
 import { squareBase, OAUTH_SCOPES } from "../../_lib/squarePayments";
 
 // Starts the "Connect Square" flow from the coordinator Registrations page.
@@ -56,6 +57,28 @@ export async function POST(req) {
     return res;
   } catch (err) {
     console.error("square/connect error:", err);
+    return NextResponse.json({ error: err.message ?? "Unexpected error" }, { status: 500 });
+  }
+}
+
+// Disconnect: forget the stored OAuth connection so payments fall back to
+// the club's own SQUARE_ACCESS_TOKEN. Recovery path for a connection made
+// with the wrong Square account; reconnecting any time re-creates it.
+export async function DELETE(req) {
+  try {
+    const staff = await verifyStaff(req);
+    if (!staff) {
+      return NextResponse.json({ error: "Staff sign-in required" }, { status: 401 });
+    }
+    const db = adminClient();
+    const { error } = await db
+      .from("square_connection")
+      .delete()
+      .neq("merchant_id", ""); // i.e. every row — there's at most a handful
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("square/disconnect error:", err);
     return NextResponse.json({ error: err.message ?? "Unexpected error" }, { status: 500 });
   }
 }

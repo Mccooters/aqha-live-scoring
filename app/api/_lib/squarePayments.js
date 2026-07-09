@@ -101,6 +101,47 @@ export async function getSquareConnection(db) {
   return row;
 }
 
+// Ground truth for the coordinator's Square card: which credentials are
+// live, and — straight from Square — which locations they can actually see.
+// This is what turns "Invalid location id" from a mystery into a reading.
+export async function squareDiagnostics(db) {
+  const connection = await getSquareConnection(db);
+  const token = connection?.access_token ?? process.env.SQUARE_ACCESS_TOKEN;
+  const configuredLocation = process.env.SQUARE_LOCATION_ID ?? null;
+  const result = {
+    source: connection ? "oauth" : process.env.SQUARE_ACCESS_TOKEN ? "fallback_token" : "none",
+    environment: process.env.SQUARE_ENVIRONMENT === "sandbox" ? "sandbox" : "production",
+    configured_location: configuredLocation,
+    locations: [],
+    location_ok: null,
+    square_error: null,
+  };
+  if (!token) return result;
+
+  try {
+    const res = await fetch(`${squareBase()}/v2/locations`, {
+      headers: { Authorization: `Bearer ${token}`, "Square-Version": SQUARE_VERSION },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      result.square_error = data.errors?.[0]?.detail ?? data.errors?.[0]?.code ?? "Square rejected the credentials";
+      return result;
+    }
+    result.locations = (data.locations ?? []).map((l) => ({
+      id: l.id,
+      name: l.name,
+      merchant_id: l.merchant_id,
+      status: l.status,
+    }));
+    result.location_ok = configuredLocation
+      ? result.locations.some((l) => l.id === configuredLocation)
+      : null;
+  } catch (err) {
+    result.square_error = err.message;
+  }
+  return result;
+}
+
 // Create a Square Payment Link for an order. Applies the developer fee when
 // the OAuth connection is in use. `payload` is the normal CreatePaymentLink
 // body minus authentication. Returns { link } or { error, status }.
