@@ -349,7 +349,15 @@ single place that turns `registration_entries` into real `entries` rows —
 called from the webhook, the free-entry path, and the coordinator's manual
 force-approve button. It assigns `draw_order` after the current max per
 class, and auto-assigns sequential `back_number` for clinic entries that
-came in with `back_number = null`. It also sends the app booking confirmation
+came in with `back_number = null`. For SHOW entries with `back_number = null`
+("This horse doesn't have a back number yet" on the entry form, schema-v33),
+approval instead assigns a registry-aware number via `lockInNewHorseNumber()`:
+`assignHorseNumber` (shared with the member portal) reuses the registry
+number when the horse name matches an existing registry horse, else takes
+the next available number AND inserts the horse into the `horses` registry
+(permanent, per back-numbers-for-life; the unique index arbitrates races).
+The assigned number is written back to `registration_entries` so the success
+page and booking email show it. It also sends the app booking confirmation
 email via Resend after approval; Square remains responsible for the payment
 receipt/invoice email.
 

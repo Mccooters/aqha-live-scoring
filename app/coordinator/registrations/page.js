@@ -399,7 +399,7 @@ export default function RegistrationsPage() {
                         {(reg.registration_entries ?? []).map((e) => (
                           <tr key={e.id}>
                             <td className="display" style={{ fontWeight: 700, color: "var(--brass)" }}>
-                              #{String(e.back_number).padStart(3, "0")}
+                              {e.back_number != null ? `#${String(e.back_number).padStart(3, "0")}` : "new"}
                             </td>
                             <td style={{ fontWeight: 600 }}>{e.horse_name}</td>
                             <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>

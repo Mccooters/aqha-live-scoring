@@ -206,6 +206,28 @@ export async function POST(req) {
         if (backKey) seenBackNumbers.set(backKey, true);
       }
 
+      // New horses (no back number yet — one is assigned at payment) can't
+      // be duplicate-checked by number, so check by name within a class.
+      const seenNewHorses = new Map();
+      for (const entry of normalEntries) {
+        if (entry.back_number != null) continue;
+        if (!entry.horse_name) {
+          return NextResponse.json(
+            { error: "Please give the horse's name so a back number can be assigned." },
+            { status: 400 }
+          );
+        }
+        const nameKey = `${entry.class_id}:${normalizeName(entry.horse_name)}`;
+        if (seenNewHorses.has(nameKey)) {
+          const cls = classMap[entry.class_id];
+          return NextResponse.json(
+            { error: `${entry.horse_name} is entered twice for ${classLabel(cls)}. Please remove the duplicate entry.` },
+            { status: 409 }
+          );
+        }
+        seenNewHorses.set(nameKey, true);
+      }
+
       const { data: existingEntries } = await db
         .from("entries")
         .select("class_id, back_number, horse, exhibitor")

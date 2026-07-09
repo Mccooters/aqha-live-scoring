@@ -277,11 +277,36 @@ function blankEntry() {
     _id: Math.random().toString(36).slice(2),
     class_id: "",
     back_number: "",
+    no_back_number: false, // new horse — a number is assigned once payment is confirmed
     horse_name: "",
     exhibitor: "",
     registryChecked: false,
     registryMatched: false,
   };
+}
+
+// The tick-box + note shown under the back-number field in both entry modes.
+function NewHorseToggle({ checked, onChange }) {
+  return (
+    <>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, fontSize: 12.5, color: "var(--leather)", fontWeight: 700, cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          style={{ width: 16, height: 16, flexShrink: 0 }}
+        />
+        <span>This horse doesn&apos;t have a back number yet</span>
+      </label>
+      {checked && (
+        <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "4px 0 0" }}>
+          The next available number will be assigned automatically once payment is
+          confirmed, and registered to this horse permanently — it appears on your
+          booking confirmation.
+        </p>
+      )}
+    </>
+  );
 }
 
 export default function RegisterPage() {
@@ -297,6 +322,7 @@ export default function RegisterPage() {
   const [multiEntry, setMultiEntry] = useState({
     class_ids: [],
     back_number: "",
+    no_back_number: false,
     horse_name: "",
     exhibitor: "",
     registryChecked: false,
@@ -427,6 +453,7 @@ export default function RegisterPage() {
     _id: `multi-${classId}`,
     class_id: classId,
     back_number: multiEntry.back_number,
+    no_back_number: multiEntry.no_back_number,
     horse_name: multiEntry.horse_name,
     exhibitor: multiEntry.exhibitor,
   }));
@@ -483,12 +510,21 @@ export default function RegisterPage() {
   const duplicateInFormMessage = (validEntries) => {
     if (isClinic) return "";
     const seenBackNumbers = new Map();
+    const seenNewHorses = new Map();
     for (const entry of validEntries) {
       const backKey = entry.back_number ? `${entry.class_id}:${entry.back_number}` : "";
       if (backKey && seenBackNumbers.has(backKey)) {
         return `Back #${entry.back_number} (${entry.horse_name}) is entered twice for ${classLabel(entry.class_id)}. Please remove the duplicate entry.`;
       }
       if (backKey) seenBackNumbers.set(backKey, true);
+      // New horses have no number yet, so duplicates are caught by name.
+      const nameKey = !entry.back_number && entry.no_back_number
+        ? `${entry.class_id}:${entry.horse_name.trim().replace(/\s+/g, " ").toLowerCase()}`
+        : "";
+      if (nameKey && seenNewHorses.has(nameKey)) {
+        return `${entry.horse_name} is entered twice for ${classLabel(entry.class_id)}. Please remove the duplicate entry.`;
+      }
+      if (nameKey) seenNewHorses.set(nameKey, true);
     }
     return "";
   };
@@ -499,6 +535,8 @@ export default function RegisterPage() {
       // Back number changed — the previous registry match (if any) no longer applies
       // until the field is re-checked on blur.
       if (field === "back_number") return { ...e, back_number: value, registryChecked: false, registryMatched: false };
+      // "New horse" ticked — the back number is assigned at payment instead.
+      if (field === "no_back_number") return { ...e, no_back_number: value, back_number: "", registryChecked: false, registryMatched: false };
       return { ...e, [field]: value };
     }));
 
@@ -506,6 +544,9 @@ export default function RegisterPage() {
     setMultiEntry((prev) => {
       if (field === "back_number") {
         return { ...prev, back_number: value, registryChecked: false, registryMatched: false };
+      }
+      if (field === "no_back_number") {
+        return { ...prev, no_back_number: value, back_number: "", registryChecked: false, registryMatched: false };
       }
       return { ...prev, [field]: value };
     });
@@ -571,24 +612,25 @@ export default function RegisterPage() {
     setError("");
     if (!contactName.trim()) { setError("Please enter your full name."); return; }
     if (!contactEmail.trim() || !contactEmail.includes("@")) { setError("Please enter a valid email address."); return; }
+    const hasNumber = (e) => e.back_number || e.no_back_number;
     const valid = isClinic
       ? submissionEntries.filter((e) => e.class_id && e.exhibitor.trim())
-      : submissionEntries.filter((e) => e.class_id && e.back_number && e.horse_name.trim() && e.exhibitor.trim());
+      : submissionEntries.filter((e) => e.class_id && hasNumber(e) && e.horse_name.trim() && e.exhibitor.trim());
     if (!valid.length) {
       setError(isClinic
         ? "Please select a spot type and enter your name."
         : isMultiMode
           ? "Please enter the horse details and select at least one class."
-          : "Please complete at least one entry — class, back number, horse name, and exhibitor are all required.");
+          : "Please complete at least one entry — class, back number (or tick “no back number yet”), horse name, and exhibitor are all required.");
       return;
     }
     const incomplete = isClinic
       ? submissionEntries.filter((e) => e.class_id && !e.exhibitor.trim())
-      : submissionEntries.filter((e) => e.class_id && (!e.back_number || !e.horse_name.trim() || !e.exhibitor.trim()));
+      : submissionEntries.filter((e) => e.class_id && (!hasNumber(e) || !e.horse_name.trim() || !e.exhibitor.trim()));
     if (incomplete.length) {
       setError(isClinic
         ? "Please enter your name for each spot selected."
-        : "Some entries are missing details. Please fill in back number, horse name, and exhibitor for each class selected.");
+        : "Some entries are missing details. Please fill in back number (or tick “no back number yet”), horse name, and exhibitor for each class selected.");
       return;
     }
     const duplicateInForm = duplicateInFormMessage(valid);
@@ -623,7 +665,7 @@ export default function RegisterPage() {
           membership_renewal_type_id: renewalTypeId || null,
           entries: valid.map((e) => ({
             class_id: e.class_id,
-            back_number: isClinic ? null : parseInt(e.back_number, 10),
+            back_number: isClinic || e.no_back_number ? null : parseInt(e.back_number, 10),
             horse_name: e.horse_name.trim() || "",
             exhibitor: e.exhibitor.trim(),
           })),
@@ -844,16 +886,21 @@ export default function RegisterPage() {
             </div>
             <div style={{ paddingBottom: 8 }}>
               <label className="modal-label">Back number *</label>
-              <input className="field" type="number" style={{ width: "100%", fontSize: 16 }}
+              <input className="field" type="number" style={{ width: "100%", fontSize: 16, ...(multiEntry.no_back_number ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
                 value={multiEntry.back_number}
+                disabled={multiEntry.no_back_number}
                 onChange={(e) => updateMultiEntry("back_number", e.target.value)}
                 onBlur={(e) => lookupMultiHorse(e.target.value)}
-                placeholder="e.g. 301" />
-              {multiEntry.registryChecked && !multiEntry.registryMatched && (
+                placeholder={multiEntry.no_back_number ? "Assigned once payment is confirmed" : "e.g. 301"} />
+              {!multiEntry.no_back_number && multiEntry.registryChecked && !multiEntry.registryMatched && (
                 <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
-                  No horse found with this back number in our registry — double-check the number, or continue if this is a new horse.
+                  No horse found with this back number in our registry — double-check the number, or tick the box below if this is a new horse.
                 </p>
               )}
+              <NewHorseToggle
+                checked={multiEntry.no_back_number}
+                onChange={(v) => updateMultiEntry("no_back_number", v)}
+              />
 
               <label className="modal-label">Horse name *</label>
               <input className="field" style={{ width: "100%", fontSize: 16, ...(multiEntry.registryMatched ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
@@ -939,16 +986,21 @@ export default function RegisterPage() {
                 {!isClinic && (
                   <>
                     <label className="modal-label">Back number *</label>
-                    <input className="field" type="number" style={{ width: "100%", fontSize: 16 }}
+                    <input className="field" type="number" style={{ width: "100%", fontSize: 16, ...(entry.no_back_number ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
                       value={entry.back_number}
+                      disabled={entry.no_back_number}
                       onChange={(e) => updateEntry(entry._id, "back_number", e.target.value)}
                       onBlur={(e) => lookupHorse(entry._id, e.target.value)}
-                      placeholder="e.g. 301" />
-                    {entry.registryChecked && !entry.registryMatched && (
+                      placeholder={entry.no_back_number ? "Assigned once payment is confirmed" : "e.g. 301"} />
+                    {!entry.no_back_number && entry.registryChecked && !entry.registryMatched && (
                       <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
-                        No horse found with this back number in our registry — double-check the number, or continue if this is a new horse.
+                        No horse found with this back number in our registry — double-check the number, or tick the box below if this is a new horse.
                       </p>
                     )}
+                    <NewHorseToggle
+                      checked={entry.no_back_number}
+                      onChange={(v) => updateEntry(entry._id, "no_back_number", v)}
+                    />
                   </>
                 )}
 

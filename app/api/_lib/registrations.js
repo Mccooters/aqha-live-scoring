@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { deleteSquarePaymentLink } from "./squarePayments";
+import { assignHorseNumber } from "./horseNumbers";
 
 export function adminClient() {
   return createClient(
@@ -279,6 +280,45 @@ async function sendBookingConfirmation(db, registrationId) {
   }
 }
 
+// "Lock in" a back number for a show horse entered without one: match the
+// registry by name (reusing the existing number if the horse IS registered),
+// otherwise take the next available number and register the horse
+// permanently. The unique index on horses.back_number is the referee when
+// two payments land at once — on a clash we bump and retry.
+async function lockInNewHorseNumber(db, horseName, owner, reservedNumbers) {
+  const { fields } = await assignHorseNumber(db, { horse_name: horseName }, null, reservedNumbers);
+  let backNumber = fields.back_number;
+  const alreadyRegistered = await (async () => {
+    const { data } = await db
+      .from("horses")
+      .select("id")
+      .eq("back_number", backNumber)
+      .maybeSingle();
+    return Boolean(data);
+  })();
+  if (alreadyRegistered) return { backNumber, horseName: fields.horse_name }; // matched an existing registry horse
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { error } = await db
+      .from("horses")
+      .insert({ back_number: backNumber, name: fields.horse_name, owner: owner || null });
+    if (!error) return { backNumber, horseName: fields.horse_name };
+    const msg = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
+    if (msg.includes("23505") || msg.includes("duplicate")) {
+      backNumber += 1; // someone claimed it between our check and insert
+      continue;
+    }
+    if (msg.includes("42501") || msg.includes("permission denied")) {
+      // schema-v33 not run — the entries still get the number, but the horse
+      // couldn't be added to the registry, so the number isn't reserved.
+      console.error("Could not register new horse (run schema-v33) — number assigned but not reserved:", fields.horse_name, backNumber);
+      return { backNumber, horseName: fields.horse_name };
+    }
+    throw new Error(error.message);
+  }
+  throw new Error(`Could not reserve a back number for ${fields.horse_name}`);
+}
+
 export async function approveRegistration(db, registrationId) {
   // Claim the registration first: flip it to paid only if it isn't already.
   // Square retries webhooks, so this can be called twice for one payment —
@@ -288,9 +328,10 @@ export async function approveRegistration(db, registrationId) {
     .update({ status: "paid" })
     .eq("id", registrationId)
     .neq("status", "paid")
-    .select("id");
+    .select("id, event:events(event_type)");
   if (claimErr) throw new Error(claimErr.message);
   if (!claimed?.length) return; // another call already approved it
+  const isClinic = claimed[0]?.event?.event_type === "clinic";
 
   const { data: regEntries, error: fetchErr } = await db
     .from("registration_entries")
@@ -299,6 +340,37 @@ export async function approveRegistration(db, registrationId) {
   if (fetchErr) {
     await db.from("registrations").update({ status: "pending" }).eq("id", registrationId);
     throw new Error(fetchErr.message);
+  }
+
+  // Show entries submitted without a back number ("new horse" on the entry
+  // form): assign now that payment is confirmed — one number per horse name
+  // within the registration — and write it back to registration_entries so
+  // the success page and booking email show it. Clinics keep their own
+  // sequential numbering further down.
+  if (!isClinic && regEntries?.some((e) => e.back_number == null)) {
+    try {
+      const assigned = {}; // normalized horse name → locked-in number
+      const reserved = [];
+      for (const entry of regEntries) {
+        if (entry.back_number != null) continue;
+        const nameKey = String(entry.horse_name ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+        if (!assigned[nameKey]) {
+          assigned[nameKey] = await lockInNewHorseNumber(db, entry.horse_name, entry.exhibitor, reserved);
+          reserved.push(assigned[nameKey].backNumber);
+        }
+        entry.back_number = assigned[nameKey].backNumber;
+        entry.horse_name = assigned[nameKey].horseName;
+        await db
+          .from("registration_entries")
+          .update({ back_number: entry.back_number, horse_name: entry.horse_name })
+          .eq("id", entry.id);
+      }
+    } catch (err) {
+      // Money may already be taken — put the registration back so the
+      // webhook retry or force-approve can finish the job.
+      await db.from("registrations").update({ status: "pending" }).eq("id", registrationId);
+      throw new Error(`Assigning back numbers failed: ${err.message}`);
+    }
   }
 
   if (regEntries?.length) {

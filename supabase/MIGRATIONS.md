@@ -98,6 +98,11 @@ hasn't been run.
       → lets staff cancel unpaid registrations (and lets them auto-expire after
         48 hours), including killing the Square checkout link so it can't be
         paid later. Cancelling works without this, but link-killing needs it.
+- [ ] **v33** — `schema-v33-entry-horse-numbering.sql`
+      → lets the entry form auto-assign the next available back number to a
+        brand-new horse when payment is confirmed, registering the horse
+        permanently. Without this the number is assigned but not saved to the
+        registry (so it isn't reserved for the horse).
 
 Tick these off once you've run them.
 
@@ -139,6 +144,7 @@ Tick these off once you've run them.
 | `schema-v30-replacement-numbers.sql` | Records $5 replacement numbers purchased during online event entry |
 | `schema-v31-square-oauth.sql` | Stores the club's Square OAuth connection for payments + the platform fee split |
 | `schema-v32-registration-cancellation.sql` | Staff cancel + 48h auto-expiry for unpaid registrations, incl. Square link deletion |
+| `schema-v33-entry-horse-numbering.sql` | Auto-assign + permanently register back numbers for new horses entered online |
 
 ## For whoever updates the code next
 

@@ -118,7 +118,7 @@ function SuccessContent() {
                       fontSize: 14,
                     }}>
                       <div style={{ fontWeight: 600 }}>
-                        Back #{String(e.back_number).padStart(3, "0")} · {e.horse_name}
+                        {e.back_number != null ? `Back #${String(e.back_number).padStart(3, "0")} · ` : ""}{e.horse_name}
                       </div>
                       <div style={{ color: "var(--quiet)", fontSize: 13 }}>{e.exhibitor}</div>
                     </div>
