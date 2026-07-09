@@ -265,6 +265,15 @@ PR with a clear plain-English description.
   (pending|paid|cancelled), square_order_id/checkout_url/payment_id,
   total_cents. Staff-read-only since schema-v16 (contains personal contact
   details); the public success page reads via `app/api/registrations/status`.
+  Since schema-v32 also square_payment_link_id + cancelled_at + cancel_reason
+  ('staff'|'expired'): staff can cancel a pending registration from the
+  Registrations page, and pending ones auto-expire after 48h
+  (`expireStaleRegistrations` — lazy sweep on new registrations and when
+  staff open the page, no cron). Cancelling deletes the Square payment link
+  (`deleteSquarePaymentLink`) so it can't be paid afterwards; if an
+  undeletable old link IS paid, the webhook still creates the entries
+  (approveRegistration claims anything `neq paid`, cancelled included —
+  money and entries stay consistent).
 - `registration_entries` — registration_id (cascade delete), class_id
   (cascade delete — schema-v10), back_number (nullable — clinics auto-assign
   sequentially on approval), horse_name, exhibitor.

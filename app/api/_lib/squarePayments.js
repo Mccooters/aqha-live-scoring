@@ -144,12 +144,41 @@ export async function squareDiagnostics(db, connectionArg) {
   return result;
 }
 
+// The credentials every Square call should use right now: the OAuth
+// connection when the club has linked Square, else the club's own token.
+export async function resolveSquareToken(db) {
+  const connection = await getSquareConnection(db);
+  return {
+    connection,
+    token: connection?.access_token ?? process.env.SQUARE_ACCESS_TOKEN ?? null,
+  };
+}
+
+// Delete a payment link so an abandoned/cancelled checkout can no longer be
+// paid. A 404 counts as success — the link is equally dead either way.
+export async function deleteSquarePaymentLink(db, linkId) {
+  if (!linkId) return false;
+  const { token } = await resolveSquareToken(db);
+  if (!token) return false;
+  const res = await fetch(
+    `${squareBase()}/v2/online-checkout/payment-links/${encodeURIComponent(linkId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}`, "Square-Version": SQUARE_VERSION },
+    }
+  );
+  if (!res.ok && res.status !== 404) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.errors?.[0]?.detail ?? `Square link delete failed (${res.status})`);
+  }
+  return true;
+}
+
 // Create a Square Payment Link for an order. Applies the developer fee when
 // the OAuth connection is in use. `payload` is the normal CreatePaymentLink
 // body minus authentication. Returns { link } or { error, status }.
 export async function createSquarePaymentLink(db, payload) {
-  const connection = await getSquareConnection(db);
-  const token = connection?.access_token ?? process.env.SQUARE_ACCESS_TOKEN;
+  const { connection, token } = await resolveSquareToken(db);
   if (!token || !process.env.SQUARE_LOCATION_ID) {
     return {
       error: "Payment is not configured yet. Please contact the club.",

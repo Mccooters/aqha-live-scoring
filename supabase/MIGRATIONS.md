@@ -94,6 +94,10 @@ hasn't been run.
       → stores the club's Square authorisation (OAuth) so online payments can
         run through the app's Square connection and carry the platform fee.
         Needed before the "Connect Square" button on the Registrations page works.
+- [ ] **v32** — `schema-v32-registration-cancellation.sql`
+      → lets staff cancel unpaid registrations (and lets them auto-expire after
+        48 hours), including killing the Square checkout link so it can't be
+        paid later. Cancelling works without this, but link-killing needs it.
 
 Tick these off once you've run them.
 
@@ -134,6 +138,7 @@ Tick these off once you've run them.
 | `schema-v29-day-memberships.sql` | Records $20 day memberships purchased during online event entry |
 | `schema-v30-replacement-numbers.sql` | Records $5 replacement numbers purchased during online event entry |
 | `schema-v31-square-oauth.sql` | Stores the club's Square OAuth connection for payments + the platform fee split |
+| `schema-v32-registration-cancellation.sql` | Staff cancel + 48h auto-expiry for unpaid registrations, incl. Square link deletion |
 
 ## For whoever updates the code next
 

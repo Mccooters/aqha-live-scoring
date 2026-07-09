@@ -45,6 +45,40 @@ export default function RegistrationsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Auto-expiry: whenever staff view an event's registrations, sweep its
+  // abandoned checkouts (unpaid > 48h) — they get cancelled and their Square
+  // links deleted. The realtime subscription refreshes the list after.
+  useEffect(() => {
+    if (!session || !eventId) return;
+    fetch("/api/registrations/cancel", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ expire: true, event_id: eventId }),
+    })
+      .then((res) => res.json())
+      .then((data) => { if (data.expired > 0) load(); })
+      .catch(() => {});
+  }, [session, eventId, load]);
+
+  const cancelRegistration = async (reg) => {
+    if (!confirm(`Cancel ${reg.contact_name}'s unpaid registration?\n\nTheir Square checkout link will stop working and no entries will be created. They can always submit a fresh entry. This can't be undone.`)) return;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const res = await fetch("/api/registrations/cancel", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({ registration_id: reg.id }),
+    });
+    const data = await res.json();
+    if (data.error) alert("Error: " + data.error);
+    else await load();
+  };
+
   // Realtime updates
   useEffect(() => {
     if (!eventId) return;
@@ -151,7 +185,7 @@ export default function RegistrationsPage() {
   }
 
   const paid = registrations.filter((r) => r.status === "paid");
-  const pending = registrations.filter((r) => r.status !== "paid");
+  const pending = registrations.filter((r) => r.status === "pending");
   const revenue = paid.reduce((s, r) => s + (r.total_cents ?? 0), 0);
   const entryCount = registrations.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
   const dayMembershipCount = paid.filter((r) => r.day_membership).length;
@@ -308,8 +342,9 @@ export default function RegistrationsPage() {
         {registrations.map((reg) => {
           const isExpanded = expanded === reg.id;
           const isPaid = reg.status === "paid";
+          const isCancelled = reg.status === "cancelled";
           return (
-            <section key={reg.id} className="card" style={{ opacity: isPaid ? 1 : 0.75 }}>
+            <section key={reg.id} className="card" style={{ opacity: isPaid ? 1 : isCancelled ? 0.55 : 0.75 }}>
               <div
                 className="card-head"
                 style={{ cursor: "pointer" }}
@@ -325,10 +360,16 @@ export default function RegistrationsPage() {
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{fmtMoney(reg.total_cents)}</span>
-                  <span className={`badge ${isPaid ? "live" : "upcoming"}`}>
-                    {isPaid ? "paid" : "pending"}
-                  </span>
+                  <span style={{ fontWeight: 700, fontSize: 14, textDecoration: isCancelled ? "line-through" : "none" }}>{fmtMoney(reg.total_cents)}</span>
+                  {isCancelled ? (
+                    <span className="badge" style={{ background: "#8B8073", color: "#fff" }}>
+                      {reg.cancel_reason === "expired" ? "expired" : "cancelled"}
+                    </span>
+                  ) : (
+                    <span className={`badge ${isPaid ? "live" : "upcoming"}`}>
+                      {isPaid ? "paid" : "pending"}
+                    </span>
+                  )}
                   <span style={{ fontSize: 13, color: "var(--quiet)" }}>{isExpanded ? "▲" : "▼"}</span>
                 </div>
               </div>
@@ -370,8 +411,8 @@ export default function RegistrationsPage() {
                     <p style={{ color: "var(--quiet)", fontSize: 13, padding: "4px 0 0" }}>No entry details found.</p>
                   )}
 
-                  {!isPaid && (
-                    <div style={{ padding: "10px 0 0" }}>
+                  {!isPaid && !isCancelled && (
+                    <div style={{ padding: "10px 0 0", display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button
                         className="btn-ghost"
                         style={{ fontSize: 12 }}
@@ -380,7 +421,22 @@ export default function RegistrationsPage() {
                       >
                         {approving === reg.id ? "Creating entries…" : "Force-create entries (Square payment confirmed manually)"}
                       </button>
+                      <button
+                        className="btn-ghost"
+                        style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
+                        onClick={() => cancelRegistration(reg)}
+                      >
+                        Cancel registration
+                      </button>
                     </div>
+                  )}
+                  {isCancelled && (
+                    <p style={{ color: "var(--quiet)", fontSize: 12.5, padding: "8px 0 0", margin: 0 }}>
+                      {reg.cancel_reason === "expired"
+                        ? "Expired automatically after 48 hours unpaid — the checkout link no longer works."
+                        : "Cancelled by staff — the checkout link no longer works."}
+                      {" "}No entries were created.
+                    </p>
                   )}
                 </div>
               )}

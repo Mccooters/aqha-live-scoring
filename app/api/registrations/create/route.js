@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { adminClient, approveRegistration } from "../../_lib/registrations";
+import { adminClient, approveRegistration, expireStaleRegistrations } from "../../_lib/registrations";
 import { membershipRequirement, hasCurrentMembership, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
 import { getMemberAccount } from "../../_lib/memberAuth";
 import { createSquarePaymentLink } from "../../_lib/squarePayments";
@@ -48,6 +48,14 @@ export async function POST(req) {
         ? "Entries for this event have not opened yet."
         : "Entries for this event are now closed. Please contact the show secretary.";
       return NextResponse.json({ error: msg }, { status: 400 });
+    }
+
+    // Lazy housekeeping: cancel this event's abandoned checkouts (>48h
+    // unpaid) whenever a new registration comes in. Never blocks the entry.
+    try {
+      await expireStaleRegistrations(db, { eventId: event_id });
+    } catch (err) {
+      console.error("Stale-registration sweep failed:", err);
     }
 
     // Membership renewal add-on (offered during July only). The renewal
@@ -445,6 +453,17 @@ export async function POST(req) {
       .from("registrations")
       .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
       .eq("id", reg.id);
+
+    // The link id lets a later cancellation delete the checkout at Square.
+    // Separate best-effort write: pre-v32 databases don't have the column,
+    // and that must never break the payment that's about to happen.
+    if (link?.id) {
+      const { error: linkIdErr } = await db
+        .from("registrations")
+        .update({ square_payment_link_id: link.id })
+        .eq("id", reg.id);
+      if (linkIdErr) console.error("Could not store square_payment_link_id (run schema-v32):", linkIdErr.message);
+    }
 
     // The renewal shares the same order — the webhook marks it paid by this
     // id, and the portal can reopen the checkout while it's still pending.

@@ -1,10 +1,81 @@
 import { createClient } from "@supabase/supabase-js";
+import { deleteSquarePaymentLink } from "./squarePayments";
 
 export function adminClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
+}
+
+// Unpaid registrations older than this are cancelled automatically.
+export const REGISTRATION_EXPIRY_HOURS = 48;
+
+// Cancel one pending registration: flip the status (atomically, so a payment
+// racing in still wins) and delete its Square checkout link so it can't be
+// paid afterwards. Returns false when it wasn't pending (already paid or
+// cancelled). `reason` is 'staff' or 'expired'.
+export async function cancelRegistration(db, registrationId, reason) {
+  const patch = {
+    status: "cancelled",
+    cancelled_at: new Date().toISOString(),
+    cancel_reason: reason,
+  };
+  let { data, error } = await db
+    .from("registrations")
+    .update(patch)
+    .eq("id", registrationId)
+    .eq("status", "pending")
+    .select("id, square_payment_link_id");
+  if (error) {
+    // Before migration v32 the extra columns don't exist — cancel anyway.
+    ({ data, error } = await db
+      .from("registrations")
+      .update({ status: "cancelled" })
+      .eq("id", registrationId)
+      .eq("status", "pending")
+      .select("id"));
+  }
+  if (error) throw new Error(error.message);
+  if (!data?.length) return false;
+
+  const linkId = data[0].square_payment_link_id;
+  if (linkId) {
+    try {
+      await deleteSquarePaymentLink(db, linkId);
+    } catch (err) {
+      // The registration is still cancelled; a payment on the surviving link
+      // is honoured by the webhook (it revives non-paid registrations).
+      console.error(`Could not delete Square link for registration ${registrationId}:`, err.message);
+    }
+  }
+  return true;
+}
+
+// Auto-expiry sweep: cancel every pending registration older than 48 hours
+// (optionally just one event's). Runs lazily — on new registrations and when
+// staff open the Registrations page — so no scheduled job is needed, the
+// same idiom as member session cleanup. Returns how many were cancelled.
+export async function expireStaleRegistrations(db, { eventId } = {}) {
+  const cutoff = new Date(Date.now() - REGISTRATION_EXPIRY_HOURS * 3600 * 1000).toISOString();
+  let query = db
+    .from("registrations")
+    .select("id")
+    .eq("status", "pending")
+    .lt("created_at", cutoff);
+  if (eventId) query = query.eq("event_id", eventId);
+  const { data, error } = await query;
+  if (error || !data?.length) return 0;
+
+  let expired = 0;
+  for (const row of data) {
+    try {
+      if (await cancelRegistration(db, row.id, "expired")) expired += 1;
+    } catch (err) {
+      console.error(`Auto-expiry failed for registration ${row.id}:`, err.message);
+    }
+  }
+  return expired;
 }
 
 function formatMoney(cents) {
