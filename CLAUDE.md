@@ -209,10 +209,14 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v25)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v34)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
+  ground_fee_cents + admin_fee_cents (schema-v34 — one-off fees charged on a
+  person's FIRST paid registration for the event, matched by email and only
+  waived when an earlier paid registration's `registrations.fees_cents` > 0;
+  the entry form checks via `app/api/registrations/fees-status`),
   event_type: `show` | `clinic`, entries_open (legacy boolean, superseded by
   status, kept for backwards compatibility but unused).
 - `classes` — event_id, num, name, judge, judge2 (optional second judge),
@@ -263,7 +267,8 @@ PR with a clear plain-English description.
   via `app/api/account/*`.
 - `registrations` — event_id, contact_name, contact_email, status
   (pending|paid|cancelled), square_order_id/checkout_url/payment_id,
-  total_cents. Staff-read-only since schema-v16 (contains personal contact
+  total_cents, fees_cents (schema-v34 — the one-off ground/admin fee portion
+  of the total). Staff-read-only since schema-v16 (contains personal contact
   details); the public success page reads via `app/api/registrations/status`.
   Since schema-v32 also square_payment_link_id + cancelled_at + cancel_reason
   ('staff'|'expired'): staff can cancel a pending registration from the

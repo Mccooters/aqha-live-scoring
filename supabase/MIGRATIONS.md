@@ -103,6 +103,10 @@ hasn't been run.
         brand-new horse when payment is confirmed, registering the horse
         permanently. Without this the number is assigned but not saved to the
         registry (so it isn't reserved for the horse).
+- [ ] **v34** — `schema-v34-event-fees.sql`
+      → adds a per-event **ground fee** and **admin fee** on top of the
+        per-class entry fee, charged once per person per event (coming back
+        to add more entries doesn't charge them again).
 
 Tick these off once you've run them.
 
@@ -145,6 +149,7 @@ Tick these off once you've run them.
 | `schema-v31-square-oauth.sql` | Stores the club's Square OAuth connection for payments + the platform fee split |
 | `schema-v32-registration-cancellation.sql` | Staff cancel + 48h auto-expiry for unpaid registrations, incl. Square link deletion |
 | `schema-v33-entry-horse-numbering.sql` | Auto-assign + permanently register back numbers for new horses entered online |
+| `schema-v34-event-fees.sql` | Per-event ground fee + admin fee, charged once per person per event |
 
 ## For whoever updates the code next
 

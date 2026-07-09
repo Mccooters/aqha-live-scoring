@@ -339,6 +339,7 @@ export default function RegisterPage() {
   const [membershipStatus, setMembershipStatus] = useState(null); // null | "member" | "none" | "unknown"
   const [dayMembership, setDayMembership] = useState(false);
   const [replacementNumbers, setReplacementNumbers] = useState(false);
+  const [feesDue, setFeesDue] = useState(null); // null = unknown (assume due), false = already paid for this event
   const [rulesAccepted, setRulesAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -449,6 +450,34 @@ export default function RegisterPage() {
   }, [memberAccount, membershipRequired]);
 
   const feePerClass = event?.entry_fee_cents ?? 0;
+  // One-off ground/admin fees (schema-v34) — charged once per person per
+  // event. Shown as due until the server confirms this email already paid
+  // them; the server re-checks at submission either way.
+  const groundFee = event?.ground_fee_cents ?? 0;
+  const adminFee = event?.admin_fee_cents ?? 0;
+  const oneOffFees = groundFee + adminFee;
+  const chargeFees = oneOffFees > 0 && feesDue !== false;
+
+  const checkFees = async (email) => {
+    if (oneOffFees === 0 || !email?.trim() || !email.includes("@")) { setFeesDue(null); return; }
+    try {
+      const params = new URLSearchParams({ event_id: eventId, email: email.trim() });
+      const res = await fetch(`/api/registrations/fees-status?${params.toString()}`);
+      const data = res.ok ? await res.json() : null;
+      setFeesDue(data?.fees_due === false ? false : data?.fees_due === true ? true : null);
+    } catch {
+      setFeesDue(null);
+    }
+  };
+  // Signed-in members never blur the email field, so check their fees once
+  // the account and the event's fee amounts are both known.
+  useEffect(() => {
+    if (memberAccount?.email && oneOffFees > 0 && feesDue === null) {
+      checkFees(memberAccount.email);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberAccount, oneOffFees]);
+
   const multiEntries = multiEntry.class_ids.map((classId) => ({
     _id: `multi-${classId}`,
     class_id: classId,
@@ -474,6 +503,7 @@ export default function RegisterPage() {
   const totalCents = filledEntries.length * feePerClass
     + (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0)
     + (replacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0)
+    + (chargeFees ? oneOffFees : 0)
     + renewalCents;
 
   useEffect(() => {
@@ -798,8 +828,8 @@ export default function RegisterPage() {
                 <label className="modal-label">Email address *</label>
                 <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
                   value={contactEmail}
-                  onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); setDayMembership(false); }}
-                  onBlur={(e) => checkMembership(e.target.value)}
+                  onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); setDayMembership(false); setFeesDue(null); }}
+                  onBlur={(e) => { checkMembership(e.target.value); checkFees(e.target.value); }}
                   placeholder="e.g. sarah@example.com" />
               </>
             )}
@@ -1060,6 +1090,21 @@ export default function RegisterPage() {
                 {replacementNumbers && (
                   <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
                     Replacement numbers × {fmtMoney(REPLACEMENT_NUMBERS_CENTS)}
+                  </div>
+                )}
+                {chargeFees && groundFee > 0 && (
+                  <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
+                    Ground fee {fmtMoney(groundFee)} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>(once per event)</span>
+                  </div>
+                )}
+                {chargeFees && adminFee > 0 && (
+                  <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
+                    Admin fee {fmtMoney(adminFee)} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>(once per event)</span>
+                  </div>
+                )}
+                {oneOffFees > 0 && feesDue === false && (
+                  <div style={{ fontSize: 12.5, color: "#2D7A52", fontWeight: 700, marginTop: 3 }}>
+                    ✓ Ground/admin fees already paid with your earlier entries — not charged again.
                   </div>
                 )}
                 {totalCents > 0 && (
