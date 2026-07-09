@@ -32,10 +32,12 @@ export async function POST(req) {
 
     const db = adminClient();
 
-    // Load event to get the per-class fee and entries status
+    // Load event to get the fees and entries status. select("*") so the
+    // ground/admin fee columns (schema-v34) come through when that migration
+    // has been run, and are simply absent (treated as $0) when it hasn't.
     const { data: event, error: evErr } = await db
       .from("events")
-      .select("id, name, starts_on, entry_fee_cents, status, event_type")
+      .select("*")
       .eq("id", event_id)
       .single();
     if (evErr || !event) {
@@ -278,11 +280,34 @@ export async function POST(req) {
     const dayMembershipCents = includeDayMembership ? DAY_MEMBERSHIP_CENTS : 0;
     const includeReplacementNumbers = Boolean(replacement_numbers);
     const replacementNumbersCents = includeReplacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0;
+
+    // One-off ground/admin fees (schema-v34): charged the first time this
+    // person pays for this event, and skipped when they come back to add more
+    // entries. We match by email, and only skip if an earlier PAID
+    // registration actually included the fees (so people who entered before
+    // fees were added still pay them once). Any lookup failure charges the
+    // fees — never undercharge silently.
+    const groundFee = event.ground_fee_cents ?? 0;
+    const adminFee = event.admin_fee_cents ?? 0;
+    let feesCents = groundFee + adminFee;
+    if (feesCents > 0) {
+      const escapedEmail = contact_email.trim().replace(/([\\%_])/g, "\\$1");
+      const { data: priorPaid, error: priorErr } = await db
+        .from("registrations")
+        .select("id")
+        .eq("event_id", event_id)
+        .eq("status", "paid")
+        .gt("fees_cents", 0)
+        .ilike("contact_email", escapedEmail)
+        .limit(1);
+      if (!priorErr && priorPaid?.length) feesCents = 0;
+    }
+
     // The registration total is event money only. A membership renewal is
     // tracked on its own club_members row (like any application from the
     // join page) — it just shares this checkout's Square order.
     const renewalCents = renewal ? (renewal.type.fee_cents ?? 0) : 0;
-    const totalCents = normalEntries.length * feePerClass + dayMembershipCents + replacementNumbersCents;
+    const totalCents = normalEntries.length * feePerClass + dayMembershipCents + replacementNumbersCents + feesCents;
     const chargeCents = totalCents + renewalCents;
 
     // Create the registration record (pending)
@@ -301,6 +326,12 @@ export async function POST(req) {
       registrationRow.replacement_numbers = true;
       registrationRow.replacement_numbers_cents = replacementNumbersCents;
     }
+    // The one-off fee portion of the total; only sent when charged so this
+    // still works before the schema-v34 migration adds the column (fees
+    // can't be non-zero there anyway).
+    if (feesCents > 0) {
+      registrationRow.fees_cents = feesCents;
+    }
 
     const { data: reg, error: regErr } = await db
       .from("registrations")
@@ -312,6 +343,12 @@ export async function POST(req) {
       if ((includeDayMembership && msg.includes("day_membership")) || (includeReplacementNumbers && msg.includes("replacement_numbers"))) {
         return NextResponse.json(
           { error: "Registration add-ons need the latest database update before they can be sold. Run schema-v29 and schema-v30." },
+          { status: 500 }
+        );
+      }
+      if (feesCents > 0 && msg.includes("fees_cents")) {
+        return NextResponse.json(
+          { error: "Ground/admin fees need the latest database update before they can be charged. Run schema-v34." },
           { status: 500 }
         );
       }
@@ -428,6 +465,23 @@ export async function POST(req) {
         quantity: "1",
         base_price_money: { amount: replacementNumbersCents, currency: "AUD" },
         note: `Replacement numbers for ${contact_name.trim()}`,
+      });
+    }
+    // One-off fees appear as their own lines on the Square receipt
+    if (feesCents > 0 && groundFee > 0) {
+      lineItems.push({
+        name: "Ground fee",
+        quantity: "1",
+        base_price_money: { amount: groundFee, currency: "AUD" },
+        note: "Once per event",
+      });
+    }
+    if (feesCents > 0 && adminFee > 0) {
+      lineItems.push({
+        name: "Admin fee",
+        quantity: "1",
+        base_price_money: { amount: adminFee, currency: "AUD" },
+        note: "Once per event",
       });
     }
     if (renewal && renewalCents > 0) {

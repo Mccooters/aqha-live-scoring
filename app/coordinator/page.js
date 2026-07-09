@@ -764,6 +764,8 @@ export default function Coordinator() {
         name: ev.name, location: ev.location ?? "",
         starts: ev.starts_on ?? "", ends: ev.ends_on ?? "",
         fee: ev.entry_fee_cents ? (ev.entry_fee_cents / 100).toFixed(2) : "",
+        ground_fee: ev.ground_fee_cents ? (ev.ground_fee_cents / 100).toFixed(2) : "",
+        admin_fee: ev.admin_fee_cents ? (ev.admin_fee_cents / 100).toFixed(2) : "",
       };
     }
     setModal({ type, ...extra });
@@ -800,12 +802,28 @@ export default function Coordinator() {
     } catch { setHorseSuggestion(null); }
   };
 
+  // Parses the three money fields; the one-off fee columns arrive with
+  // schema-v34, so on an older database we retry without them when no value
+  // was typed (and surface the run-the-migration message if one was).
+  const eventFeeColumns = () => ({
+    entry_fee_cents: form.fee ? Math.round(parseFloat(form.fee) * 100) : 0,
+    ground_fee_cents: form.ground_fee ? Math.round(parseFloat(form.ground_fee) * 100) : 0,
+    admin_fee_cents: form.admin_fee ? Math.round(parseFloat(form.admin_fee) * 100) : 0,
+  });
+  const isMissingFeeColumns = (error) =>
+    Boolean(error?.message?.includes("ground_fee_cents") || error?.message?.includes("admin_fee_cents"));
+  const FEE_MIGRATION_HINT = 'Ground/admin fees need a database update — run "schema-v34-event-fees.sql" in the Supabase SQL Editor first (see supabase/MIGRATIONS.md).';
+
   const submitEvent = async () => {
     if (!form.name?.trim()) { setFormError("Event name is required"); return; }
-    const feeCents = form.fee ? Math.round(parseFloat(form.fee) * 100) : 0;
-    const { data, error } = await supabase.from("events")
-      .insert({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: form.status ?? "pre_open", entry_fee_cents: feeCents, event_type: form.event_type ?? "show" })
-      .select().single();
+    const fees = eventFeeColumns();
+    const base = { name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, status: form.status ?? "pre_open", event_type: form.event_type ?? "show" };
+    let { data, error } = await supabase.from("events").insert({ ...base, ...fees }).select().single();
+    if (error && isMissingFeeColumns(error)) {
+      if (fees.ground_fee_cents || fees.admin_fee_cents) { setFormError(FEE_MIGRATION_HINT); return; }
+      ({ data, error } = await supabase.from("events")
+        .insert({ ...base, entry_fee_cents: fees.entry_fee_cents }).select().single());
+    }
     if (error) { setFormError(error.message); return; }
     await loadEvents();
     if (data) setEventId(data.id);
@@ -815,10 +833,14 @@ export default function Coordinator() {
   const submitEditEvent = async () => {
     if (!modal?.event) return;
     if (!form.name?.trim()) { setFormError("Event name is required"); return; }
-    const feeCents = form.fee ? Math.round(parseFloat(form.fee) * 100) : 0;
-    const { error } = await supabase.from("events")
-      .update({ name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null, entry_fee_cents: feeCents })
-      .eq("id", modal.event.id);
+    const fees = eventFeeColumns();
+    const base = { name: form.name.trim(), location: form.location ?? "", starts_on: form.starts || null, ends_on: form.ends || form.starts || null };
+    let { error } = await supabase.from("events").update({ ...base, ...fees }).eq("id", modal.event.id);
+    if (error && isMissingFeeColumns(error)) {
+      if (fees.ground_fee_cents || fees.admin_fee_cents) { setFormError(FEE_MIGRATION_HINT); return; }
+      ({ error } = await supabase.from("events")
+        .update({ ...base, entry_fee_cents: fees.entry_fee_cents }).eq("id", modal.event.id));
+    }
     if (error) { setFormError(error.message); return; }
     await loadEvents();
     closeModal();
@@ -1717,6 +1739,27 @@ export default function Coordinator() {
                 <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
                   Set to $0 for free entry. This is what exhibitors pay per class when registering online.
                 </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label className="modal-label">Ground fee (AUD)</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18, fontWeight: 600 }}>$</span>
+                      <input className="field" type="number" min="0" step="0.50" style={{ width: "100%", fontSize: 16 }}
+                        value={form.ground_fee ?? ""} onChange={setField("ground_fee")} placeholder="0.00" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="modal-label">Admin fee (AUD)</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18, fontWeight: 600 }}>$</span>
+                      <input className="field" type="number" min="0" step="0.50" style={{ width: "100%", fontSize: 16 }}
+                        value={form.admin_fee ?? ""} onChange={setField("admin_fee")} placeholder="0.00" />
+                    </div>
+                  </div>
+                </div>
+                <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                  Charged once per person for this event, on their first online payment — coming back later to add more entries doesn&apos;t charge these again. $0 = no fee.
+                </p>
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEvent}>Create event</button>
@@ -1750,6 +1793,27 @@ export default function Coordinator() {
                 </div>
                 <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
                   Set to $0 for free entry. This only affects new online registrations from now on — anyone who's already paid keeps their original price.
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label className="modal-label">Ground fee (AUD)</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18, fontWeight: 600 }}>$</span>
+                      <input className="field" type="number" min="0" step="0.50" style={{ width: "100%", fontSize: 16 }}
+                        value={form.ground_fee ?? ""} onChange={setField("ground_fee")} placeholder="0.00" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="modal-label">Admin fee (AUD)</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18, fontWeight: 600 }}>$</span>
+                      <input className="field" type="number" min="0" step="0.50" style={{ width: "100%", fontSize: 16 }}
+                        value={form.admin_fee ?? ""} onChange={setField("admin_fee")} placeholder="0.00" />
+                    </div>
+                  </div>
+                </div>
+                <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                  Charged once per person for this event, on their first online payment — coming back later to add more entries doesn&apos;t charge these again. $0 = no fee.
                 </p>
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>

@@ -386,6 +386,11 @@ export default function RegistrationsPage() {
                       Includes replacement numbers ({fmtMoney(reg.replacement_numbers_cents ?? 500)}).
                     </p>
                   )}
+                  {(reg.fees_cents ?? 0) > 0 && (
+                    <p style={{ color: "var(--leather)", fontSize: 13, fontWeight: 700, padding: "4px 0 0", margin: 0 }}>
+                      Includes one-off ground/admin fees for this event ({fmtMoney(reg.fees_cents)}).
+                    </p>
+                  )}
                   {(reg.registration_entries ?? []).length > 0 ? (
                     <table>
                       <thead>
