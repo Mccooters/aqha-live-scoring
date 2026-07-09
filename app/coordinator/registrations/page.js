@@ -75,7 +75,7 @@ export default function RegistrationsPage() {
 
   // Square connection card: current status, plus the outcome message when
   // Square has just redirected back here (?square=connected / denied / ...).
-  useEffect(() => {
+  const loadSquareStatus = useCallback(() => {
     if (!session) return;
     fetch("/api/square/status", {
       headers: { Authorization: `Bearer ${session.access_token}` },
@@ -83,7 +83,20 @@ export default function RegistrationsPage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => setSquareStatus(data))
       .catch(() => setSquareStatus(null));
+  }, [session]);
 
+  useEffect(() => {
+    if (!session) return;
+    loadSquareStatus();
+    // Connecting happens over on squareup.com (sometimes in another window),
+    // so re-check whenever the coordinator comes back to this tab — the card
+    // must never keep showing a stale verdict after a reconnect.
+    window.addEventListener("focus", loadSquareStatus);
+    return () => window.removeEventListener("focus", loadSquareStatus);
+  }, [session, loadSquareStatus]);
+
+  useEffect(() => {
+    if (!session) return;
     const outcome = new URLSearchParams(window.location.search).get("square");
     if (outcome) {
       setSquareNotice(
@@ -201,7 +214,12 @@ export default function RegistrationsPage() {
               )}
               {squareStatus.diagnostics && (
                 <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, background: "#fff", fontSize: 12.5 }}>
-                  <div style={{ fontWeight: 800, color: "var(--leather)", marginBottom: 4 }}>Health check (live from Square)</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ fontWeight: 800, color: "var(--leather)" }}>Health check (live from Square)</span>
+                    <button className="btn-ghost" onClick={loadSquareStatus} style={{ padding: "2px 8px", fontSize: 11.5 }}>
+                      ↻ Re-check
+                    </button>
+                  </div>
                   <div>Mode: <strong>{squareStatus.diagnostics.environment}</strong> · Credentials in use: <strong>{
                     { oauth: "connected Square account", fallback_token: "club's own access token", none: "none — payments can't run" }[squareStatus.diagnostics.source]
                   }</strong></div>
