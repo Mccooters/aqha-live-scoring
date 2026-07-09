@@ -4,7 +4,7 @@ import { adminClient, approveRegistration, expireStaleRegistrations } from "../.
 import { membershipRequirement, hasCurrentMembership, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
 import { getMemberAccount } from "../../_lib/memberAuth";
 import { createSquarePaymentLink } from "../../_lib/squarePayments";
-import { activeSeasons } from "../../../../lib/membershipSeason";
+import { activeSeasons, signupSeason } from "../../../../lib/membershipSeason";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
 const REPLACEMENT_NUMBERS_CENTS = 500;
@@ -24,6 +24,7 @@ export async function POST(req) {
       event_id, contact_name, contact_email, entries,
       day_membership, replacement_numbers,
       membership_renewal, membership_renewal_type_id,
+      annual_membership_type_id,
     } = await req.json();
 
     if (!event_id || !contact_name?.trim() || !contact_email?.trim() || !entries?.length) {
@@ -118,6 +119,7 @@ export async function POST(req) {
       ? activeSeasons(eventDate).includes(renewal.season)
       : false;
     let includeDayMembership = false;
+    let annualJoin = null; // { type, season } — full membership bought with this entry
     if (requiresMembership) {
       let isMember = false;
       try {
@@ -126,12 +128,36 @@ export async function POST(req) {
         console.error("Membership lookup failed (allowing entry):", err);
         isMember = true;
       }
-      if (!isMember && !renewalCoversEvent) {
+      // Non-members can join the club as part of this checkout: the fee is
+      // added to the same Square payment and a normal membership application
+      // (paid → awaiting committee approval) is created, exactly like the
+      // July renewal flow — but for someone with no membership yet.
+      if (!isMember && !renewalCoversEvent && !renewal && annual_membership_type_id) {
+        const { data: type } = await db
+          .from("membership_types")
+          .select("*")
+          .eq("id", annual_membership_type_id)
+          .eq("active", true)
+          .maybeSingle();
+        if (!type) {
+          return NextResponse.json(
+            { error: "That membership type is no longer offered — please pick another, or choose the day membership." },
+            { status: 400 }
+          );
+        }
+        const joinSeason = signupSeason();
+        if (activeSeasons(eventDate).includes(joinSeason)) {
+          annualJoin = { type, season: joinSeason };
+        }
+        // (If a new membership bought today wouldn't cover this event's
+        // season — a rare edge — fall through to the day-membership rule.)
+      }
+      if (!isMember && !renewalCoversEvent && !annualJoin) {
         includeDayMembership = Boolean(day_membership);
       }
-      if (!isMember && !renewalCoversEvent && !includeDayMembership) {
+      if (!isMember && !renewalCoversEvent && !annualJoin && !includeDayMembership) {
         return NextResponse.json(
-          { error: "We couldn't find an annual club membership for this event season. Choose the $20 day membership for this event, join on the Members page, or contact the club if you believe this is a mistake." },
+          { error: "We couldn't find an annual club membership for this event season. Add an annual or day membership to your entry, join on the Members page, or contact the club if you believe this is a mistake." },
           { status: 403 }
         );
       }
@@ -184,12 +210,47 @@ export async function POST(req) {
     }
 
     const isClinic = event.event_type === "clinic";
+    // Association registration numbers (schema-v35): a list of {club, number}
+    // pairs per entry, [] meaning "declared not registered", null meaning not
+    // collected (clinics / older forms).
+    const normalizeRegList = (value) => {
+      if (!Array.isArray(value)) return null;
+      return value
+        .map((r) => ({
+          club: String(r?.club ?? "").trim().slice(0, 40),
+          number: String(r?.number ?? "").trim().slice(0, 60),
+        }))
+        .filter((r) => r.club && r.number)
+        .slice(0, 8);
+    };
     const normalEntries = entries.map((e) => ({
       class_id: e.class_id,
       back_number: e.back_number == null || e.back_number === "" ? null : parseInt(e.back_number, 10),
       horse_name: String(e.horse_name ?? "").trim(),
       exhibitor: String(e.exhibitor ?? "").trim(),
+      rider_registrations: isClinic ? null : normalizeRegList(e.rider_registrations),
+      horse_registrations: isClinic ? null : normalizeRegList(e.horse_registrations),
     }));
+
+    if (!isClinic) {
+      // Points are on the line at shows, so every entry must carry the
+      // rider's and the horse's association registration numbers — or an
+      // explicit "not registered with any association" (an empty list).
+      for (let i = 0; i < normalEntries.length; i++) {
+        const entry = normalEntries[i];
+        const raw = entries[i];
+        const riderProvided = Array.isArray(raw?.rider_registrations);
+        const horseProvided = Array.isArray(raw?.horse_registrations);
+        const riderDropped = riderProvided && raw.rider_registrations.length > 0 && entry.rider_registrations.length === 0;
+        const horseDropped = horseProvided && raw.horse_registrations.length > 0 && entry.horse_registrations.length === 0;
+        if (!riderProvided || !horseProvided || riderDropped || horseDropped) {
+          return NextResponse.json(
+            { error: `Please complete the association registration numbers for ${entry.horse_name || "each horse"} and its rider — or tick "not registered with any association". If the fields aren't showing, refresh the page and try again.` },
+            { status: 400 }
+          );
+        }
+      }
+    }
 
     if (!isClinic) {
       // The back number is the horse's permanent registry identity — a horse
@@ -303,12 +364,14 @@ export async function POST(req) {
       if (!priorErr && priorPaid?.length) feesCents = 0;
     }
 
-    // The registration total is event money only. A membership renewal is
-    // tracked on its own club_members row (like any application from the
-    // join page) — it just shares this checkout's Square order.
+    // The registration total is event money only. A membership renewal or a
+    // new annual membership is tracked on its own club_members row (like any
+    // application from the join page) — it just shares this checkout's
+    // Square order.
     const renewalCents = renewal ? (renewal.type.fee_cents ?? 0) : 0;
+    const annualCents = annualJoin ? (annualJoin.type.fee_cents ?? 0) : 0;
     const totalCents = normalEntries.length * feePerClass + dayMembershipCents + replacementNumbersCents + feesCents;
-    const chargeCents = totalCents + renewalCents;
+    const chargeCents = totalCents + renewalCents + annualCents;
 
     // Create the registration record (pending)
     const registrationRow = {
@@ -355,16 +418,26 @@ export async function POST(req) {
       return NextResponse.json({ error: regErr.message }, { status: 500 });
     }
 
-    // Store the pending entries
-    const { error: entErr } = await db.from("registration_entries").insert(
-      normalEntries.map((e) => ({
-        registration_id: reg.id,
-        class_id: e.class_id,
-        back_number: e.back_number,
-        horse_name: e.horse_name,
-        exhibitor: e.exhibitor,
-      }))
-    );
+    // Store the pending entries (with their association registration
+    // numbers; pre-v35 databases don't have those columns yet, so retry
+    // without them rather than block the entry — nothing is enforced there
+    // until the migration is run anyway).
+    const entryRows = normalEntries.map((e) => ({
+      registration_id: reg.id,
+      class_id: e.class_id,
+      back_number: e.back_number,
+      horse_name: e.horse_name,
+      exhibitor: e.exhibitor,
+      rider_registrations: e.rider_registrations,
+      horse_registrations: e.horse_registrations,
+    }));
+    let { error: entErr } = await db.from("registration_entries").insert(entryRows);
+    if (entErr && `${entErr.message ?? ""}`.match(/rider_registrations|horse_registrations/)) {
+      console.error("registration_entries is missing the registration-number columns (run schema-v35) — storing entries without them");
+      ({ error: entErr } = await db.from("registration_entries").insert(
+        entryRows.map(({ rider_registrations: _r, horse_registrations: _h, ...row }) => row)
+      ));
+    }
     if (entErr) return NextResponse.json({ error: entErr.message }, { status: 500 });
 
     // Create the renewal application now (status pending), copying the
@@ -424,10 +497,40 @@ export async function POST(req) {
       }
     }
 
+    // A new annual membership bought with this entry: create the application
+    // now (status pending) from the entry's contact details — the Square
+    // webhook finds it by order id and marks it paid, exactly like an
+    // application from the join page. Committee approval happens as usual,
+    // and the member can fill in the rest of their details (emergency
+    // contact, horses, family) in the member portal.
+    let annualMember = null;
+    if (annualJoin) {
+      const annualRow = {
+        season: annualJoin.season,
+        membership_type_id: annualJoin.type.id,
+        membership_type_name: annualJoin.type.name,
+        member_name: contact_name.trim(),
+        email: contact_email.trim(),
+        status: "pending",
+        total_cents: annualCents,
+      };
+      if (annualJoin.type.included_people != null) {
+        annualRow.included_people = annualJoin.type.included_people;
+      }
+      const { data: createdAnnual, error: annualErr } = await db
+        .from("club_members")
+        .insert(annualRow)
+        .select()
+        .single();
+      if (annualErr) return NextResponse.json({ error: annualErr.message }, { status: 500 });
+      annualMember = createdAnnual;
+    }
+
     // Nothing to pay — approve straight away
     if (chargeCents === 0) {
       await approveRegistration(db, reg.id);
       if (renewalMember) await markMembershipPaid(db, renewalMember.id);
+      if (annualMember) await markMembershipPaid(db, annualMember.id);
       return NextResponse.json({
         redirect: `/event/${event_id}/register/success?reg=${reg.id}`,
       });
@@ -492,6 +595,14 @@ export async function POST(req) {
         note: `${renewal.season} season for ${renewal.latest.member_name}`,
       });
     }
+    if (annualJoin && annualCents > 0) {
+      lineItems.push({
+        name: `Club membership — ${annualJoin.type.name}`,
+        quantity: "1",
+        base_price_money: { amount: annualCents, currency: "AUD" },
+        note: `${annualJoin.season} season for ${contact_name.trim()}`,
+      });
+    }
 
     const squarePayload = {
       idempotency_key: randomUUID(),
@@ -511,14 +622,21 @@ export async function POST(req) {
       await createSquarePaymentLink(db, squarePayload);
 
     if (squareError) {
-      // Remove the renewal application we just created — it never got a
-      // checkout, so leaving it would show a dead "finish payment" in the
-      // portal and block the offer from appearing again.
+      // Remove the membership applications we just created — they never got
+      // a checkout, so leaving them would show a dead "finish payment" in
+      // the portal and block the offer from appearing again.
       if (renewalMember) {
         await db
           .from("club_members")
           .delete()
           .eq("id", renewalMember.id)
+          .eq("status", "pending");
+      }
+      if (annualMember) {
+        await db
+          .from("club_members")
+          .delete()
+          .eq("id", annualMember.id)
           .eq("status", "pending");
       }
       return NextResponse.json({ error: squareError }, { status: squareStatus ?? 500 });
@@ -541,13 +659,20 @@ export async function POST(req) {
       if (linkIdErr) console.error("Could not store square_payment_link_id (run schema-v32):", linkIdErr.message);
     }
 
-    // The renewal shares the same order — the webhook marks it paid by this
-    // id, and the portal can reopen the checkout while it's still pending.
+    // The renewal / new membership shares the same order — the webhook marks
+    // it paid by this id, and the portal can reopen the checkout while it's
+    // still pending.
     if (renewalMember) {
       await db
         .from("club_members")
         .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
         .eq("id", renewalMember.id);
+    }
+    if (annualMember) {
+      await db
+        .from("club_members")
+        .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
+        .eq("id", annualMember.id);
     }
 
     return NextResponse.json({ checkout_url: link?.url });
