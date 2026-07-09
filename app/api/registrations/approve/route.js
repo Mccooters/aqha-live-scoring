@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { adminClient, approveRegistration } from "../../_lib/registrations";
+import { markMembershipPaid } from "../../_lib/memberships";
 
 // Force-approve creates entries as if payment happened, so only signed-in
 // show staff may call it. The dashboard sends the coordinator's login token;
@@ -35,7 +36,7 @@ export async function POST(req) {
 
     const { data: reg } = await db
       .from("registrations")
-      .select("id, status")
+      .select("id, status, square_order_id")
       .eq("id", registration_id)
       .single();
 
@@ -43,6 +44,23 @@ export async function POST(req) {
     if (reg.status === "paid") return NextResponse.json({ error: "Already paid" }, { status: 400 });
 
     await approveRegistration(db, registration_id);
+
+    // A membership renewal bought in the same checkout should move to
+    // "awaiting committee approval" too. Never let a hiccup here undo the
+    // entries that were just placed.
+    try {
+      if (reg.square_order_id) {
+        const { data: member } = await db
+          .from("club_members")
+          .select("id, status")
+          .eq("square_order_id", reg.square_order_id)
+          .maybeSingle();
+        if (member?.status === "pending") await markMembershipPaid(db, member.id);
+      }
+    } catch (err) {
+      console.error("Force-approve renewal step failed (entries unaffected):", err);
+    }
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: err.message ?? "Unexpected error" }, { status: 500 });

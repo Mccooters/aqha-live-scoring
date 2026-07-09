@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { adminClient, approveRegistration } from "../../_lib/registrations";
-import { membershipRequirement, hasCurrentMembership } from "../../_lib/memberships";
+import { membershipRequirement, hasCurrentMembership, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
+import { getMemberAccount } from "../../_lib/memberAuth";
+import { activeSeasons } from "../../../../lib/membershipSeason";
 
 const squareBase =
   process.env.SQUARE_ENVIRONMENT === "sandbox"
@@ -25,6 +27,7 @@ export async function POST(req) {
     const {
       event_id, contact_name, contact_email, entries,
       day_membership, replacement_numbers,
+      membership_renewal, membership_renewal_type_id,
     } = await req.json();
 
     if (!event_id || !contact_name?.trim() || !contact_email?.trim() || !entries?.length) {
@@ -51,28 +54,76 @@ export async function POST(req) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
+    // Membership renewal add-on (offered during July only). The renewal
+    // belongs to the member signed in via the member-portal cookie — never to
+    // whatever email was typed into the form — and eligibility is re-checked
+    // here so the flag can't be abused.
+    let renewal = null;
+    if (membership_renewal) {
+      const account = await getMemberAccount(db);
+      if (!account) {
+        return NextResponse.json(
+          { error: "Please sign in on the Members page to renew your membership with this entry, or untick the renewal option." },
+          { status: 401 }
+        );
+      }
+      let offer = null;
+      try {
+        offer = await renewalOffer(db, account.email);
+      } catch (err) {
+        console.error("Renewal offer lookup failed:", err);
+      }
+      if (!offer) {
+        return NextResponse.json(
+          { error: "Membership renewal isn't available on this account right now — please untick the renewal option and try again." },
+          { status: 400 }
+        );
+      }
+      if (!membership_renewal_type_id) {
+        return NextResponse.json(
+          { error: "Please choose a membership type for your renewal." },
+          { status: 400 }
+        );
+      }
+      const { data: type } = await db
+        .from("membership_types")
+        .select("*")
+        .eq("id", membership_renewal_type_id)
+        .eq("active", true)
+        .maybeSingle();
+      if (!type) {
+        return NextResponse.json(
+          { error: "That membership type is no longer offered — please pick another for your renewal." },
+          { status: 400 }
+        );
+      }
+      renewal = { ...offer, type };
+    }
+
     // Membership check — when the coordinator has turned on "membership
     // required", only email addresses with an approved, current club
     // membership may enter. Any lookup failure fails open so entries are
     // never blocked by a technical problem.
     const requiresMembership = await membershipRequirement(db, event);
+    const eventDate = event.starts_on ? new Date(event.starts_on) : new Date();
+    // A renewal bought with this entry counts as the annual membership when
+    // it covers the season the event falls in.
+    const renewalCoversEvent = renewal
+      ? activeSeasons(eventDate).includes(renewal.season)
+      : false;
     let includeDayMembership = false;
     if (requiresMembership) {
       let isMember = false;
       try {
-        isMember = await hasCurrentMembership(
-          db,
-          contact_email,
-          event.starts_on ? new Date(event.starts_on) : new Date()
-        );
+        isMember = await hasCurrentMembership(db, contact_email, eventDate);
       } catch (err) {
         console.error("Membership lookup failed (allowing entry):", err);
         isMember = true;
       }
-      if (!isMember) {
+      if (!isMember && !renewalCoversEvent) {
         includeDayMembership = Boolean(day_membership);
       }
-      if (!isMember && !includeDayMembership) {
+      if (!isMember && !renewalCoversEvent && !includeDayMembership) {
         return NextResponse.json(
           { error: "We couldn't find an annual club membership for this event season. Choose the $20 day membership for this event, join on the Members page, or contact the club if you believe this is a mistake." },
           { status: 403 }
@@ -201,7 +252,12 @@ export async function POST(req) {
     const dayMembershipCents = includeDayMembership ? DAY_MEMBERSHIP_CENTS : 0;
     const includeReplacementNumbers = Boolean(replacement_numbers);
     const replacementNumbersCents = includeReplacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0;
+    // The registration total is event money only. A membership renewal is
+    // tracked on its own club_members row (like any application from the
+    // join page) — it just shares this checkout's Square order.
+    const renewalCents = renewal ? (renewal.type.fee_cents ?? 0) : 0;
     const totalCents = normalEntries.length * feePerClass + dayMembershipCents + replacementNumbersCents;
+    const chargeCents = totalCents + renewalCents;
 
     // Create the registration record (pending)
     const registrationRow = {
@@ -248,9 +304,67 @@ export async function POST(req) {
     );
     if (entErr) return NextResponse.json({ error: entErr.message }, { status: 500 });
 
-    // Free entry — approve straight away, no payment needed
-    if (totalCents === 0) {
+    // Create the renewal application now (status pending), copying the
+    // details from their latest membership — the Square webhook finds it by
+    // order id and marks it paid, exactly like an application from the join
+    // page. Committee approval still happens on the Memberships page.
+    let renewalMember = null;
+    if (renewal) {
+      const src = renewal.latest;
+      const renewalRow = {
+        season: renewal.season,
+        membership_type_id: renewal.type.id,
+        membership_type_name: renewal.type.name,
+        member_name: src.member_name,
+        email: src.email,
+        phone: src.phone,
+        address: src.address,
+        aqha_member_number: src.aqha_member_number,
+        other_memberships: src.other_memberships,
+        emergency_contact_name: src.emergency_contact_name,
+        emergency_contact_phone: src.emergency_contact_phone,
+        interests: src.interests,
+        status: "pending",
+        total_cents: renewalCents,
+      };
+      if (renewal.type.included_people != null) {
+        renewalRow.included_people = renewal.type.included_people;
+      }
+      const { data: createdMember, error: renewErr } = await db
+        .from("club_members")
+        .insert(renewalRow)
+        .select()
+        .single();
+      if (renewErr) return NextResponse.json({ error: renewErr.message }, { status: 500 });
+      renewalMember = createdMember;
+
+      // Carry the people and horses on the membership across to the new
+      // season so nothing needs re-typing in the portal. People are capped by
+      // the new type ("people included" counts the applicant, who isn't a row).
+      try {
+        const peopleCap = Math.max(0, (renewal.type.included_people ?? 1) - 1);
+        const [{ data: people }, { data: horses }] = await Promise.all([
+          db.from("club_member_people")
+            .select("name, person_type, sort_order")
+            .eq("member_id", src.id)
+            .order("sort_order"),
+          db.from("club_member_horses")
+            .select("horse_name, back_number, breed, registrations, notes")
+            .eq("member_id", src.id),
+        ]);
+        const copyPeople = (people ?? []).slice(0, peopleCap).map((p) => ({ ...p, member_id: renewalMember.id }));
+        if (copyPeople.length) await db.from("club_member_people").insert(copyPeople);
+        const copyHorses = (horses ?? []).map((h) => ({ ...h, member_id: renewalMember.id }));
+        if (copyHorses.length) await db.from("club_member_horses").insert(copyHorses);
+      } catch (err) {
+        console.error("Copying people/horses to renewal failed (renewal still created):", err);
+      }
+    }
+
+    // Nothing to pay — approve straight away
+    if (chargeCents === 0) {
       await approveRegistration(db, reg.id);
+      if (renewalMember) await markMembershipPaid(db, renewalMember.id);
       return NextResponse.json({
         redirect: `/event/${event_id}/register/success?reg=${reg.id}`,
       });
@@ -295,6 +409,14 @@ export async function POST(req) {
         note: `Replacement numbers for ${contact_name.trim()}`,
       });
     }
+    if (renewal && renewalCents > 0) {
+      lineItems.push({
+        name: `Membership renewal — ${renewal.type.name}`,
+        quantity: "1",
+        base_price_money: { amount: renewalCents, currency: "AUD" },
+        note: `${renewal.season} season for ${renewal.latest.member_name}`,
+      });
+    }
 
     const squarePayload = {
       idempotency_key: randomUUID(),
@@ -326,6 +448,16 @@ export async function POST(req) {
     const squareData = await squareRes.json();
 
     if (!squareRes.ok) {
+      // Remove the renewal application we just created — it never got a
+      // checkout, so leaving it would show a dead "finish payment" in the
+      // portal and block the offer from appearing again.
+      if (renewalMember) {
+        await db
+          .from("club_members")
+          .delete()
+          .eq("id", renewalMember.id)
+          .eq("status", "pending");
+      }
       const msg = squareData.errors?.[0]?.detail ?? "Square payment setup failed";
       return NextResponse.json({ error: msg }, { status: 500 });
     }
@@ -337,6 +469,15 @@ export async function POST(req) {
       .from("registrations")
       .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
       .eq("id", reg.id);
+
+    // The renewal shares the same order — the webhook marks it paid by this
+    // id, and the portal can reopen the checkout while it's still pending.
+    if (renewalMember) {
+      await db
+        .from("club_members")
+        .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
+        .eq("id", renewalMember.id);
+    }
 
     return NextResponse.json({ checkout_url: link?.url });
   } catch (err) {

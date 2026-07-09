@@ -1,4 +1,4 @@
-import { currentSeason, seasonLabel } from "../../../lib/membershipSeason";
+import { currentSeason, signupSeason, activeSeasons, seasonLabel } from "../../../lib/membershipSeason";
 import { escapeIlike } from "./memberAuth";
 
 function formatMoney(cents) {
@@ -164,16 +164,41 @@ export async function hasCurrentMembership(db, email, date = new Date()) {
   // ilike gives case-insensitive matching; escapeIlike (shared with the
   // member portal's ownership rule) stops % or _ matching anything else.
   const cleaned = escapeIlike(String(email ?? "").trim());
-  const season = currentSeason(date);
+  // activeSeasons: normally just the season the date falls in, but during
+  // July it also counts the coming season — early sign-ups and renewals are
+  // valid immediately (the rule lib/membershipSeason.js documents).
+  const seasons = activeSeasons(date);
   const { data, error } = await db
     .from("club_members")
     .select("id")
     .eq("status", "approved")
-    .eq("season", season)
+    .in("season", seasons)
     .ilike("email", cleaned)
     .limit(1);
   if (error) throw new Error(error.message);
   return (data?.length ?? 0) > 0;
+}
+
+// July-only checkout add-on: can this email renew its club membership for the
+// season starting 1 August? Returns { season, latest } (latest = the most
+// recent non-rejected application, whose details the renewal copies) or null
+// when there's nothing to offer — outside July, no membership on file, or
+// they've already applied for the new season.
+export async function renewalOffer(db, email) {
+  const renewSeason = signupSeason();
+  if (renewSeason === currentSeason()) return null; // seasons only differ in July
+  const cleaned = escapeIlike(String(email ?? "").trim());
+  const { data: rows, error } = await db
+    .from("club_members")
+    .select("*")
+    .neq("status", "rejected")
+    .ilike("email", cleaned)
+    .order("season", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  if (!rows?.length) return null;
+  if (rows.some((r) => r.season === renewSeason)) return null; // already renewed/applied
+  return { season: renewSeason, latest: rows[0] };
 }
 
 // Does event entry require a membership? Reads the coordinator's switch in

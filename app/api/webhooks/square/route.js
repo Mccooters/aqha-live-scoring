@@ -64,7 +64,10 @@ export async function POST(req) {
     return handleMembershipPayment(db, payment, orderId);
   }
 
-  if (reg.status === "paid") return NextResponse.json({ ok: true });
+  // Already handled — but a Square retry may arrive after the entries were
+  // placed and before a same-order membership renewal was settled, so give
+  // the renewal another chance (no-op when there isn't one).
+  if (reg.status === "paid") return handleMembershipPayment(db, payment, orderId);
 
   // The completed payment must cover the registration total — a partial
   // payment should never place entries.
@@ -83,7 +86,9 @@ export async function POST(req) {
 
   await approveRegistration(db, reg.id);
 
-  return NextResponse.json({ ok: true });
+  // A membership renewal bought in the same checkout shares this Square
+  // order — settle it too (does nothing when no membership matches).
+  return handleMembershipPayment(db, payment, orderId);
 }
 
 // Membership payments come through the same Square webhook as event entries.

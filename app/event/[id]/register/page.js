@@ -4,8 +4,14 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
 import { groupedByProgramCategory } from "../../../../lib/classCategories";
+import { activeSeasons } from "../../../../lib/membershipSeason";
 
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
+// "2026-2027" → "2026–27"
+const shortSeason = (season) => {
+  const [a, b] = String(season ?? "").split("-");
+  return b ? `${a}–${b.slice(2)}` : season;
+};
 const DAY_MEMBERSHIP_CENTS = 2000;
 const REPLACEMENT_NUMBERS_CENTS = 500;
 
@@ -298,6 +304,11 @@ export default function RegisterPage() {
   });
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  const [memberAccount, setMemberAccount] = useState(null); // member-portal sign-in: { email, name, renewalOffer }
+  const [useDifferentDetails, setUseDifferentDetails] = useState(false);
+  const [renewMembership, setRenewMembership] = useState(false);
+  const [renewalTypeId, setRenewalTypeId] = useState("");
+  const [membershipTypes, setMembershipTypes] = useState([]);
   const [membershipSetting, setMembershipSetting] = useState({ enabled: false, include_clinics: false });
   const [membershipStatus, setMembershipStatus] = useState(null); // null | "member" | "none" | "unknown"
   const [dayMembership, setDayMembership] = useState(false);
@@ -350,6 +361,41 @@ export default function RegisterPage() {
     load();
   }, [eventId]);
 
+  // Members signed in to the portal don't retype their details — fill them in
+  // from the account, and see whether a July renewal can be offered.
+  useEffect(() => {
+    async function loadAccount() {
+      try {
+        const res = await fetch("/api/account/me");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data?.email) return;
+        const best = (data.memberships ?? []).find((m) => m.is_current)
+          ?? (data.memberships ?? []).find((m) => m.status !== "rejected");
+        setMemberAccount({
+          email: data.email,
+          name: best?.member_name ?? "",
+          renewalOffer: data.renewal_offer ?? null,
+        });
+        setContactName((prev) => prev || best?.member_name || "");
+        setContactEmail((prev) => prev || data.email);
+        if (data.renewal_offer) {
+          const { data: types } = await supabase
+            .from("membership_types")
+            .select("*")
+            .eq("active", true)
+            .order("sort_order");
+          setMembershipTypes(types ?? []);
+          const previous = data.renewal_offer.previous_type_id;
+          setRenewalTypeId((types ?? []).some((t) => t.id === previous) ? previous : "");
+        }
+      } catch {
+        // Not signed in or offline — the form simply works the normal way.
+      }
+    }
+    loadAccount();
+  }, []);
+
   const isClinic = event?.event_type === "clinic";
   const isMultiMode = !isClinic && entryMode === "multi";
   const membershipRequired = membershipSetting.enabled && (!isClinic || membershipSetting.include_clinics);
@@ -367,6 +413,15 @@ export default function RegisterPage() {
       setMembershipStatus("unknown");
     }
   };
+  // Signed-in members never blur the email field, so run the membership
+  // check for them once both the account and the requirement setting exist.
+  useEffect(() => {
+    if (memberAccount && membershipRequired && membershipStatus === null) {
+      checkMembership(memberAccount.email);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberAccount, membershipRequired]);
+
   const feePerClass = event?.entry_fee_cents ?? 0;
   const multiEntries = multiEntry.class_ids.map((classId) => ({
     _id: `multi-${classId}`,
@@ -377,10 +432,22 @@ export default function RegisterPage() {
   }));
   const submissionEntries = isMultiMode ? multiEntries : entries;
   const filledEntries = submissionEntries.filter((e) => e.class_id);
-  const dayMembershipSelected = membershipRequired && membershipStatus !== "member" && dayMembership;
+  // July renewal offer for the signed-in member. When the renewal's season
+  // covers the season this event falls in, it counts as the annual
+  // membership — no day membership needed (the server applies the same rule).
+  const renewalOffer = memberAccount?.renewalOffer ?? null;
+  const renewalType = renewMembership && renewalOffer
+    ? membershipTypes.find((t) => t.id === renewalTypeId)
+    : null;
+  const renewalCents = renewalType?.fee_cents ?? 0;
+  const renewalCoversEvent = Boolean(renewalType) && Boolean(renewalOffer) &&
+    activeSeasons(event?.starts_on ? new Date(event.starts_on) : new Date()).includes(renewalOffer.season);
+  const needsDayMembership = membershipRequired && membershipStatus !== "member" && !renewalCoversEvent;
+  const dayMembershipSelected = needsDayMembership && dayMembership;
   const totalCents = filledEntries.length * feePerClass
     + (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0)
-    + (replacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0);
+    + (replacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0)
+    + renewalCents;
 
   useEffect(() => {
     if (membershipStatus === "member") setDayMembership(false);
@@ -528,7 +595,11 @@ export default function RegisterPage() {
     if (duplicateInForm) { setError(duplicateInForm); return; }
     const existingDuplicate = valid.map((entry) => duplicateMessage(entry)).find(Boolean);
     if (existingDuplicate) { setError(`${existingDuplicate} Please check your details or contact the show secretary.`); return; }
-    if (membershipRequired && membershipStatus === "none" && !dayMembership) {
+    if (renewMembership && renewalOffer && !renewalType) {
+      setError("Please choose a membership type for your renewal (or untick the renewal option).");
+      return;
+    }
+    if (membershipRequired && membershipStatus === "none" && !dayMembership && !renewalCoversEvent) {
       setError("Choose the $20 day membership for this event, or use the email address on a current annual membership.");
       return;
     }
@@ -548,6 +619,8 @@ export default function RegisterPage() {
           contact_email: contactEmail.trim(),
           day_membership: dayMembership,
           replacement_numbers: replacementNumbers,
+          membership_renewal: Boolean(renewMembership && renewalOffer),
+          membership_renewal_type_id: renewalTypeId || null,
           entries: valid.map((e) => ({
             class_id: e.class_id,
             back_number: isClinic ? null : parseInt(e.back_number, 10),
@@ -648,7 +721,7 @@ export default function RegisterPage() {
 
       <main className="wrap">
 
-        {membershipRequired && (
+        {membershipRequired && membershipStatus !== "member" && (
           <div className="card" style={{ padding: "12px 14px", borderColor: "#E0B15A", background: "#FFF7D6", marginBottom: 14 }}>
             <p style={{ margin: 0, color: "var(--leather)", fontSize: 13.5, fontWeight: 700 }}>
               Annual membership or day membership required — non-members can add a {fmtMoney(DAY_MEMBERSHIP_CENTS)} day membership for this event at checkout.
@@ -662,27 +735,48 @@ export default function RegisterPage() {
             <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Your details</div>
           </div>
           <div style={{ paddingBottom: 8 }}>
-            <label className="modal-label">Full name *</label>
-            <input className="field" style={{ width: "100%", fontSize: 16 }}
-              value={contactName} onChange={(e) => setContactName(e.target.value)}
-              placeholder="e.g. Sarah O'Brien" />
-            <label className="modal-label">Email address *</label>
-            <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
-              value={contactEmail}
-              onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); setDayMembership(false); }}
-              onBlur={(e) => checkMembership(e.target.value)}
-              placeholder="e.g. sarah@example.com" />
+            {memberAccount && !useDifferentDetails && contactName.trim() && contactEmail.trim() ? (
+              <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "var(--sand)" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="display" style={{ fontWeight: 700, fontSize: 15 }}>{contactName}</div>
+                  <div style={{ fontSize: 12.5, color: "var(--quiet)", overflowWrap: "anywhere" }}>{contactEmail}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--quiet)", marginTop: 2 }}>Signed in via the member portal</div>
+                </div>
+                <button className="btn-ghost" style={{ padding: "6px 10px", fontSize: 12, flexShrink: 0 }}
+                  onClick={() => setUseDifferentDetails(true)}>
+                  Use different details
+                </button>
+              </div>
+            ) : (
+              <>
+                <label className="modal-label">Full name *</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }}
+                  value={contactName} onChange={(e) => setContactName(e.target.value)}
+                  placeholder="e.g. Sarah O'Brien" />
+                <label className="modal-label">Email address *</label>
+                <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
+                  value={contactEmail}
+                  onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); setDayMembership(false); }}
+                  onBlur={(e) => checkMembership(e.target.value)}
+                  placeholder="e.g. sarah@example.com" />
+              </>
+            )}
             {membershipRequired && membershipStatus === "member" && (
               <p style={{ fontSize: 12.5, color: "#2D7A52", fontWeight: 700, margin: "6px 0 0" }}>
                 ✓ Annual club membership found for this event season.
               </p>
             )}
-            {membershipRequired && membershipStatus === "none" && (
+            {membershipRequired && membershipStatus === "none" && !renewalCoversEvent && (
               <p style={{ fontSize: 12.5, color: "var(--clay)", fontWeight: 600, margin: "6px 0 0" }}>
                 No annual membership found for this event season.
               </p>
             )}
-            {membershipRequired && membershipStatus !== "member" && (
+            {membershipRequired && membershipStatus === "none" && renewalCoversEvent && (
+              <p style={{ fontSize: 12.5, color: "#2D7A52", fontWeight: 700, margin: "6px 0 0" }}>
+                ✓ Your membership renewal below covers this event season.
+              </p>
+            )}
+            {needsDayMembership && (
               <label style={{ display: "flex", gap: 10, alignItems: "flex-start", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 10, background: dayMembership ? "#FFF7D6" : "#fff", cursor: "pointer" }}>
                 <input
                   type="checkbox"
@@ -906,6 +1000,11 @@ export default function RegisterPage() {
                     Day membership × {fmtMoney(DAY_MEMBERSHIP_CENTS)}
                   </div>
                 )}
+                {renewalType && (
+                  <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
+                    {shortSeason(renewalOffer.season)} membership renewal ({renewalType.name}) × {fmtMoney(renewalCents)}
+                  </div>
+                )}
                 {replacementNumbers && (
                   <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
                     Replacement numbers × {fmtMoney(REPLACEMENT_NUMBERS_CENTS)}
@@ -925,6 +1024,40 @@ export default function RegisterPage() {
               <p style={{ color: "var(--clay)", fontSize: 13.5, fontWeight: 600, marginBottom: 10, marginTop: 0 }}>
                 {error}
               </p>
+            )}
+            {renewalOffer && (
+              <div style={{ border: "1px solid #E0B15A", borderRadius: 10, padding: "10px 12px", marginBottom: 10, background: renewMembership ? "#FFF7D6" : "#fff" }}>
+                <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={renewMembership}
+                    onChange={(e) => setRenewMembership(e.target.checked)}
+                    style={{ width: 18, height: 18, marginTop: 2, flexShrink: 0 }}
+                  />
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14, fontWeight: 800, color: "var(--leather)" }}>
+                      Renew your club membership for the {shortSeason(renewalOffer.season)} season
+                    </span>
+                    <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+                      Your current membership ends 31 July. Add next season&apos;s renewal to this payment — the committee confirms it as usual.
+                    </span>
+                  </span>
+                </label>
+                {renewMembership && (
+                  <select
+                    className="field"
+                    style={{ width: "100%", fontSize: 15, marginTop: 8 }}
+                    value={renewalTypeId}
+                    onChange={(e) => setRenewalTypeId(e.target.value)}>
+                    <option value="">Choose membership type…</option>
+                    {membershipTypes.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} — {fmtMoney(t.fee_cents ?? 0)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             )}
             <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
               <input type="checkbox" checked={replacementNumbers} onChange={(e) => setReplacementNumbers(e.target.checked)}

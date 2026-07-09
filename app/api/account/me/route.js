@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminClient } from "../../_lib/registrations";
 import { getMemberAccount, escapeIlike, notSignedIn } from "../../_lib/memberAuth";
+import { renewalOffer } from "../../_lib/memberships";
 import { activeSeasons, currentSeason } from "../../../../lib/membershipSeason";
 
 // Reads the session cookie, so it can never be pre-rendered at build time.
@@ -75,11 +76,27 @@ export async function GET() {
         };
       });
 
+    // During July, tell the portal and the event entry form whether a renewal
+    // for the coming season can be offered (null the rest of the year).
+    let renewal = null;
+    try {
+      renewal = await renewalOffer(db, account.email);
+    } catch {
+      renewal = null;
+    }
+
     return NextResponse.json({
       email: account.email,
       has_password: !!account.password_hash,
       memberships,
       has_current_membership: memberships.some((m) => m.is_current),
+      renewal_offer: renewal
+        ? {
+            season: renewal.season,
+            previous_type_id: renewal.latest.membership_type_id,
+            previous_type_name: renewal.latest.membership_type_name,
+          }
+        : null,
     });
   } catch (err) {
     console.error("account/me error:", err);

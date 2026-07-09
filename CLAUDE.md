@@ -324,6 +324,25 @@ came in with `back_number = null`. It also sends the app booking confirmation
 email via Resend after approval; Square remains responsible for the payment
 receipt/invoice email.
 
+Members signed in to the `/account` portal are recognised on the entry form
+(it calls `/api/account/me`): name/email are filled in and collapsed to a
+"Signed in" card (with a "Use different details" escape hatch), membership is
+confirmed without typing, and current members never see the day-membership
+offer or warning banner. During July the checkout also offers a **membership
+renewal** for the season starting 1 August (`renewalOffer()` in
+`app/api/_lib/memberships.js`, surfaced via `/api/account/me`): the member
+picks a type (previous type pre-selected), the fee joins the same Square
+checkout, and the server creates a normal `club_members` application (status
+pending; details + people + horses copied from their latest membership)
+sharing the registration's `square_order_id`. The webhook — and the
+coordinator's force-approve button — mark that row paid alongside the
+entries; committee approval then happens as usual. A renewal covering the
+event's season satisfies the membership requirement (server-checked, like
+day membership). Renewal money is NOT in `registrations.total_cents` — it
+lives on the `club_members` row. `hasCurrentMembership` accepts any season
+in `activeSeasons(event date)`, so during July both outgoing-season members
+and early new-season sign-ups can enter.
+
 ## Domain rules (from the AQHA Australia rule book, 2024 edition)
 
 - Scored classes commonly use a 60–80 scale with 70 = average (e.g. boxing /
