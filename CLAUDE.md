@@ -387,14 +387,16 @@ event's season satisfies the membership requirement (server-checked, like
 day membership). Renewal money is NOT in `registrations.total_cents` — it
 lives on the `club_members` row.
 
-**Event eligibility uses the event's exact season**, not the lenient
-`activeSeasons`: `hasMembershipForEvent(db, email, eventDate)` checks for an
-approved `club_members` row whose `season === currentSeason(eventDate)`. A
-membership only covers an event when the event date falls inside its
-1 Aug–31 Jul window — so a *next*-season membership does NOT cover the last
-event of the outgoing season. (`hasCurrentMembership`, still lenient via
-`activeSeasons`, is used only for the no-event "are you a member now?" check
-on the membership page and `/api/memberships/check` without an event id.)
+**Event eligibility** uses `hasMembershipForEvent(db, email, eventDate)`,
+which matches an approved `club_members` row whose season is in
+`activeSeasons(eventDate)` — the event's own season, PLUS (only at the July
+boundary) the coming season. So a member who joined in July (recorded for
+next season via `signupSeason()`) still counts at the last shows of the
+outgoing season, an August event is covered only by a next-season
+membership, and a mid-season event matches its own season only. (Uses the
+event date, unlike `hasCurrentMembership`, which uses "now" for the no-event
+"are you a member?" check on the membership page and `/api/memberships/check`
+without an event id.)
 
 Non-members (no portal sign-in) get **join at checkout**: alongside the day
 membership, the entry form offers every active `membership_types` row ("Join
