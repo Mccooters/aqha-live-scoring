@@ -385,19 +385,30 @@ coordinator's force-approve button — mark that row paid alongside the
 entries; committee approval then happens as usual. A renewal covering the
 event's season satisfies the membership requirement (server-checked, like
 day membership). Renewal money is NOT in `registrations.total_cents` — it
-lives on the `club_members` row. `hasCurrentMembership` accepts any season
-in `activeSeasons(event date)`, so during July both outgoing-season members
-and early new-season sign-ups can enter.
+lives on the `club_members` row.
 
-Non-members (no portal sign-in) get the same deal via **join at checkout**:
-alongside the day membership, the entry form offers every active
-`membership_types` row ("Join the club — annual membership",
-`annual_membership_type_id` in the create route). It creates a normal
-pending `club_members` application from the entry's contact name/email,
-sharing the Square order like a renewal; the member completes their details
-in the portal after committee approval. Mutually exclusive with day
-membership and with a renewal, and it satisfies the membership requirement
-only when `signupSeason()` is in `activeSeasons(event date)`.
+**Event eligibility uses the event's exact season**, not the lenient
+`activeSeasons`: `hasMembershipForEvent(db, email, eventDate)` checks for an
+approved `club_members` row whose `season === currentSeason(eventDate)`. A
+membership only covers an event when the event date falls inside its
+1 Aug–31 Jul window — so a *next*-season membership does NOT cover the last
+event of the outgoing season. (`hasCurrentMembership`, still lenient via
+`activeSeasons`, is used only for the no-event "are you a member now?" check
+on the membership page and `/api/memberships/check` without an event id.)
+
+Non-members (no portal sign-in) get **join at checkout**: alongside the day
+membership, the entry form offers every active `membership_types` row ("Join
+the club — annual membership", `annual_membership_type_id` in the create
+route). It always creates a normal pending `club_members` application (for
+`signupSeason()`) sharing the Square order like a renewal; the member
+completes their details in the portal after committee approval. When that
+membership covers the event's season it IS the way in (mutually exclusive
+with day membership). At the **last event of the season** the sign-up is for
+NEXT season and carries over, so it does NOT cover the event — the annual is
+created anyway (carried over) but a **day membership is still required** to
+enter, and the two are shown together rather than mutually exclusive. The
+entry form's banner/labels switch to the "next season" wording via
+`annualIsNextSeasonOnly` (event season ≠ `signupSeason()`).
 
 Show entries also collect **association registration numbers** for points
 checking (schema-v35): per entry, structured {club, number} rows for the

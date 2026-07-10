@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminClient } from "../../_lib/registrations";
-import { hasCurrentMembership } from "../../_lib/memberships";
+import { hasCurrentMembership, hasMembershipForEvent } from "../../_lib/memberships";
 
 // Yes/no membership check used by the event entry form to warn non-members
 // before they fill everything in. Returns only a boolean — never any member
@@ -15,16 +15,20 @@ export async function GET(req) {
 
   try {
     const db = adminClient();
-    let membershipDate = new Date();
+    // For a specific event, judge membership against the event's own season
+    // (a next-season membership doesn't cover the last event of the outgoing
+    // season). With no event, fall back to the lenient "are you a member now".
+    let member;
     if (eventId) {
       const { data: event } = await db
         .from("events")
         .select("starts_on")
         .eq("id", eventId)
         .maybeSingle();
-      if (event?.starts_on) membershipDate = new Date(event.starts_on);
+      member = await hasMembershipForEvent(db, email, event?.starts_on ?? new Date());
+    } else {
+      member = await hasCurrentMembership(db, email);
     }
-    const member = await hasCurrentMembership(db, email, membershipDate);
     return NextResponse.json({ member });
   } catch (err) {
     // Membership tables not set up yet (migration not run) — treat as
