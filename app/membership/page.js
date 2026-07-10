@@ -51,6 +51,7 @@ export default function MembershipPage() {
   const [accountCode, setAccountCode] = useState("");
   const [cooldown, setCooldown] = useState(0);
   const timer = useRef(null);
+  const submitLock = useRef(false); // guards against double-tap creating two applications
 
   const season = signupSeason();
 
@@ -240,20 +241,27 @@ export default function MembershipPage() {
     );
 
   const submit = async () => {
+    // Synchronous lock: a fast double-tap can fire this twice before the
+    // disabled state re-renders, which would create two applications.
+    if (submitLock.current) return;
+    submitLock.current = true;
     setError("");
-    if (!typeId) { setError("Please choose a membership type."); return; }
-    if (!memberName.trim()) { setError("Please enter your full name."); return; }
-    if (!email.trim() || !email.includes("@")) { setError("Please enter a valid email address."); return; }
-    if (!phone.trim()) { setError("Please enter your phone number."); return; }
-    if (!address.trim()) { setError("Please enter your address."); return; }
-    if (!emergencyName.trim() || !emergencyPhone.trim()) { setError("Please enter an emergency contact name and phone number."); return; }
+
+    const fail = (msg) => { setError(msg); submitLock.current = false; };
+    if (!typeId) return fail("Please choose a membership type.");
+    if (!memberName.trim()) return fail("Please enter your full name.");
+    if (!email.trim() || !email.includes("@")) return fail("Please enter a valid email address.");
+    if (!phone.trim()) return fail("Please enter your phone number.");
+    if (!address.trim()) return fail("Please enter your address.");
+    if (!emergencyName.trim() || !emergencyPhone.trim()) return fail("Please enter an emergency contact name and phone number.");
     const incompleteHorse = horses.find((h) =>
       !h.horse_name.trim() && (h.breed.trim() || h.registrations.trim() || h.notes.trim())
     );
-    if (incompleteHorse) { setError("One of your horses is missing its name. Please fill it in or remove that horse."); return; }
-    if (!agreed) { setError("Please confirm you have read and agree to the membership terms, liability waiver and declaration."); return; }
+    if (incompleteHorse) return fail("One of your horses is missing its name. Please fill it in or remove that horse.");
+    if (!agreed) return fail("Please confirm you have read and agree to the membership terms, liability waiver and declaration.");
 
     setSubmitting(true);
+    let navigating = false;
     try {
       const res = await fetch("/api/memberships/create", {
         method: "POST",
@@ -286,12 +294,14 @@ export default function MembershipPage() {
       });
       const data = await res.json();
       if (!res.ok || data.error) { setError(data.error ?? "Something went wrong. Please try again."); return; }
+      navigating = true; // leaving the page — keep the lock held so nothing re-fires
       if (data.redirect) router.push(data.redirect);
       else if (data.checkout_url) window.location.href = data.checkout_url;
     } catch {
       setError("Could not connect. Please check your internet and try again.");
     } finally {
       setSubmitting(false);
+      if (!navigating) submitLock.current = false;
     }
   };
 

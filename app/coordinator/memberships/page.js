@@ -135,6 +135,22 @@ export default function MembershipsPage() {
     setActing(null);
   };
 
+  // Remove a stray application — only ever an unpaid pending one or a rejected
+  // one (never a paid/approved membership, which is a record). Handy for
+  // clearing a duplicate left behind by a double submission.
+  const deleteApplication = async (member) => {
+    if (!confirm(`Delete this ${member.status} application for ${member.member_name}?\n\nThis permanently removes it (and its horses/people). Only do this for a duplicate or mistaken entry — it does NOT refund anything.`)) return;
+    setActing(member.id);
+    const { error } = await supabase
+      .from("club_members")
+      .delete()
+      .eq("id", member.id)
+      .in("status", ["pending", "rejected"]);
+    if (error) alert("Error: " + error.message);
+    else await load();
+    setActing(null);
+  };
+
   const markPaidManually = async (member) => {
     if (!confirm(`Mark ${member.member_name}'s application as paid?\n\nOnly do this if the fee was received outside Square (cash, bank transfer, or a payment confirmed manually).`)) return;
     const { error } = await supabase
@@ -491,6 +507,13 @@ export default function MembershipsPage() {
                       <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)", fontSize: 13 }}
                         onClick={() => act(m.id, "reject")} disabled={acting === m.id}>
                         Reject
+                      </button>
+                    )}
+                    {(m.status === "pending" || m.status === "rejected") && (
+                      <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)", fontSize: 13 }}
+                        onClick={() => deleteApplication(m)} disabled={acting === m.id}
+                        title="Remove a duplicate or mistaken application">
+                        Delete
                       </button>
                     )}
                   </div>
