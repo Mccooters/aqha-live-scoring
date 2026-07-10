@@ -62,32 +62,66 @@ export async function POST(req) {
 
     const totalCents = type.fee_cents ?? 0;
 
-    const { data: member, error: memberErr } = await db
+    const memberFields = {
+      season,
+      membership_type_id: type.id,
+      membership_type_name: type.name,
+      member_name: member_name.trim(),
+      email: cleanedEmail,
+      phone: String(phone ?? "").trim() || null,
+      address: String(address ?? "").trim() || null,
+      aqha_member_number: String(aqha_member_number ?? "").trim() || null,
+      other_memberships: String(other_memberships ?? "").trim() || null,
+      emergency_contact_name: String(emergency_contact_name ?? "").trim() || null,
+      emergency_contact_phone: String(emergency_contact_phone ?? "").trim() || null,
+      interests: String(interests ?? "").trim() || null,
+      applicant_notes: String(applicant_notes ?? "").trim() || null,
+      total_cents: totalCents,
+      status: "pending",
+      // Snapshot how many people this membership covers (like the type
+      // name) so later edits to the type never change existing memberships.
+      // Only sent once v25 has added the column to the type.
+      ...(type.included_people != null ? { included_people: type.included_people } : {}),
+    };
+
+    // Reuse an existing UNPAID pending application for this person+season
+    // instead of creating a second one — otherwise a double-tap on "Join &
+    // Pay", or going back to Square and submitting again, leaves a stranded
+    // duplicate "pending payment" row. (Paid/approved is already blocked
+    // above, so this only ever reuses an unpaid, not-yet-approved row.)
+    const { data: existingPending } = await db
       .from("club_members")
-      .insert({
-        season,
-        membership_type_id: type.id,
-        membership_type_name: type.name,
-        member_name: member_name.trim(),
-        email: cleanedEmail,
-        phone: String(phone ?? "").trim() || null,
-        address: String(address ?? "").trim() || null,
-        aqha_member_number: String(aqha_member_number ?? "").trim() || null,
-        other_memberships: String(other_memberships ?? "").trim() || null,
-        emergency_contact_name: String(emergency_contact_name ?? "").trim() || null,
-        emergency_contact_phone: String(emergency_contact_phone ?? "").trim() || null,
-        interests: String(interests ?? "").trim() || null,
-        applicant_notes: String(applicant_notes ?? "").trim() || null,
-        total_cents: totalCents,
-        status: "pending",
-        // Snapshot how many people this membership covers (like the type
-        // name) so later edits to the type never change existing memberships.
-        // Only sent once v25 has added the column to the type.
-        ...(type.included_people != null ? { included_people: type.included_people } : {}),
-      })
-      .select()
-      .single();
-    if (memberErr) return NextResponse.json({ error: memberErr.message }, { status: 500 });
+      .select("id")
+      .eq("season", season)
+      .eq("status", "pending")
+      .ilike("email", escapedEmail)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const reuseId = existingPending?.[0]?.id ?? null;
+
+    let member, memberErr;
+    if (reuseId) {
+      // Refresh the row with the latest details and clear the old checkout so
+      // a fresh Square link is issued. Its old horses/people are replaced below.
+      ({ data: member, error: memberErr } = await db
+        .from("club_members")
+        .update({ ...memberFields, square_order_id: null, square_checkout_url: null, square_payment_id: null })
+        .eq("id", reuseId)
+        .eq("status", "pending")
+        .select()
+        .single());
+      if (!memberErr && member) {
+        await db.from("club_member_horses").delete().eq("member_id", member.id);
+        await db.from("club_member_people").delete().eq("member_id", member.id);
+      }
+    } else {
+      ({ data: member, error: memberErr } = await db
+        .from("club_members")
+        .insert(memberFields)
+        .select()
+        .single());
+    }
+    if (memberErr || !member) return NextResponse.json({ error: memberErr?.message ?? "Could not save the application" }, { status: 500 });
 
     const rawHorseRows = (horses ?? [])
       .map(cleanHorseFields)

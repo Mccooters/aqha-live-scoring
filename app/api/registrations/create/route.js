@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { adminClient, approveRegistration, expireStaleRegistrations } from "../../_lib/registrations";
-import { membershipRequirement, hasCurrentMembership, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
+import { membershipRequirement, hasMembershipForEvent, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
 import { getMemberAccount } from "../../_lib/memberAuth";
-import { createSquarePaymentLink } from "../../_lib/squarePayments";
-import { activeSeasons, signupSeason } from "../../../../lib/membershipSeason";
+import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squarePayments";
+import { signupSeason, currentSeason } from "../../../../lib/membershipSeason";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
 const REPLACEMENT_NUMBERS_CENTS = 500;
@@ -113,26 +113,30 @@ export async function POST(req) {
     // never blocked by a technical problem.
     const requiresMembership = await membershipRequirement(db, event);
     const eventDate = event.starts_on ? new Date(event.starts_on) : new Date();
-    // A renewal bought with this entry counts as the annual membership when
-    // it covers the season the event falls in.
-    const renewalCoversEvent = renewal
-      ? activeSeasons(eventDate).includes(renewal.season)
-      : false;
+    const eventSeason = currentSeason(eventDate);
+    // A membership only covers the event when the event date falls in its
+    // season — so a next-season membership does NOT cover the last event of
+    // the outgoing season (which then needs a day membership).
+    const renewalCoversEvent = renewal ? renewal.season === eventSeason : false;
     let includeDayMembership = false;
-    let annualJoin = null; // { type, season } — full membership bought with this entry
+    let annualJoin = null; // { type, season } — full membership bought with this entry (also covers entry)
     if (requiresMembership) {
       let isMember = false;
       try {
-        isMember = await hasCurrentMembership(db, contact_email, eventDate);
+        isMember = await hasMembershipForEvent(db, contact_email, eventDate);
       } catch (err) {
         console.error("Membership lookup failed (allowing entry):", err);
         isMember = true;
       }
       // Non-members can join the club as part of this checkout: the fee is
       // added to the same Square payment and a normal membership application
-      // (paid → awaiting committee approval) is created, exactly like the
-      // July renewal flow — but for someone with no membership yet.
-      if (!isMember && !renewalCoversEvent && !renewal && annual_membership_type_id) {
+      // (paid → awaiting committee approval) is created, like the renewal flow.
+      // The membership is for signupSeason() — the current season most of the
+      // year, but NEXT season from July on. Joining always covers entry to
+      // this event: either its season matches, or (at the last show of the
+      // season) it carries over to next season AND covers this final event as
+      // a joining perk. The club_members row is still for signupSeason.
+      if (!isMember && !renewal && annual_membership_type_id) {
         const { data: type } = await db
           .from("membership_types")
           .select("*")
@@ -145,19 +149,15 @@ export async function POST(req) {
             { status: 400 }
           );
         }
-        const joinSeason = signupSeason();
-        if (activeSeasons(eventDate).includes(joinSeason)) {
-          annualJoin = { type, season: joinSeason };
-        }
-        // (If a new membership bought today wouldn't cover this event's
-        // season — a rare edge — fall through to the day-membership rule.)
+        annualJoin = { type, season: signupSeason() };
       }
-      if (!isMember && !renewalCoversEvent && !annualJoin) {
+      const satisfiedByAnnual = Boolean(annualJoin);
+      if (!isMember && !renewalCoversEvent && !satisfiedByAnnual) {
         includeDayMembership = Boolean(day_membership);
       }
-      if (!isMember && !renewalCoversEvent && !annualJoin && !includeDayMembership) {
+      if (!isMember && !renewalCoversEvent && !satisfiedByAnnual && !includeDayMembership) {
         return NextResponse.json(
-          { error: "We couldn't find an annual club membership for this event season. Add an annual or day membership to your entry, join on the Members page, or contact the club if you believe this is a mistake." },
+          { error: "We couldn't find a club membership covering this event. Add a day membership or an annual membership to your entry, join on the Members page, or contact the club if you believe this is a mistake." },
           { status: 403 }
         );
       }
@@ -642,11 +642,25 @@ export async function POST(req) {
       return NextResponse.json({ error: squareError }, { status: squareStatus ?? 500 });
     }
 
-    // Save the Square order ID so the webhook can find this registration
-    await db
+    // Save the Square order ID so the webhook can match the payment back to
+    // this registration. If this write fails, the webhook could never find the
+    // registration — the customer would pay and get no entries. So on failure
+    // we void the payment link (so it can't be paid) and error out BEFORE
+    // sending them to checkout, rather than redirect into a broken payment.
+    const { error: orderSaveErr } = await db
       .from("registrations")
       .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
       .eq("id", reg.id);
+    if (orderSaveErr) {
+      console.error("Could not store square_order_id — voiding the payment link:", orderSaveErr.message);
+      try { await deleteSquarePaymentLink(db, link?.id); } catch (e) { console.error("Void link failed:", e.message); }
+      if (renewalMember) await db.from("club_members").delete().eq("id", renewalMember.id).eq("status", "pending");
+      if (annualMember) await db.from("club_members").delete().eq("id", annualMember.id).eq("status", "pending");
+      return NextResponse.json(
+        { error: "Something went wrong setting up payment. Please try again — you have not been charged." },
+        { status: 500 }
+      );
+    }
 
     // The link id lets a later cancellation delete the checkout at Square.
     // Separate best-effort write: pre-v32 databases don't have the column,

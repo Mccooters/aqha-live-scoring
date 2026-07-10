@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
 import { groupedByProgramCategory } from "../../../../lib/classCategories";
-import { activeSeasons, signupSeason } from "../../../../lib/membershipSeason";
+import { signupSeason, currentSeason } from "../../../../lib/membershipSeason";
 
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 // "2026-2027" → "2026–27"
@@ -566,27 +566,39 @@ export default function RegisterPage() {
   }));
   const submissionEntries = isMultiMode ? multiEntries : entries;
   const filledEntries = submissionEntries.filter((e) => e.class_id);
-  // July renewal offer for the signed-in member. When the renewal's season
-  // covers the season this event falls in, it counts as the annual
-  // membership — no day membership needed (the server applies the same rule).
+  // A membership covers this event only when the event date falls in its
+  // season (the server applies the same rule) — so a next-season renewal does
+  // NOT cover the last event of the outgoing season.
+  const eventDate = event?.starts_on ? new Date(event.starts_on) : new Date();
+  const eventSeason = currentSeason(eventDate);
   const renewalOffer = memberAccount?.renewalOffer ?? null;
   const renewalType = renewMembership && renewalOffer
     ? membershipTypes.find((t) => t.id === renewalTypeId)
     : null;
   const renewalCents = renewalType?.fee_cents ?? 0;
   const renewalCoversEvent = Boolean(renewalType) && Boolean(renewalOffer) &&
-    activeSeasons(event?.starts_on ? new Date(event.starts_on) : new Date()).includes(renewalOffer.season);
+    renewalOffer.season === eventSeason;
   const needsDayMembership = membershipRequired && membershipStatus !== "member" && !renewalCoversEvent;
-  // Buying a full membership with the entry (offered alongside the day
-  // membership; only for people who aren't signed-in members with a renewal).
-  const annualJoinAvailable = needsDayMembership && !renewalOffer && membershipTypes.length > 0 &&
-    activeSeasons(event?.starts_on ? new Date(event.starts_on) : new Date()).includes(signupSeason());
+  // The membership a "Join the club" checkout would create is for signupSeason:
+  // the current season most of the year, but NEXT season from July onward. It
+  // covers THIS event only when the event falls in that same season.
+  const annualJoinSeason = signupSeason();
+  // At the last show of the season the membership on offer is for NEXT season
+  // (it carries over) — but joining still covers entry to that final event, so
+  // it's not "just next season only" for eligibility, only for wording.
+  const annualIsNextSeason = eventSeason !== annualJoinSeason;
+  // Joining the club is offered whenever they're not already a member/renewer.
+  const annualJoinAvailable = needsDayMembership && !renewalOffer && membershipTypes.length > 0;
   const annualType = annualJoinAvailable && annualJoin
     ? membershipTypes.find((t) => t.id === annualTypeId)
     : null;
   const annualCents = annualType?.fee_cents ?? 0;
-  const annualSelected = annualJoinAvailable && annualJoin;
-  const dayMembershipSelected = needsDayMembership && dayMembership && !annualSelected;
+  const annualSelected = annualJoinAvailable && annualJoin && Boolean(annualType);
+  // Joining the club always covers entry to this event — either its season
+  // matches, or (at the last show) it carries over and covers this final event
+  // as a joining perk. So annual join and the day membership are alternatives.
+  const annualSatisfiesEntry = annualSelected;
+  const dayMembershipSelected = needsDayMembership && dayMembership && !annualSatisfiesEntry;
   const totalCents = filledEntries.length * feePerClass
     + (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0)
     + (annualSelected ? annualCents : 0)
@@ -795,12 +807,12 @@ export default function RegisterPage() {
       setError("Please choose a membership type for your renewal (or untick the renewal option).");
       return;
     }
-    if (annualSelected && !annualType) {
+    if (annualJoinAvailable && annualJoin && !annualType) {
       setError("Please choose a membership type to join with (or untick the membership option).");
       return;
     }
-    if (membershipRequired && membershipStatus === "none" && !dayMembership && !annualSelected && !renewalCoversEvent) {
-      setError("Add an annual membership or the $20 day membership to your entry, or use the email address on a current annual membership.");
+    if (membershipRequired && membershipStatus === "none" && !annualSatisfiesEntry && !dayMembership && !renewalCoversEvent) {
+      setError(`Add an annual membership or the ${fmtMoney(DAY_MEMBERSHIP_CENTS)} day membership to your entry, or use the email address on a current club membership.`);
       return;
     }
     if (!rulesAccepted) {
@@ -935,7 +947,9 @@ export default function RegisterPage() {
         {membershipRequired && membershipStatus !== "member" && (
           <div className="card" style={{ padding: "12px 14px", borderColor: "#E0B15A", background: "#FFF7D6", marginBottom: 14 }}>
             <p style={{ margin: 0, color: "var(--leather)", fontSize: 13.5, fontWeight: 700 }}>
-              Membership required — non-members can join the club or add a {fmtMoney(DAY_MEMBERSHIP_CENTS)} day membership as part of their entry below.
+              {annualIsNextSeason
+                ? <>This is the last event of the season. Join the club now and your {shortSeason(annualJoinSeason)}-season membership carries over <strong>and covers your entry today</strong> — or add a {fmtMoney(DAY_MEMBERSHIP_CENTS)} day membership just for this event.</>
+                : <>Membership required — non-members can join the club or add a {fmtMoney(DAY_MEMBERSHIP_CENTS)} day membership as part of their entry below.</>}
             </p>
           </div>
         )}
@@ -998,12 +1012,12 @@ export default function RegisterPage() {
                   />
                   <span style={{ minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: 14, fontWeight: 800, color: "var(--leather)" }}>
-                      Join the club — annual membership
+                      Join the club — annual membership{annualIsNextSeason ? ` (${shortSeason(annualJoinSeason)} season)` : ""}
                     </span>
                     <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                      Full membership until 31 July, added to this payment. The committee confirms your
-                      application as usual, and you can finish your member details on the{" "}
-                      <Link href="/membership" style={{ color: "var(--brass)", fontWeight: 700 }}>Members page</Link> later.
+                      {annualIsNextSeason
+                        ? <>Starts 1 August and runs through the {shortSeason(annualJoinSeason)} season — and covers your entry to this final event of the season, so no day membership needed. The committee confirms your application, and you can finish your details on the <Link href="/membership" style={{ color: "var(--brass)", fontWeight: 700 }}>Members page</Link> later.</>
+                        : <>Full membership until 31 July, added to this payment. The committee confirms your application as usual, and you can finish your member details on the <Link href="/membership" style={{ color: "var(--brass)", fontWeight: 700 }}>Members page</Link> later.</>}
                     </span>
                   </span>
                 </label>
@@ -1024,7 +1038,7 @@ export default function RegisterPage() {
               </div>
             )}
             {needsDayMembership && (
-              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 10, background: dayMembershipSelected ? "#FFF7D6" : "#fff", cursor: "pointer", opacity: annualSelected ? 0.55 : 1 }}>
+              <label style={{ display: "flex", gap: 10, alignItems: "flex-start", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 10, background: dayMembershipSelected ? "#FFF7D6" : "#fff", cursor: "pointer", opacity: annualSatisfiesEntry ? 0.55 : 1 }}>
                 <input
                   type="checkbox"
                   checked={dayMembershipSelected}
@@ -1036,7 +1050,7 @@ export default function RegisterPage() {
                     Add day membership · {fmtMoney(DAY_MEMBERSHIP_CENTS)}
                   </span>
                   <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                    Covers this event only{annualJoinAvailable ? " — or join as an annual member above" : ""}.
+                    Covers this event only{annualJoinAvailable ? <> — or join as an annual member above{annualIsNextSeason ? " (covers today and next season)" : ""}</> : ""}.
                   </span>
                 </span>
               </label>
@@ -1303,7 +1317,7 @@ export default function RegisterPage() {
                 )}
                 {annualSelected && annualType && (
                   <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
-                    Annual membership ({annualType.name}) × {fmtMoney(annualCents)}
+                    {annualIsNextSeason ? `${shortSeason(annualJoinSeason)} ` : ""}Annual membership ({annualType.name}) × {fmtMoney(annualCents)}
                   </div>
                 )}
                 {renewalType && (

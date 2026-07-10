@@ -23,6 +23,13 @@ export async function hashPassword(password) {
   ].join(":");
 }
 
+// A valid-format hash used only to spend the same scrypt time on the
+// "no account / no password set" path as on a real wrong-password guess, so
+// response timing can't reveal which emails have a password. It never matches
+// any real password (it's the hash of a throwaway value under a random salt).
+export const DUMMY_PASSWORD_HASH =
+  "scrypt:16384:8:1:ff0Y72m0Ixbhmy0QFv0W8A==:pi/A/wDrZfIhztVqLsNoUaCYOw1TywYdBaEt5ez8rN7F6WTOlWv5SAl8+/V12gLWKYhdexuL09UDvbdjMAn8nA==";
+
 export async function verifyPassword(password, stored) {
   try {
     const [scheme, n, r, p, saltB64, hashB64] = String(stored ?? "").split(":");

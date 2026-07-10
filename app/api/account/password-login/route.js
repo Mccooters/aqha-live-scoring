@@ -6,7 +6,7 @@ import {
   SESSION_COOKIE, MAX_PASSWORD_ATTEMPTS, PASSWORD_LOCK_MS,
   memberSignInConfigError, memberSignInReadError,
 } from "../../_lib/memberAuth";
-import { verifyPassword } from "../../_lib/passwords";
+import { verifyPassword, DUMMY_PASSWORD_HASH } from "../../_lib/passwords";
 
 // Password sign-in. One deliberately vague error for "no such account",
 // "no password set" and "wrong password", so the response never reveals
@@ -44,7 +44,11 @@ export async function POST(req) {
         { status: 503 }
       );
     }
+    // Always spend the scrypt time, even when there's no account or no password
+    // set, so response timing can't reveal which emails have a password. The
+    // dummy hash never matches, so the outcome is a normal generic failure.
     if (!account?.password_hash) {
+      await verifyPassword(password, DUMMY_PASSWORD_HASH);
       return NextResponse.json({ error: GENERIC_MSG }, { status: 401 });
     }
 
@@ -54,7 +58,10 @@ export async function POST(req) {
 
     const ok = await verifyPassword(password, account.password_hash);
     if (!ok) {
-      const attempts = (account.password_failed_attempts ?? 0) + 1;
+      // Increment atomically with an optimistic lock so parallel wrong guesses
+      // can't all read the same count and slip past the lockout.
+      const current = account.password_failed_attempts ?? 0;
+      const attempts = current + 1;
       const locked = attempts >= MAX_PASSWORD_ATTEMPTS;
       await db
         .from("member_accounts")
@@ -63,7 +70,8 @@ export async function POST(req) {
             ? { password_failed_attempts: 0, password_locked_until: new Date(Date.now() + PASSWORD_LOCK_MS).toISOString() }
             : { password_failed_attempts: attempts }
         )
-        .eq("id", account.id);
+        .eq("id", account.id)
+        .eq("password_failed_attempts", current);
       return NextResponse.json({ error: locked ? LOCKED_MSG : GENERIC_MSG }, { status: 401 });
     }
 
