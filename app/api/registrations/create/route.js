@@ -119,8 +119,7 @@ export async function POST(req) {
     // the outgoing season (which then needs a day membership).
     const renewalCoversEvent = renewal ? renewal.season === eventSeason : false;
     let includeDayMembership = false;
-    let annualJoin = null;        // { type, season } — full membership bought with this entry
-    let annualCoversEvent = false; // does that membership's season cover THIS event?
+    let annualJoin = null; // { type, season } — full membership bought with this entry (also covers entry)
     if (requiresMembership) {
       let isMember = false;
       try {
@@ -133,9 +132,10 @@ export async function POST(req) {
       // added to the same Square payment and a normal membership application
       // (paid → awaiting committee approval) is created, like the renewal flow.
       // The membership is for signupSeason() — the current season most of the
-      // year, but NEXT season from July on. It's created either way (at the
-      // last event of the season it starts next season and carries over); it
-      // only counts as the way INTO this event when it covers the event season.
+      // year, but NEXT season from July on. Joining always covers entry to
+      // this event: either its season matches, or (at the last show of the
+      // season) it carries over to next season AND covers this final event as
+      // a joining perk. The club_members row is still for signupSeason.
       if (!isMember && !renewal && annual_membership_type_id) {
         const { data: type } = await db
           .from("membership_types")
@@ -149,17 +149,15 @@ export async function POST(req) {
             { status: 400 }
           );
         }
-        const joinSeason = signupSeason();
-        annualJoin = { type, season: joinSeason };
-        annualCoversEvent = joinSeason === eventSeason;
+        annualJoin = { type, season: signupSeason() };
       }
-      const satisfiedByAnnual = annualJoin && annualCoversEvent;
+      const satisfiedByAnnual = Boolean(annualJoin);
       if (!isMember && !renewalCoversEvent && !satisfiedByAnnual) {
         includeDayMembership = Boolean(day_membership);
       }
       if (!isMember && !renewalCoversEvent && !satisfiedByAnnual && !includeDayMembership) {
         return NextResponse.json(
-          { error: "We couldn't find a club membership covering this event. Add a day membership (or an annual membership that covers this event) to your entry, join on the Members page, or contact the club if you believe this is a mistake." },
+          { error: "We couldn't find a club membership covering this event. Add a day membership or an annual membership to your entry, join on the Members page, or contact the club if you believe this is a mistake." },
           { status: 403 }
         );
       }

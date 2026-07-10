@@ -399,16 +399,17 @@ on the membership page and `/api/memberships/check` without an event id.)
 Non-members (no portal sign-in) get **join at checkout**: alongside the day
 membership, the entry form offers every active `membership_types` row ("Join
 the club — annual membership", `annual_membership_type_id` in the create
-route). It always creates a normal pending `club_members` application (for
+route). It creates a normal pending `club_members` application (for
 `signupSeason()`) sharing the Square order like a renewal; the member
-completes their details in the portal after committee approval. When that
-membership covers the event's season it IS the way in (mutually exclusive
-with day membership). At the **last event of the season** the sign-up is for
-NEXT season and carries over, so it does NOT cover the event — the annual is
-created anyway (carried over) but a **day membership is still required** to
-enter, and the two are shown together rather than mutually exclusive. The
-entry form's banner/labels switch to the "next season" wording via
-`annualIsNextSeasonOnly` (event season ≠ `signupSeason()`).
+completes their details in the portal after committee approval. **Joining
+always covers entry to the event** and is mutually exclusive with the day
+membership (`satisfiedByAnnual = Boolean(annualJoin)` server-side). At the
+**last event of the season** the membership is for NEXT season and carries
+over, but joining still covers that final event as a perk — the day
+membership is waived, and the entry form's banner/labels switch to the "next
+season, covers today too" wording via `annualIsNextSeason` (event season ≠
+`signupSeason()`). The `club_members` row's season stays `signupSeason()`
+regardless.
 
 Show entries also collect **association registration numbers** for points
 checking (schema-v35): per entry, structured {club, number} rows for the
