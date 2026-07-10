@@ -48,6 +48,10 @@ export default function ProgramPrintPage() {
   const searchParams = useSearchParams();
   const [event, setEvent] = useState(null);
   const [classes, setClasses] = useState([]);
+  // null = follow the event status (draw shown once closed/live/completed);
+  // true/false = staff override via the "Show riders" toggle, so a program
+  // with riders can be printed while entries are still open.
+  const [drawOverride, setDrawOverride] = useState(null);
 
   const load = useCallback(async () => {
     const [{ data: ev }, { data: cls }] = await Promise.all([
@@ -67,7 +71,8 @@ export default function ProgramPrintPage() {
   const selectedDay = Number(searchParams.get("day") || days[0] || 1);
   const dayClasses = classes.filter((cls) => (cls.day ?? 1) === selectedDay);
   const multiDay = days.length > 1;
-  const showDraw = drawIsPublished(event);
+  const anyEntries = classes.some((cls) => (cls.entries?.length ?? 0) > 0);
+  const showDraw = drawOverride ?? drawIsPublished(event);
 
   if (!event) return <main className="wrap"><p style={{ color: "var(--quiet)" }}>Loading...</p></main>;
 
@@ -87,6 +92,14 @@ export default function ProgramPrintPage() {
               Day {day}
             </Link>
           ))}
+          {anyEntries && (
+            <button
+              onClick={() => setDrawOverride(!showDraw)}
+              style={showDraw ? { borderColor: "#A8843C", color: "#A8843C" } : {}}
+              title="Include each class's riders in the printed program">
+              {showDraw ? "Hide riders" : "Show riders"}
+            </button>
+          )}
           <button onClick={() => window.print()}>Print / Save PDF</button>
         </div>
       </div>
