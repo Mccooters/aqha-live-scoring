@@ -397,23 +397,14 @@ export default function HighPoints() {
       });
       const deduped = Object.values(dedupeMap).map(e => ({ ...e, breed: importBreed }));
 
-      // Only delete records for the shows included in this CSV — and only on
-      // this breed's leaderboard — preserving everything else.
       const importedShows = [...new Set(deduped.map(e => e.show_name))];
       const legacyAqha = importBreed === "AQHA";
-      const del = await supabase.from("high_points")
-        .delete()
-        .eq("season", importedSeason)
-        .in("show_name", importedShows)
-        .eq("breed", importBreed);
-      if (del.error && isMissingBreedColumn(del.error)) {
-        if (!legacyAqha) throw new Error(MIGRATION_HINT);
-        await supabase.from("high_points")
-          .delete()
-          .eq("season", importedSeason)
-          .in("show_name", importedShows);
-      } else if (del.error) throw del.error;
 
+      // Write the imported rows FIRST (upsert on the unique key), then remove
+      // only the leftover rows for those shows that weren't in the file. The
+      // old order (delete then insert) could wipe a season's shows if the
+      // insert failed on a dropped request — this way the data is never left
+      // nowhere, and a failed import leaves the existing leaderboard intact.
       let { error } = await supabase.from("high_points")
         .upsert(deduped, { onConflict: "season,category,entity_name,show_name,breed" });
       if (error && isMissingBreedColumn(error)) {
@@ -424,6 +415,29 @@ export default function HighPoints() {
         ));
       }
       if (error) throw error;
+
+      // Remove stale rows for the imported shows (people no longer in the file)
+      // by id, after the fresh rows are safely in.
+      const keep = new Set(deduped.map(e => `${e.category}||${e.entity_name}||${e.show_name}`));
+      let existing = await supabase.from("high_points")
+        .select("id, category, entity_name, show_name")
+        .eq("season", importedSeason)
+        .in("show_name", importedShows)
+        .eq("breed", importBreed);
+      if (existing.error && isMissingBreedColumn(existing.error)) {
+        existing = await supabase.from("high_points")
+          .select("id, category, entity_name, show_name")
+          .eq("season", importedSeason)
+          .in("show_name", importedShows);
+      }
+      if (existing.error) throw existing.error;
+      const staleIds = (existing.data ?? [])
+        .filter(r => !keep.has(`${r.category}||${r.entity_name}||${r.show_name}`))
+        .map(r => r.id);
+      if (staleIds.length) {
+        const { error: delErr } = await supabase.from("high_points").delete().in("id", staleIds);
+        if (delErr) throw delErr;
+      }
       await load();
       setSeason(importedSeason);
       setBreed(importBreed);

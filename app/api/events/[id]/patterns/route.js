@@ -27,6 +27,26 @@ function isMissingColumn(error, column) {
   return error?.code === "42703" || message.includes(column.toLowerCase());
 }
 
+// Resolve a stored pattern URL and confirm it points somewhere we're willing
+// to fetch server-side, before we fetch it. Pattern URLs are set by staff and
+// live in Supabase storage or on this app's own host — restricting to those
+// hosts stops a malicious/mistaken URL turning this into a server-side request
+// forgery (e.g. hitting a cloud metadata endpoint) that gets embedded into the
+// downloadable PDF. Only http/https, and only allow-listed hosts.
+function resolveAllowedFetchUrl(rawUrl, reqUrl) {
+  const url = new URL(rawUrl, reqUrl);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`Blocked pattern URL (unsupported scheme): ${url.protocol}`);
+  }
+  const allowedHosts = new Set();
+  try { allowedHosts.add(new URL(reqUrl).host); } catch {}
+  try { allowedHosts.add(new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).host); } catch {}
+  if (!allowedHosts.has(url.host)) {
+    throw new Error(`Blocked pattern URL (host not allowed): ${url.host}`);
+  }
+  return url.toString();
+}
+
 function drawWrappedText(page, text, { x, y, size = 11, font, color = rgb(0, 0, 0), maxWidth = 500, lineHeight = size + 4 }) {
   const words = String(text ?? "").split(/\s+/).filter(Boolean);
   let line = "";
@@ -97,7 +117,7 @@ async function loadEvent(db, eventId) {
 }
 
 async function fetchCustomPdf(patternsPdfUrl, reqUrl) {
-  const absoluteUrl = new URL(patternsPdfUrl, reqUrl).toString();
+  const absoluteUrl = resolveAllowedFetchUrl(patternsPdfUrl, reqUrl);
   const res = await fetch(absoluteUrl);
   if (!res.ok) throw new Error(`Custom PDF download failed (${res.status})`);
   const contentType = res.headers.get("content-type") ?? "";
@@ -108,7 +128,13 @@ async function fetchCustomPdf(patternsPdfUrl, reqUrl) {
 }
 
 async function appendPattern(pdfDoc, font, bold, label, patternUrl, reqUrl) {
-  const absoluteUrl = new URL(patternUrl, reqUrl).toString();
+  let absoluteUrl;
+  try {
+    absoluteUrl = resolveAllowedFetchUrl(patternUrl, reqUrl);
+  } catch (err) {
+    console.error("Skipping disallowed pattern URL:", err.message);
+    return;
+  }
   try {
     const res = await fetch(absoluteUrl);
     if (!res.ok) throw new Error(`Download failed (${res.status})`);

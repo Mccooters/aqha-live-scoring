@@ -136,8 +136,10 @@ export default function Registry() {
     closeModal();
   };
 
-  const deleteReg = async (regId) => {
-    await supabase.from("horse_registrations").delete().eq("id", regId);
+  const deleteReg = async (regId, label) => {
+    if (!window.confirm(`Remove the ${label || "club registration"} for this horse? This can't be undone.`)) return;
+    const { error } = await supabase.from("horse_registrations").delete().eq("id", regId);
+    if (error) { window.alert(`Could not remove it — please try again.\n\n(${error.message})`); return; }
     await loadHorses();
   };
 
@@ -350,7 +352,7 @@ export default function Registry() {
                               <span key={r.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "var(--sand)", border: "1px solid var(--line)", borderRadius: 20, padding: "2px 9px", fontSize: 12 }}>
                                 <strong>{r.club}</strong>{r.registration_number ? ` · ${r.registration_number}` : ""}
                                 {session && (
-                                  <button onClick={() => deleteReg(r.id)} aria-label="Remove registration"
+                                  <button onClick={() => deleteReg(r.id, `${r.club}${r.registration_number ? ` · ${r.registration_number}` : ""}`)} aria-label="Remove registration"
                                     style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)", fontSize: 11, padding: "0 2px", lineHeight: 1 }}>✕</button>
                                 )}
                               </span>

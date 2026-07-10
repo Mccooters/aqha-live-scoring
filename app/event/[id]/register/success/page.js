@@ -3,6 +3,12 @@ import { useEffect, useState, Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
+// Poll for up to ~5 minutes (2s early, then 10s) — the Square webhook can lag
+// under load, and stopping at 30s while still telling the user "this updates
+// automatically" strands people whose payment actually went through.
+const MAX_POLLS = 40;
+const SLOW_MSG_AFTER = 15;
+
 function SuccessContent() {
   const { id: eventId } = useParams();
   const searchParams = useSearchParams();
@@ -15,27 +21,35 @@ function SuccessContent() {
 
   useEffect(() => {
     if (!regId) { setLoading(false); return; }
+    let cancelled = false;
 
     async function check() {
       // Registrations hold names/emails so they're no longer publicly readable
       // from the browser — this server route looks up just this one, keyed by
       // the unguessable registration ID from the redirect URL.
-      const res = await fetch(`/api/registrations/status?id=${encodeURIComponent(regId)}`);
-      const data = res.ok ? await res.json() : null;
-      if (data) {
-        setReg(data);
-        setEntries(data.registration_entries ?? []);
-        setLoading(false);
-        // Keep polling until paid (Square webhook may arrive a few seconds after redirect)
-        if (data.status !== "paid" && pollCount < 15) {
-          setTimeout(() => setPollCount((n) => n + 1), 2000);
+      let paid = false;
+      try {
+        const res = await fetch(`/api/registrations/status?id=${encodeURIComponent(regId)}`);
+        const data = res.ok ? await res.json() : null;
+        if (data && !cancelled) {
+          setReg(data);
+          setEntries(data.registration_entries ?? []);
+          paid = data.status === "paid";
         }
-      } else {
-        setLoading(false);
+      } catch {
+        // Network blip right after returning from Square — don't get stuck on
+        // "Confirming…"; the next poll tick will try again.
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+      // Keep polling until paid or we hit the ceiling.
+      if (!cancelled && !paid && pollCount < MAX_POLLS) {
+        setTimeout(() => { if (!cancelled) setPollCount((n) => n + 1); }, pollCount < 8 ? 2000 : 10000);
       }
     }
 
     check();
+    return () => { cancelled = true; };
   }, [regId, pollCount]);
 
   if (loading) {
@@ -99,7 +113,7 @@ function SuccessContent() {
             ) : (
               <p style={{ fontSize: 14, color: "var(--quiet)", marginTop: 4 }}>
                 Your payment is being confirmed — this page updates automatically, please don&apos;t close it.
-                {pollCount >= 15 && (
+                {pollCount >= SLOW_MSG_AFTER && (
                   <span> If you&apos;ve completed payment and this persists after a minute, please contact the show secretary.</span>
                 )}
               </p>

@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { adminClient, approveRegistration, expireStaleRegistrations } from "../../_lib/registrations";
 import { membershipRequirement, hasCurrentMembership, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
 import { getMemberAccount } from "../../_lib/memberAuth";
-import { createSquarePaymentLink } from "../../_lib/squarePayments";
+import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squarePayments";
 import { activeSeasons, signupSeason } from "../../../../lib/membershipSeason";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
@@ -642,11 +642,25 @@ export async function POST(req) {
       return NextResponse.json({ error: squareError }, { status: squareStatus ?? 500 });
     }
 
-    // Save the Square order ID so the webhook can find this registration
-    await db
+    // Save the Square order ID so the webhook can match the payment back to
+    // this registration. If this write fails, the webhook could never find the
+    // registration — the customer would pay and get no entries. So on failure
+    // we void the payment link (so it can't be paid) and error out BEFORE
+    // sending them to checkout, rather than redirect into a broken payment.
+    const { error: orderSaveErr } = await db
       .from("registrations")
       .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
       .eq("id", reg.id);
+    if (orderSaveErr) {
+      console.error("Could not store square_order_id — voiding the payment link:", orderSaveErr.message);
+      try { await deleteSquarePaymentLink(db, link?.id); } catch (e) { console.error("Void link failed:", e.message); }
+      if (renewalMember) await db.from("club_members").delete().eq("id", renewalMember.id).eq("status", "pending");
+      if (annualMember) await db.from("club_members").delete().eq("id", annualMember.id).eq("status", "pending");
+      return NextResponse.json(
+        { error: "Something went wrong setting up payment. Please try again — you have not been charged." },
+        { status: 500 }
+      );
+    }
 
     // The link id lets a later cancellation delete the checkout at Square.
     // Separate best-effort write: pre-v32 databases don't have the column,

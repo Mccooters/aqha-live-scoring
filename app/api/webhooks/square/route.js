@@ -53,11 +53,20 @@ export async function POST(req) {
   const db = adminClient();
 
   // Find our registration by the Square order ID stored at checkout creation time
-  const { data: reg } = await db
+  const { data: reg, error: regLookupErr } = await db
     .from("registrations")
     .select("id, status, total_cents")
     .eq("square_order_id", orderId)
     .maybeSingle();
+
+  // A transient DB error must NOT be treated as "no registration" — returning
+  // 200 here would tell Square the payment is handled and it would never
+  // retry, leaving a paid customer with no entries. Return 500 so Square
+  // redelivers the webhook.
+  if (regLookupErr) {
+    console.error("Square webhook: registration lookup failed, asking Square to retry:", regLookupErr.message);
+    return NextResponse.json({ error: "Lookup failed" }, { status: 500 });
+  }
 
   // Not an event entry — it may be a membership payment instead.
   if (!reg) {
@@ -70,9 +79,10 @@ export async function POST(req) {
   if (reg.status === "paid") return handleMembershipPayment(db, payment, orderId);
 
   // The completed payment must cover the registration total — a partial
-  // payment should never place entries.
+  // payment should never place entries. Fail closed: if the amount is missing
+  // or not a number, treat it as NOT covering the total rather than approving.
   const paidCents = payment?.amount_money?.amount;
-  if (typeof paidCents === "number" && paidCents < (reg.total_cents ?? 0)) {
+  if (typeof paidCents !== "number" || paidCents < (reg.total_cents ?? 0)) {
     console.error(
       `Square payment ${payment.id} paid ${paidCents}c but registration ${reg.id} totals ${reg.total_cents}c — not approving`
     );
@@ -102,15 +112,26 @@ async function handleMembershipPayment(db, payment, orderId) {
     .eq("square_order_id", orderId)
     .maybeSingle();
 
-  // Table missing (migration not run) or no match — nothing for us to do.
-  if (error || !member || member.status !== "pending") {
+  if (error) {
+    // If the club_members table doesn't exist yet (schema-v23 not run), this
+    // order simply can't be a membership — nothing to do, don't ask Square to
+    // retry. Any OTHER error is transient, so return 500 so Square redelivers
+    // rather than silently dropping a real membership payment.
+    const missingTable = /does not exist|relation .* does not exist|schema cache/i.test(error.message ?? "");
+    if (missingTable) return NextResponse.json({ ok: true });
+    console.error("Square webhook: membership lookup failed, asking Square to retry:", error.message);
+    return NextResponse.json({ error: "Lookup failed" }, { status: 500 });
+  }
+
+  // No matching membership, or already handled — nothing to do.
+  if (!member || member.status !== "pending") {
     return NextResponse.json({ ok: true });
   }
 
   // The completed payment must cover the membership fee — a partial payment
-  // should never advance the application.
+  // should never advance the application. Fail closed on a missing amount.
   const paidCents = payment?.amount_money?.amount;
-  if (typeof paidCents === "number" && paidCents < (member.total_cents ?? 0)) {
+  if (typeof paidCents !== "number" || paidCents < (member.total_cents ?? 0)) {
     console.error(
       `Square payment ${payment.id} paid ${paidCents}c but membership ${member.id} totals ${member.total_cents}c — not marking paid`
     );

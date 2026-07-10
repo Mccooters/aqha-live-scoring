@@ -14,26 +14,33 @@ function SuccessContent() {
 
   useEffect(() => {
     if (!memberId) { setLoading(false); return; }
+    let cancelled = false;
 
     async function check() {
       // Membership applications hold personal details so they're not publicly
       // readable — this server route looks up just this one, keyed by the
       // unguessable ID from the redirect URL.
-      const res = await fetch(`/api/memberships/status?id=${encodeURIComponent(memberId)}`);
-      const data = res.ok ? await res.json() : null;
-      if (data) {
-        setMember(data);
-        setLoading(false);
-        // Keep polling until the Square webhook confirms payment
-        if (data.status === "pending" && pollCount < 15) {
-          setTimeout(() => setPollCount((n) => n + 1), 2000);
+      let stillPending = false;
+      try {
+        const res = await fetch(`/api/memberships/status?id=${encodeURIComponent(memberId)}`);
+        const data = res.ok ? await res.json() : null;
+        if (data && !cancelled) {
+          setMember(data);
+          stillPending = data.status === "pending";
         }
-      } else {
-        setLoading(false);
+      } catch {
+        // Network blip after returning from Square — don't get stuck loading.
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+      // Keep polling for up to ~5 minutes while the webhook confirms payment.
+      if (!cancelled && stillPending && pollCount < 40) {
+        setTimeout(() => { if (!cancelled) setPollCount((n) => n + 1); }, pollCount < 8 ? 2000 : 10000);
       }
     }
 
     check();
+    return () => { cancelled = true; };
   }, [memberId, pollCount]);
 
   if (loading) {

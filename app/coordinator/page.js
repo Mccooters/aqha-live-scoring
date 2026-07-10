@@ -218,6 +218,25 @@ export default function Coordinator() {
     }
   }, [eventId]);
 
+  // Run a Supabase write and shout if it fails. postgrest-js returns network
+  // and database errors as { error } rather than throwing, so an unchecked
+  // write silently "succeeds" on a dropped connection — at an arena on flaky
+  // Wi-Fi that means a lost score displayed as saved. Every write on the live
+  // scoring path goes through this so the coordinator is never misled.
+  const saveOrWarn = useCallback(async (promise, whatFailed) => {
+    let error;
+    try {
+      ({ error } = await promise);
+    } catch (e) {
+      error = e;
+    }
+    if (error) {
+      window.alert(`${whatFailed}\n\nIt was NOT saved — check your internet connection and try again.\n\n(${error.message ?? "connection error"})`);
+      return false;
+    }
+    return true;
+  }, []);
+
   useEffect(() => { if (session) loadEvents(); }, [session, loadEvents]);
   useEffect(() => { setSelectedClassIds(new Set()); }, [eventId]);
   useEffect(() => {
@@ -295,7 +314,26 @@ export default function Coordinator() {
     }
     setBusy(true);
     try {
-      await supabase.from("entries").update(updateData).eq("id", current.id);
+      // Guard on score == null so two devices scoring the same horse can't
+      // silently overwrite each other — the second save updates zero rows.
+      let updated, error;
+      try {
+        ({ data: updated, error } = await supabase
+          .from("entries").update(updateData).eq("id", current.id).is("score", null).select("id"));
+      } catch (e) {
+        error = e;
+      }
+      if (error) {
+        window.alert(`That score could not be saved.\n\nIt was NOT saved — check your internet connection and try again.\n\n(${error.message ?? "connection error"})`);
+        return; // keep the inputs populated; do not advance, complete, or notify
+      }
+      if (!updated?.length) {
+        window.alert("This horse was just scored on another device — refreshing the draw.");
+        await loadClasses();
+        setScoreInput("");
+        setScoreInput2("");
+        return;
+      }
       const remaining = liveClass.entries.filter((e) => e.id !== current.id && e.score == null && !e.scratched);
       if (remaining.length === 0) {
         await completeClass(liveClass);
@@ -305,6 +343,7 @@ export default function Coordinator() {
       }
       setScoreInput("");
       setScoreInput2("");
+      await loadClasses();
     } finally {
       setBusy(false);
     }
@@ -314,21 +353,31 @@ export default function Coordinator() {
     if (!current || busy) return;
     setBusy(true);
     try {
-      await supabase.from("entries").update({ called: true }).eq("id", current.id);
+      const ok = await saveOrWarn(
+        supabase.from("entries").update({ called: true }).eq("id", current.id),
+        "That horse could not be marked as shown."
+      );
+      if (!ok) return; // do not advance, complete, or notify on a failed write
       const remaining = liveClass.entries.filter((e) => e.id !== current.id && !e.called && !e.scratched);
       if (remaining.length === 0) {
         await completeClass(liveClass);
       } else {
         triggerPush(`Now showing: #${fmtBack(remaining[0].back_number)} ${remaining[0].horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
       }
+      await loadClasses();
     } finally {
       setBusy(false);
     }
   };
 
   const toggleScratch = async (entry) => {
-    await supabase.from("entries").update({ scratched: !entry.scratched }).eq("id", entry.id);
-    if (!entry.scratched) {
+    const scratching = !entry.scratched;
+    const ok = await saveOrWarn(
+      supabase.from("entries").update({ scratched: scratching }).eq("id", entry.id),
+      scratching ? "That scratch could not be saved." : "Restoring that entry could not be saved."
+    );
+    if (!ok) return; // do not notify or complete the class on a failed write
+    if (scratching) {
       triggerPush(`Scratch: #${entry.back_number} ${entry.horse}`, "This entry has been scratched.", "scratch");
       if (liveClass) {
         const liveMode = liveClass.scoring_mode ?? "score";
@@ -338,6 +387,7 @@ export default function Coordinator() {
         if (remaining.length === 0) await completeClass(liveClass);
       }
     }
+    await loadClasses();
   };
 
   const movePending = async (cls, entry, dir) => {
@@ -348,10 +398,22 @@ export default function Coordinator() {
     const pos = pending.findIndex((e) => e.id === entry.id);
     const other = pending[pos + dir];
     if (!other) return;
-    await Promise.all([
-      supabase.from("entries").update({ draw_order: other.draw_order }).eq("id", entry.id),
-      supabase.from("entries").update({ draw_order: entry.draw_order }).eq("id", other.id),
-    ]);
+    // Two separate updates: if one fails, the two draw orders collide, so
+    // check both and refetch the true order on any failure.
+    let error;
+    try {
+      const [a, b] = await Promise.all([
+        supabase.from("entries").update({ draw_order: other.draw_order }).eq("id", entry.id),
+        supabase.from("entries").update({ draw_order: entry.draw_order }).eq("id", other.id),
+      ]);
+      error = a.error || b.error;
+    } catch (e) {
+      error = e;
+    }
+    if (error) {
+      window.alert(`The draw order could not be changed.\n\nPlease check your internet connection and try again.\n\n(${error.message ?? "connection error"})`);
+    }
+    await loadClasses();
   };
 
   const startClass = async (cls) => {
@@ -374,19 +436,32 @@ export default function Coordinator() {
     setBusy(true);
     try {
       if (liveClass && liveClass.id !== cls.id) {
-        await supabase.from("classes").update({ status: "completed" }).eq("id", liveClass.id);
+        const ok = await saveOrWarn(
+          supabase.from("classes").update({ status: "completed" }).eq("id", liveClass.id),
+          `Completing Class ${liveClass.num} could not be saved.`
+        );
+        if (!ok) return;
         await pushToHighPoints(liveClass);
       }
-      await supabase.from("classes").update({ status: "live" }).eq("id", cls.id);
+      const ok = await saveOrWarn(
+        supabase.from("classes").update({ status: "live" }).eq("id", cls.id),
+        `Starting Class ${cls.num} could not be saved.`
+      );
+      if (!ok) return;
       const next = firstPending(cls.entries, cls.scoring_mode);
       if (next) triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${cls.num} · ${cls.name}`, "now-showing");
+      await loadClasses();
     } finally {
       setBusy(false);
     }
   };
 
   const completeClass = async (cls) => {
-    await supabase.from("classes").update({ status: "completed" }).eq("id", cls.id);
+    const ok = await saveOrWarn(
+      supabase.from("classes").update({ status: "completed" }).eq("id", cls.id),
+      `Completing Class ${cls.num} could not be saved.`
+    );
+    if (!ok) return; // don't push high points, notify, or advance on a failed write
     const isPlacingMode = cls.scoring_mode === "placing" || cls.scoring_mode === "class_only" || cls.scoring_mode === "tbc_class";
     const placed = [...cls.entries].filter((e) => e.score != null && !e.scratched)
       .sort((a, b) => isPlacingMode ? a.score - b.score : b.score - a.score);
@@ -406,11 +481,17 @@ export default function Coordinator() {
         .filter((c) => c.status === "upcoming" && c.id !== cls.id && (c.sort_order ?? 0) > (cls.sort_order ?? 0))
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0];
       if (nextUp) {
-        await supabase.from("classes").update({ status: "live" }).eq("id", nextUp.id);
-        const nextEntry = firstPending(nextUp.entries, nextUp.scoring_mode);
-        if (nextEntry) triggerPush(`Now showing: #${fmtBack(nextEntry.back_number)} ${nextEntry.horse}`, `Class ${nextUp.num} · ${nextUp.name}`, "now-showing");
+        const ok = await saveOrWarn(
+          supabase.from("classes").update({ status: "live" }).eq("id", nextUp.id),
+          `Class ${cls.num} was completed, but starting the next class could not be saved.`
+        );
+        if (ok) {
+          const nextEntry = firstPending(nextUp.entries, nextUp.scoring_mode);
+          if (nextEntry) triggerPush(`Now showing: #${fmtBack(nextEntry.back_number)} ${nextEntry.horse}`, `Class ${nextUp.num} · ${nextUp.name}`, "now-showing");
+        }
       }
     }
+    await loadClasses();
   };
 
   // Wrapper for the manual "Complete" button so a double-tap can't fire twice
@@ -472,38 +553,56 @@ export default function Coordinator() {
       }
     }
 
-    // Delete any previously pushed rows for this category+show, then insert fresh.
-    // This removes stale rows for entries that dropped out of the top 3 since the last push.
     // Scores pushed from a show go to the AQHA leaderboard — other breeds'
     // leaderboards (Paint, Appaloosa, ...) are maintained on the High Points
     // page and must not be touched here. On a database without the breed
-    // column yet (schema-v24 not run), fall back to the old behaviour.
-    const del = await supabase.from("high_points")
-      .delete()
-      .eq("season", season)
-      .eq("category", category)
-      .eq("show_name", showName)
-      .eq("breed", "AQHA");
-    if (del.error?.message?.includes("breed")) {
-      await supabase.from("high_points")
-        .delete()
-        .eq("season", season)
-        .eq("category", category)
-        .eq("show_name", showName);
-    }
-
+    // column yet (schema-v24 not run), fall back to the no-breed behaviour.
+    //
+    // Order matters for safety: write the fresh points FIRST (upsert on the
+    // unique key), THEN remove only the rows that dropped out. The old code
+    // deleted first and could leave the category wiped if the insert then
+    // failed on a dropped connection — this way the leaderboard never ends up
+    // with the data nowhere, even if one request fails mid-push.
     const toInsert = Object.entries(pointsMap).map(([name, pts]) => ({
       season, category, breed: "AQHA",
       entity_type: isHorseCat ? "horse" : "rider",
       entity_name: name, show_name: showName, show_date: currentEvent.starts_on, points: pts,
     }));
-    if (!toInsert.length) return;
-    const ins = await supabase.from("high_points").insert(toInsert);
-    if (ins.error?.message?.includes("breed")) {
-      await supabase.from("high_points").insert(
-        toInsert.map(({ breed: _breed, ...row }) => row)
-      );
+
+    let upsertErr = null;
+    if (toInsert.length) {
+      let res = await supabase.from("high_points")
+        .upsert(toInsert, { onConflict: "season,category,entity_name,show_name,breed" });
+      if (res.error?.message?.includes("breed")) {
+        res = await supabase.from("high_points")
+          .upsert(toInsert.map(({ breed: _breed, ...row }) => row),
+            { onConflict: "season,category,entity_name,show_name" });
+      }
+      upsertErr = res.error;
     }
+
+    // Remove stale rows (entries that dropped out of the top placings since the
+    // last push) by id — so nothing depends on quoting names — and only after
+    // the fresh points are safely in.
+    const keepNames = new Set(toInsert.map((r) => r.entity_name));
+    let existing = await supabase.from("high_points")
+      .select("id, entity_name")
+      .eq("season", season).eq("category", category).eq("show_name", showName).eq("breed", "AQHA");
+    if (existing.error?.message?.includes("breed")) {
+      existing = await supabase.from("high_points")
+        .select("id, entity_name")
+        .eq("season", season).eq("category", category).eq("show_name", showName);
+    }
+    const staleIds = (existing.data ?? []).filter((r) => !keepNames.has(r.entity_name)).map((r) => r.id);
+    let delErr = null;
+    if (staleIds.length) {
+      const res = await supabase.from("high_points").delete().in("id", staleIds);
+      delErr = res.error;
+    }
+
+    const error = upsertErr || existing.error || delErr;
+    if (error) console.error("High points push failed:", error);
+    return { ok: !error, error };
   };
 
   const moveClass = async (cls, dir) => {
@@ -889,13 +988,15 @@ export default function Coordinator() {
       }
     }
     const maxDraw = Math.max(0, ...cls.entries.map((e) => e.draw_order));
-    await supabase.from("entries").insert({
+    const { error } = await supabase.from("entries").insert({
       class_id: cls.id,
       back_number: isClinic ? maxDraw + 1 : parseInt(form.back, 10),
       horse: form.horse?.trim() || "",
       exhibitor: form.exhibitor.trim(),
       draw_order: maxDraw + 1,
     });
+    if (error) { setFormError(error.message); return; }
+    await loadClasses();
     closeModal();
   };
 
@@ -1204,10 +1305,15 @@ export default function Coordinator() {
     try {
       // One push per unique category — each call already recalculates the whole category.
       const seen = new Set();
+      let failed = 0;
       for (const cls of eligible) {
         if (seen.has(cls.hp_category)) continue;
         seen.add(cls.hp_category);
-        await pushToHighPoints(cls);
+        const res = await pushToHighPoints(cls);
+        if (res && !res.ok) failed += 1;
+      }
+      if (failed > 0) {
+        window.alert(`${failed} high-points ${failed === 1 ? "category" : "categories"} could not be updated — check your internet connection and try “Push all HP” again.`);
       }
     } finally {
       setPushingAllHp(false);
@@ -1595,7 +1701,11 @@ export default function Coordinator() {
                   {isLive && !isClinic && <button className="btn-ghost" onClick={() => completeClassManual(cls)} disabled={busy}>Complete</button>}
                   {cls.status === "completed" && cls.hp_category && !isClinic && (
                     <button className="btn-ghost" style={{ fontSize: 11, borderColor: "var(--green)", color: "var(--green)" }}
-                      onClick={() => pushToHighPoints(cls)} title="Push results to the High Points leaderboard">
+                      onClick={async () => {
+                        const res = await pushToHighPoints(cls);
+                        if (res && !res.ok) window.alert("High points could not be updated — check your internet connection and try again.");
+                        else if (res && res.ok) window.alert("High points updated.");
+                      }} title="Push results to the High Points leaderboard">
                       Push HP
                     </button>
                   )}

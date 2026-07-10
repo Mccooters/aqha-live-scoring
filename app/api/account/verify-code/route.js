@@ -34,8 +34,30 @@ export async function POST(req) {
       return NextResponse.json({ error: EXPIRED_MSG }, { status: 401 });
     }
 
+    // Reserve this attempt ATOMICALLY before checking the code. The update only
+    // succeeds if `attempts` still equals what we read (optimistic lock) and is
+    // still under the cap, so parallel guesses can't all read attempts=0 and
+    // slip past the limit — Postgres serialises the row update, so each guess
+    // must win its own increment and the cap is enforced for real.
+    const { data: reserved } = await db
+      .from("member_login_codes")
+      .update({ attempts: row.attempts + 1 })
+      .eq("id", row.id)
+      .eq("attempts", row.attempts)
+      .lt("attempts", MAX_CODE_ATTEMPTS)
+      .select("attempts")
+      .maybeSingle();
+    if (!reserved) {
+      // Lost the race to a concurrent guess, or already at the cap — reject
+      // without revealing whether this code was right.
+      return NextResponse.json({ error: WRONG_MSG }, { status: 401 });
+    }
+
     if (!codesMatch(code, row.code_hash)) {
-      await db.from("member_login_codes").update({ attempts: row.attempts + 1 }).eq("id", row.id);
+      // Delete the code once the last allowed attempt is used up.
+      if (reserved.attempts >= MAX_CODE_ATTEMPTS) {
+        await db.from("member_login_codes").delete().eq("id", row.id);
+      }
       return NextResponse.json({ error: WRONG_MSG }, { status: 401 });
     }
 
