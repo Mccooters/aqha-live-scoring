@@ -180,19 +180,19 @@ export async function hasCurrentMembership(db, email, date = new Date()) {
 }
 
 // Does this email have an approved membership that covers a SPECIFIC event?
-// Unlike hasCurrentMembership (which is lenient during July so early sign-ups
-// count as "current"), event entry is judged against the event's own season:
-// a membership only lets you in when the event date falls inside its 1 Aug –
-// 31 Jul window. So a next-season membership does NOT cover the last event of
-// the outgoing season — that event needs a day membership.
+// Uses activeSeasons(eventDate): the event's own season, plus — during the
+// July boundary — the coming season too. So a member who joined in July (whose
+// membership is recorded for NEXT season) still counts at the last shows of
+// the outgoing season, and an August event is covered only by a next-season
+// membership. A mid-season event only matches its own season.
 export async function hasMembershipForEvent(db, email, eventDate) {
   const cleaned = escapeIlike(String(email ?? "").trim());
-  const season = currentSeason(eventDate ? new Date(eventDate) : new Date());
+  const seasons = activeSeasons(eventDate ? new Date(eventDate) : new Date());
   const { data, error } = await db
     .from("club_members")
     .select("id")
     .eq("status", "approved")
-    .eq("season", season)
+    .in("season", seasons)
     .ilike("email", cleaned)
     .limit(1);
   if (error) throw new Error(error.message);

@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../../../lib/supabaseClient";
 import { groupedByProgramCategory } from "../../../../lib/classCategories";
-import { signupSeason, currentSeason } from "../../../../lib/membershipSeason";
+import { signupSeason, currentSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 // "2026-2027" → "2026–27"
@@ -566,9 +566,10 @@ export default function RegisterPage() {
   }));
   const submissionEntries = isMultiMode ? multiEntries : entries;
   const filledEntries = submissionEntries.filter((e) => e.class_id);
-  // A membership covers this event only when the event date falls in its
-  // season (the server applies the same rule) — so a next-season renewal does
-  // NOT cover the last event of the outgoing season.
+  // A membership covers this event when its season is active for the event —
+  // its own season, plus (at the July boundary) the coming season — so a
+  // member/renewer for next season still counts at the last shows of the
+  // outgoing season. The server applies the identical rule.
   const eventDate = event?.starts_on ? new Date(event.starts_on) : new Date();
   const eventSeason = currentSeason(eventDate);
   const renewalOffer = memberAccount?.renewalOffer ?? null;
@@ -577,7 +578,7 @@ export default function RegisterPage() {
     : null;
   const renewalCents = renewalType?.fee_cents ?? 0;
   const renewalCoversEvent = Boolean(renewalType) && Boolean(renewalOffer) &&
-    renewalOffer.season === eventSeason;
+    activeSeasons(eventDate).includes(renewalOffer.season);
   const needsDayMembership = membershipRequired && membershipStatus !== "member" && !renewalCoversEvent;
   // The membership a "Join the club" checkout would create is for signupSeason:
   // the current season most of the year, but NEXT season from July onward. It

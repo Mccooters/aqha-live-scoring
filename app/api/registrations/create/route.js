@@ -4,7 +4,7 @@ import { adminClient, approveRegistration, expireStaleRegistrations } from "../.
 import { membershipRequirement, hasMembershipForEvent, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
 import { getMemberAccount } from "../../_lib/memberAuth";
 import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squarePayments";
-import { signupSeason, currentSeason } from "../../../../lib/membershipSeason";
+import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
 const REPLACEMENT_NUMBERS_CENTS = 500;
@@ -113,11 +113,10 @@ export async function POST(req) {
     // never blocked by a technical problem.
     const requiresMembership = await membershipRequirement(db, event);
     const eventDate = event.starts_on ? new Date(event.starts_on) : new Date();
-    const eventSeason = currentSeason(eventDate);
-    // A membership only covers the event when the event date falls in its
-    // season — so a next-season membership does NOT cover the last event of
-    // the outgoing season (which then needs a day membership).
-    const renewalCoversEvent = renewal ? renewal.season === eventSeason : false;
+    // A membership covers the event when its season is active for the event —
+    // its own season, plus (at the July boundary) the coming season, so a
+    // member who joined in July counts at the last shows of the outgoing season.
+    const renewalCoversEvent = renewal ? activeSeasons(eventDate).includes(renewal.season) : false;
     let includeDayMembership = false;
     let annualJoin = null; // { type, season } — full membership bought with this entry (also covers entry)
     if (requiresMembership) {
