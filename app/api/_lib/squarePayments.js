@@ -174,6 +174,40 @@ export async function deleteSquarePaymentLink(db, linkId) {
   return true;
 }
 
+// Refund (all or part of) a completed Square payment. Uses PAYMENTS_WRITE,
+// already granted by the OAuth connection (and normally by the fallback
+// token). `amountCents` is in AUD cents; Square rejects a refund larger than
+// the remaining refundable amount on the payment. Returns { refund } or
+// { error, status }.
+export async function refundSquarePayment(db, { paymentId, amountCents, reason, idempotencyKey }) {
+  const { token } = await resolveSquareToken(db);
+  if (!token) {
+    return { error: "Square isn't connected, so refunds can't be issued from here. Refund in your Square account instead.", status: 503 };
+  }
+  if (!paymentId) {
+    return { error: "This registration has no Square payment on file — refund it in your Square account instead.", status: 400 };
+  }
+  const res = await fetch(`${squareBase()}/v2/refunds`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Square-Version": SQUARE_VERSION,
+    },
+    body: JSON.stringify({
+      idempotency_key: idempotencyKey,
+      payment_id: paymentId,
+      amount_money: { amount: amountCents, currency: "AUD" },
+      ...(reason ? { reason: String(reason).slice(0, 190) } : {}),
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return { error: data.errors?.[0]?.detail ?? "Square refund failed", status: 502 };
+  }
+  return { refund: data.refund };
+}
+
 // Create a Square Payment Link for an order. Applies the developer fee when
 // the OAuth connection is in use. `payload` is the normal CreatePaymentLink
 // body minus authentication. Returns { link } or { error, status }.

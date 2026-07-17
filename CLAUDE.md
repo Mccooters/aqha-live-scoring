@@ -83,6 +83,14 @@ PR with a clear plain-English description.
   `SQUARE_APP_FEE_BPS` (unset/0 = no fee). NOTE: once OAuth is live, the
   webhook subscription (and `SQUARE_WEBHOOK_SIGNATURE_KEY`) must belong to
   that same Square application.
+  Staff can issue **refunds** (full or partial) from the coordinator
+  Registrations page via `app/api/registrations/refund` (staff JWT) →
+  `refundSquarePayment()` in `squarePayments.js` (Square Refunds API, uses the
+  already-granted PAYMENTS_WRITE scope on the registration's
+  `square_payment_id`); schema-v36 records `registrations.refunded_cents` so
+  the page can show the running total and cap further refunds. Removing the
+  entry from a class stays a separate manual step (Delete/Scratch on the
+  dashboard).
   `app/api/registrations/create/route.js` creates a
   Square Payment Link (online-checkout) for paid class entry fees; the
   webhook (`app/api/webhooks/square/route.js`) verifies the HMAC signature
