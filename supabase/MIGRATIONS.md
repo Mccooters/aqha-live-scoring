@@ -111,6 +111,10 @@ hasn't been run.
       → show entries now collect the **rider's and horse's association
         registration numbers** (AQHA / PHAA / AAA / …) for points checking.
         Without this, entries still work but the numbers aren't stored.
+- [ ] **v36** — `schema-v36-registration-refunds.sql`
+      → lets staff **issue Square refunds** (full or part of an online entry)
+        from the Registrations page and records how much was refunded. Without
+        this the refund button still works, but the running total isn't stored.
 
 Tick these off once you've run them.
 
@@ -155,6 +159,7 @@ Tick these off once you've run them.
 | `schema-v33-entry-horse-numbering.sql` | Auto-assign + permanently register back numbers for new horses entered online |
 | `schema-v34-event-fees.sql` | Per-event ground fee + admin fee, charged once per person per event |
 | `schema-v35-entry-registration-numbers.sql` | Rider + horse association registration numbers on show entries (points checking) |
+| `schema-v36-registration-refunds.sql` | Records Square refunds issued from the Registrations page (refunded amount + reason) |
 
 ## For whoever updates the code next
 

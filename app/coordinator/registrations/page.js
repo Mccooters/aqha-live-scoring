@@ -23,6 +23,8 @@ export default function RegistrationsPage() {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [approving, setApproving] = useState(null);
+  const [refunding, setRefunding] = useState(null); // registration id mid-refund
+  const [refundAmount, setRefundAmount] = useState({}); // reg id -> typed dollars
   const [squareStatus, setSquareStatus] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [squareNotice, setSquareNotice] = useState("");
@@ -115,6 +117,40 @@ export default function RegistrationsPage() {
     setApproving(null);
   };
 
+  const refund = async (reg, refundableCents) => {
+    const dollars = refundAmount[reg.id];
+    const cents = Math.round(parseFloat(dollars) * 100);
+    if (!Number.isFinite(cents) || cents <= 0) {
+      alert("Enter a refund amount (in dollars).");
+      return;
+    }
+    if (cents > refundableCents) {
+      alert(`That's more than is left to refund (${fmtMoney(refundableCents)}).`);
+      return;
+    }
+    if (!confirm(`Refund ${fmtMoney(cents)} to ${reg.contact_name} via Square?\n\nThis sends the money back to their card and can't be undone here. Remember to also Delete or Scratch the affected entry on the dashboard if they're out of a class.`)) return;
+    setRefunding(reg.id);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const res = await fetch("/api/registrations/refund", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({ registration_id: reg.id, amount_cents: cents }),
+    });
+    const data = await res.json();
+    if (data.error) alert("Refund not completed: " + data.error);
+    else {
+      setRefundAmount((prev) => ({ ...prev, [reg.id]: "" }));
+      if (data.recorded === false) {
+        alert("Refunded at Square, but the amount couldn't be recorded in the app — run schema-v36 so it shows here.");
+      }
+      await load();
+    }
+    setRefunding(null);
+  };
+
   // Square connection card: current status, plus the outcome message when
   // Square has just redirected back here (?square=connected / denied / ...).
   const loadSquareStatus = useCallback(() => {
@@ -194,7 +230,8 @@ export default function RegistrationsPage() {
 
   const paid = registrations.filter((r) => r.status === "paid");
   const pending = registrations.filter((r) => r.status === "pending");
-  const revenue = paid.reduce((s, r) => s + (r.total_cents ?? 0), 0);
+  // Net of any refunds issued (refunded_cents is 0/absent before schema-v36).
+  const revenue = paid.reduce((s, r) => s + (r.total_cents ?? 0) - (r.refunded_cents ?? 0), 0);
   const entryCount = registrations.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
   const dayMembershipCount = paid.filter((r) => r.day_membership).length;
   const replacementNumbersCount = paid.filter((r) => r.replacement_numbers).length;
@@ -448,6 +485,58 @@ export default function RegistrationsPage() {
                       </button>
                     </div>
                   )}
+
+                  {isPaid && (() => {
+                    const refundedCents = reg.refunded_cents ?? 0;
+                    const refundableCents = (reg.total_cents ?? 0) - refundedCents;
+                    const canRefund = Boolean(reg.square_payment_id) && refundableCents > 0;
+                    return (
+                      <div style={{ padding: "12px 0 0", borderTop: "1px solid var(--line)", marginTop: 10 }}>
+                        {refundedCents > 0 && (
+                          <p style={{ fontSize: 12.5, color: "var(--clay)", fontWeight: 700, margin: "0 0 8px" }}>
+                            Refunded so far: {fmtMoney(refundedCents)}{refundableCents > 0 ? ` of ${fmtMoney(reg.total_cents)}` : " (fully refunded)"}.
+                          </p>
+                        )}
+                        {canRefund ? (
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 12.5, color: "var(--quiet)" }}>Refund</span>
+                            <span style={{ fontWeight: 700 }}>$</span>
+                            <input
+                              type="number" min="0" step="0.50"
+                              className="field"
+                              style={{ width: 90, fontSize: 14, padding: "6px 8px" }}
+                              placeholder={(refundableCents / 100).toFixed(2)}
+                              value={refundAmount[reg.id] ?? ""}
+                              onChange={(e) => setRefundAmount((prev) => ({ ...prev, [reg.id]: e.target.value }))}
+                            />
+                            <button
+                              className="btn-ghost"
+                              style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
+                              onClick={() => refund(reg, refundableCents)}
+                              disabled={refunding === reg.id}
+                            >
+                              {refunding === reg.id ? "Refunding…" : "Refund via Square"}
+                            </button>
+                            <button
+                              className="btn-ghost"
+                              style={{ fontSize: 12 }}
+                              onClick={() => setRefundAmount((prev) => ({ ...prev, [reg.id]: (refundableCents / 100).toFixed(2) }))}
+                              disabled={refunding === reg.id}
+                            >
+                              Full ({fmtMoney(refundableCents)})
+                            </button>
+                          </div>
+                        ) : refundedCents === 0 && !reg.square_payment_id ? (
+                          <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: 0 }}>
+                            No Square payment on file for this registration — refund in your Square account if needed.
+                          </p>
+                        ) : null}
+                        <p style={{ fontSize: 11.5, color: "var(--quiet)", margin: "8px 0 0" }}>
+                          Refunds go straight to the card via Square. Removing an entry from a class is separate — Delete or Scratch it on the dashboard.
+                        </p>
+                      </div>
+                    );
+                  })()}
                   {isCancelled && (
                     <p style={{ color: "var(--quiet)", fontSize: 12.5, padding: "8px 0 0", margin: 0 }}>
                       {reg.cancel_reason === "expired"
