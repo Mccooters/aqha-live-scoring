@@ -235,7 +235,9 @@ export default function RegistrationsPage() {
   const pending = registrations.filter((r) => r.status === "pending");
   // Net of any refunds issued (refunded_cents is 0/absent before schema-v36).
   const revenue = paid.reduce((s, r) => s + (r.total_cents ?? 0) - (r.refunded_cents ?? 0), 0);
-  const entryCount = registrations.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
+  // Only paid registrations become real entries in the show — pending and
+  // cancelled ones must not inflate the count.
+  const entryCount = paid.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
   const dayMembershipCount = paid.filter((r) => r.day_membership).length;
   const replacementNumbersCount = paid.filter((r) => r.replacement_numbers).length;
 
@@ -361,7 +363,7 @@ export default function RegistrationsPage() {
             {[
               { label: "Confirmed", value: paid.length },
               { label: "Pending payment", value: pending.length },
-              { label: "Total entries", value: entryCount },
+              { label: "Confirmed entries", value: entryCount },
               { label: "Day memberships", value: dayMembershipCount },
               { label: "Replacement numbers", value: replacementNumbersCount },
               { label: "Revenue", value: fmtMoney(revenue) },
