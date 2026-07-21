@@ -27,7 +27,11 @@ export async function POST(req) {
       return NextResponse.json({ error: "Staff sign-in required" }, { status: 401 });
     }
 
-    const { registration_id, amount_cents, reason } = await req.json();
+    const { registration_id, amount_cents, reason, manual } = await req.json();
+    // A "manual" refund records money you already returned OUTSIDE Square
+    // (cash, bank transfer, etc.) — it never calls Square, it just logs it so
+    // the refunded total and revenue are right.
+    const isManual = Boolean(manual);
     const amount = Math.round(Number(amount_cents));
     if (!registration_id || !Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: "registration_id and a refund amount are required" }, { status: 400 });
@@ -48,9 +52,11 @@ export async function POST(req) {
     if (reg.status !== "paid") {
       return NextResponse.json({ error: "Only a paid registration can be refunded." }, { status: 400 });
     }
-    if (!reg.square_payment_id) {
+    // A Square refund needs the Square payment on file; a manual (already-given)
+    // refund can be recorded against any paid registration.
+    if (!isManual && !reg.square_payment_id) {
       return NextResponse.json(
-        { error: "This registration has no Square payment on file (it may have been a free or manually-created entry). Refund in your Square account instead." },
+        { error: "This registration has no Square payment on file (it may have been a free or manually-created entry). Record it as a refund given outside Square instead." },
         { status: 400 }
       );
     }
@@ -64,31 +70,46 @@ export async function POST(req) {
       );
     }
 
-    const { refund, error: sqErr, status } = await refundSquarePayment(db, {
-      paymentId: reg.square_payment_id,
-      amountCents: amount,
-      reason: reason || `HCQHA refund`,
-      idempotencyKey: randomUUID(),
-    });
-    if (sqErr) {
-      return NextResponse.json({ error: sqErr }, { status: status ?? 502 });
+    let refund = null;
+    if (!isManual) {
+      const { refund: sqRefund, error: sqErr, status } = await refundSquarePayment(db, {
+        paymentId: reg.square_payment_id,
+        amountCents: amount,
+        reason: reason || `HCQHA refund`,
+        idempotencyKey: randomUUID(),
+      });
+      if (sqErr) {
+        return NextResponse.json({ error: sqErr }, { status: status ?? 502 });
+      }
+      refund = sqRefund;
     }
 
-    // Record the refund. Best-effort: on a pre-v36 database the columns don't
-    // exist yet — the money is already refunded at Square, so don't fail; just
-    // note that the running total couldn't be recorded.
+    // Record the refund. Best-effort for a Square refund: on a pre-v36
+    // database the columns don't exist yet — the money is already refunded at
+    // Square, so don't fail; just report it couldn't be recorded. A MANUAL
+    // record is only useful if it saves, so it treats that as an error.
+    const noteReason = reason || (isManual ? "Refunded outside Square" : null);
     const { error: updErr } = await db
       .from("registrations")
       .update({
         refunded_cents: alreadyRefunded + amount,
         last_refund_at: new Date().toISOString(),
-        refund_reason: reason ? String(reason).slice(0, 500) : reg.refund_reason ?? null,
+        refund_reason: noteReason ? String(noteReason).slice(0, 500) : reg.refund_reason ?? null,
       })
       .eq("id", registration_id);
     let recorded = true;
     if (updErr) {
       recorded = false;
-      console.error("Refund succeeded at Square but could not be recorded (run schema-v36):", updErr.message);
+      const note = isManual
+        ? "could not record the manual refund"
+        : "refund succeeded at Square but could not be recorded";
+      console.error(`${note} (run schema-v36):`, updErr.message);
+      if (isManual) {
+        return NextResponse.json(
+          { error: "Couldn't record the refund — run schema-v36-registration-refunds.sql in Supabase first, then try again." },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({
