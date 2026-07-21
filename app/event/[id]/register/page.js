@@ -407,6 +407,7 @@ export default function RegisterPage() {
   const [rulesAccepted, setRulesAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const submitLock = useRef(false); // guards against a double-tap creating two registrations
 
   const [spotsTaken, setSpotsTaken] = useState({}); // class_id → number of confirmed entries
   const [confirmedEntries, setConfirmedEntries] = useState([]);
@@ -759,6 +760,12 @@ export default function RegisterPage() {
     setEntries((prev) => (prev.length > 1 ? prev.filter((e) => e._id !== id) : prev));
 
   const submit = async () => {
+    // Synchronous lock: a fast double-tap can fire this twice before the button
+    // disables, which would create two registrations (and two Square links).
+    if (submitLock.current) return;
+    submitLock.current = true;
+    let navigating = false;
+    try {
     setError("");
     if (!contactName.trim()) { setError("Please enter your full name."); return; }
     if (!contactEmail.trim() || !contactEmail.includes("@")) { setError("Please enter a valid email address."); return; }
@@ -855,14 +862,20 @@ export default function RegisterPage() {
       if (!res.ok || data.error) { setError(data.error ?? "Something went wrong. Please try again."); return; }
 
       if (data.redirect) {
+        navigating = true;
         router.push(data.redirect);
       } else if (data.checkout_url) {
+        navigating = true;
         window.location.href = data.checkout_url;
       }
     } catch {
       setError("Could not connect. Please check your internet and try again.");
     } finally {
       setSubmitting(false);
+    }
+    } finally {
+      // Leaving the page keeps the lock held so nothing can re-fire mid-redirect.
+      if (!navigating) submitLock.current = false;
     }
   };
 
