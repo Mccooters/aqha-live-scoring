@@ -372,6 +372,32 @@ export async function POST(req) {
     const totalCents = normalEntries.length * feePerClass + dayMembershipCents + replacementNumbersCents + feesCents;
     const chargeCents = totalCents + renewalCents + annualCents;
 
+    // Double-submit guard: if this same person already started an unpaid
+    // checkout for this event moments ago with the same amount and the same
+    // number of entries, it's almost certainly a double-tap / re-submit — send
+    // them back to that existing checkout instead of creating a duplicate
+    // "pending" registration. (Only for plain entries; renewal/annual joins
+    // create shared membership rows and are member-initiated, so skip those.)
+    if (chargeCents > 0 && !renewal && !annualJoin) {
+      const sinceIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+      const escapedEmail = contact_email.trim().replace(/([\\%_])/g, "\\$1");
+      const { data: recent } = await db
+        .from("registrations")
+        .select("id, total_cents, square_checkout_url, registration_entries(id)")
+        .eq("event_id", event_id)
+        .eq("status", "pending")
+        .ilike("contact_email", escapedEmail)
+        .gte("created_at", sinceIso)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const dup = recent?.[0];
+      if (dup?.square_checkout_url &&
+          dup.total_cents === totalCents &&
+          (dup.registration_entries?.length ?? 0) === normalEntries.length) {
+        return NextResponse.json({ checkout_url: dup.square_checkout_url });
+      }
+    }
+
     // Create the registration record (pending)
     const registrationRow = {
       event_id,
