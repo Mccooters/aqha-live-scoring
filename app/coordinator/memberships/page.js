@@ -36,6 +36,7 @@ export default function MembershipsPage() {
   const [requireSetting, setRequireSetting] = useState({ enabled: false, include_clinics: false });
   const [settingReady, setSettingReady] = useState(false);
   const [settingSaving, setSettingSaving] = useState(false);
+  const [settingUpdatedAt, setSettingUpdatedAt] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -72,7 +73,7 @@ export default function MembershipsPage() {
   const loadSetting = useCallback(async () => {
     const { data, error } = await supabase
       .from("site_settings")
-      .select("value")
+      .select("value, updated_at")
       .eq("key", "membership_required")
       .maybeSingle();
     if (error) { setSettingReady(false); return; }
@@ -81,9 +82,28 @@ export default function MembershipsPage() {
       enabled: Boolean(data?.value?.enabled),
       include_clinics: Boolean(data?.value?.include_clinics),
     });
+    setSettingUpdatedAt(data?.updated_at ?? null);
   }, []);
 
   useEffect(() => { if (session) { load(); loadSetting(); } }, [session, load, loadSetting]);
+
+  // Keep the "membership required" switch showing the TRUE database value even
+  // when a second staff member changes it: refresh it live, and whenever this
+  // staff member returns to the tab. Without this, one screen can sit on a
+  // stale "on"/"off" while the real setting (what entries obey) is the other.
+  useEffect(() => {
+    if (!session) return;
+    const settingsChannel = supabase
+      .channel("site-settings")
+      .on("postgres_changes", { event: "*", schema: "public", table: "site_settings" }, loadSetting)
+      .subscribe();
+    const onFocus = () => loadSetting();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      supabase.removeChannel(settingsChannel);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [session, loadSetting]);
 
   useEffect(() => {
     if (!session) return;
@@ -104,17 +124,31 @@ export default function MembershipsPage() {
     };
   }, [session, load]);
 
-  const saveSetting = async (next) => {
+  // Flip one field of the switch. Re-reads the live value from the database
+  // first and merges onto THAT — so if the other staff member changed the
+  // setting since this page loaded, we honour this tap without silently
+  // overwriting their change with a stale value.
+  const setRequirement = async (patch) => {
     setSettingSaving(true);
+    const { data, error: readErr } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "membership_required")
+      .maybeSingle();
+    if (readErr) { alert("Could not check the current setting: " + readErr.message); setSettingSaving(false); return; }
+    const current = {
+      enabled: Boolean(data?.value?.enabled),
+      include_clinics: Boolean(data?.value?.include_clinics),
+    };
+    const next = { ...current, ...patch };
+    const nowIso = new Date().toISOString();
     const { error } = await supabase
       .from("site_settings")
-      .upsert({
-        key: "membership_required",
-        value: next,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "key" });
-    if (error) alert("Could not save the setting: " + error.message);
-    else { setRequireSetting(next); setSettingReady(true); }
+      .upsert({ key: "membership_required", value: next, updated_at: nowIso }, { onConflict: "key" });
+    if (error) { alert("Could not save the setting: " + error.message); setSettingSaving(false); return; }
+    setRequireSetting(next);
+    setSettingReady(true);
+    setSettingUpdatedAt(nowIso);
     setSettingSaving(false);
   };
 
@@ -354,18 +388,24 @@ export default function MembershipsPage() {
                 ? { background: "#2D7A52", borderColor: "#2D7A52", color: "#fff" }
                 : {}}
               disabled={settingSaving}
-              onClick={() => saveSetting({ ...requireSetting, enabled: !requireSetting.enabled })}>
-              {requireSetting.enabled ? "✓ Required for shows" : "Not required (off)"}
+              onClick={() => setRequirement({ enabled: !requireSetting.enabled })}>
+              {settingSaving ? "Saving…" : requireSetting.enabled ? "✓ Required for shows" : "Not required (off)"}
             </button>
             <button className="btn-ghost"
               style={requireSetting.include_clinics
                 ? { background: "#2D7A52", borderColor: "#2D7A52", color: "#fff" }
                 : {}}
               disabled={settingSaving || !requireSetting.enabled}
-              onClick={() => saveSetting({ ...requireSetting, include_clinics: !requireSetting.include_clinics })}>
+              onClick={() => setRequirement({ include_clinics: !requireSetting.include_clinics })}>
               {requireSetting.include_clinics ? "✓ Also required for clinics" : "Clinics open to everyone"}
             </button>
           </div>
+          {settingReady && (
+            <p style={{ fontSize: 12, color: "var(--quiet)", margin: "0 0 10px" }}>
+              This is a single club-wide switch — it updates live here for every staff member.
+              {settingUpdatedAt ? ` Last changed ${fmtDate(settingUpdatedAt)}.` : ""}
+            </p>
+          )}
           {!settingReady && (
             <p style={{ fontSize: 12, color: "var(--quiet)", margin: "0 0 10px" }}>
               Run <code>schema-v22-site-settings.sql</code> and <code>schema-v23-club-memberships.sql</code> to enable this switch.
