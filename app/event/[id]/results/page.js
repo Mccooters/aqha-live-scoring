@@ -52,7 +52,7 @@ export default function ResultsPrintPage() {
       supabase.from("classes").select("*, entries(*)").eq("event_id", id).order("day").order("sort_order"),
     ]);
     if (ev) setEvent(ev);
-    if (cls) setClasses(cls.map((c) => ({ ...c, entries: activeEntries(c) })));
+    if (cls) setClasses(cls.filter((c) => !c.hidden).map((c) => ({ ...c, entries: activeEntries(c) }))); // hidden classes (schema-v38) stay off public results
   }, [id]);
 
   useEffect(() => { load(); }, [load]);

@@ -424,7 +424,7 @@ export default function RegisterPage() {
           .order("sort_order"),
       ]);
       setEvent(ev);
-      setClasses(cls ?? []);
+      setClasses((cls ?? []).filter((c) => !c.hidden)); // hidden classes (schema-v38) can't be entered online
       // Is club membership required to enter? (Coordinator switch; public read.)
       const { data: reqSetting } = await supabase
         .from("site_settings")

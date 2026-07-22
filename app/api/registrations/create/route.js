@@ -184,14 +184,14 @@ export async function POST(req) {
     const classIds = [...new Set(entries.map((e) => e.class_id))];
     const { data: classes } = await db
       .from("classes")
-      .select("id, num, name, capacity, status")
+      .select("*")
       .eq("event_id", event_id)
       .in("id", classIds);
     const classMap = Object.fromEntries((classes ?? []).map((c) => [c.id, c]));
 
     for (const classId of classIds) {
       const cls = classMap[classId];
-      if (!cls) {
+      if (!cls || cls.hidden) {
         return NextResponse.json(
           { error: "One of the selected classes doesn't belong to this event. Please refresh the page and try again." },
           { status: 400 }

@@ -478,7 +478,7 @@ export default function Coordinator() {
     // backwards over classes you've deliberately skipped).
     if (currentEvent?.status === "live") {
       const nextUp = classes
-        .filter((c) => c.status === "upcoming" && c.id !== cls.id && (c.sort_order ?? 0) > (cls.sort_order ?? 0))
+        .filter((c) => c.status === "upcoming" && !c.hidden && c.id !== cls.id && (c.sort_order ?? 0) > (cls.sort_order ?? 0))
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0];
       if (nextUp) {
         const ok = await saveOrWarn(
@@ -606,7 +606,7 @@ export default function Coordinator() {
   };
 
   const moveClass = async (cls, dir) => {
-    const upcoming = classes.filter((c) => c.status === "upcoming");
+    const upcoming = classes.filter((c) => c.status === "upcoming" && !c.hidden);
     const pos = upcoming.findIndex((c) => c.id === cls.id);
     const other = upcoming[pos + dir];
     if (!other) return;
@@ -720,7 +720,16 @@ export default function Coordinator() {
     setBusy(true);
     try {
       const emptyClasses = classes.filter((c) => c.entries.length === 0);
-      const doDelete = !!form.deleteEmpty && emptyClasses.length > 0;
+      const action = emptyClasses.length > 0 ? (form.emptyAction ?? "hide") : "leave";
+      if (action === "hide") {
+        const { error } = await supabase.from("classes").update({ hidden: true }).in("id", emptyClasses.map((c) => c.id));
+        if (error) {
+          setFormError(/hidden/i.test(error.message ?? "") ? HIDE_MIGRATION_HINT : error.message);
+          setBusy(false);
+          return;
+        }
+      }
+      const doDelete = action === "delete";
       if (doDelete) {
         await supabase.from("classes").delete().in("id", emptyClasses.map((c) => c.id));
       }
@@ -786,6 +795,25 @@ export default function Coordinator() {
     await supabase.from("registration_entries").delete().eq("class_id", cls.id);
     if (n > 0) await supabase.from("entries").delete().in("id", cls.entries.map((e) => e.id));
     await supabase.from("classes").delete().eq("id", cls.id);
+  };
+
+  const HIDE_MIGRATION_HINT = 'Hiding classes needs a database update — run "schema-v38-hide-classes.sql" in the Supabase SQL Editor first (see supabase/MIGRATIONS.md).';
+
+  const hideClass = async (cls) => {
+    const n = cls.entries.length;
+    const msg = n > 0
+      ? `Hide Class ${cls.num} · ${cls.name}?\n\nIt's removed from the public schedule, program and results but kept (with its ${n} entr${n === 1 ? "y" : "ies"}) — reactivate it any time.`
+      : `Hide Class ${cls.num} · ${cls.name}?\n\nIt's removed from the public schedule and program but kept, so you can reactivate it in one click if someone enters on the day.`;
+    if (!window.confirm(msg)) return;
+    const { error } = await supabase.from("classes").update({ hidden: true }).eq("id", cls.id);
+    if (error) { window.alert(/hidden/i.test(error.message ?? "") ? HIDE_MIGRATION_HINT : error.message); return; }
+    await loadClasses();
+  };
+
+  const unhideClass = async (cls) => {
+    const { error } = await supabase.from("classes").update({ hidden: false }).eq("id", cls.id);
+    if (error) { window.alert(/hidden/i.test(error.message ?? "") ? HIDE_MIGRATION_HINT : error.message); return; }
+    await loadClasses();
   };
 
   const toggleClassSelect = (id) => {
@@ -1649,7 +1677,7 @@ export default function Coordinator() {
           </div>
         )}
 
-        {programDisplayRows(classes).map((row) => {
+        {programDisplayRows(classes.filter((c) => !c.hidden)).map((row) => {
           if (row.type === "break") {
             return (
               <div key={row.key} style={{ margin: "24px 0 8px", color: "var(--leather)", background: "#FFF7D6", border: "1px solid #E6C76B", borderRadius: 8, padding: "7px 12px", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
@@ -1746,7 +1774,10 @@ export default function Coordinator() {
                     {isClinic ? "+ Participant" : "+ Entry"}
                   </button>
                   {cls.status === "upcoming" && (
-                    <button className="btn-ghost danger" onClick={() => deleteClass(cls)}>Delete</button>
+                    <>
+                      <button className="btn-ghost" onClick={() => hideClass(cls)} title="Remove from the public schedule but keep it — reactivate any time">Hide</button>
+                      <button className="btn-ghost danger" onClick={() => deleteClass(cls)}>Delete</button>
+                    </>
                   )}
                   <span className={`badge ${cls.status}`}>{cls.status}</span>
                 </div>
@@ -1817,6 +1848,28 @@ export default function Coordinator() {
             </section>
           );
         })}
+
+        {classes.some((c) => c.hidden) && (
+          <details className="card" style={{ padding: "12px 16px", marginBottom: 8 }}>
+            <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--quiet)", fontSize: 14 }}>
+              Hidden {isClinic ? "spot types" : "classes"} ({classes.filter((c) => c.hidden).length}) — reactivate if someone enters on the day
+            </summary>
+            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              {classes.filter((c) => c.hidden).sort((a, b) => (a.day ?? 1) - (b.day ?? 1) || (a.sort_order ?? 0) - (b.sort_order ?? 0)).map((c) => (
+                <div key={c.id} style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>
+                    {isClinic ? c.name : `Class ${c.num} · ${c.name}`}
+                    {(c.entries?.length ?? 0) > 0 && <span style={{ color: "var(--quiet)", fontWeight: 400 }}> · {c.entries.length} {c.entries.length === 1 ? "entry" : "entries"}</span>}
+                  </span>
+                  <span style={{ display: "inline-flex", gap: 6 }}>
+                    <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => unhideClass(c)}>↺ Reactivate</button>
+                    <button className="btn-ghost danger" style={{ fontSize: 12 }} onClick={() => deleteClass(c)}>Delete</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button className="btn" style={{ background: "var(--leather)" }} onClick={() => openModal("class")} disabled={!eventId}>
@@ -2409,17 +2462,27 @@ export default function Coordinator() {
                   </p>
                   {emptyClasses.length > 0 ? (
                     <>
-                      <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 0", cursor: "pointer" }}>
-                        <input type="checkbox" checked={!!form.deleteEmpty} style={{ marginTop: 3 }}
-                          onChange={(e) => setForm((f) => ({ ...f, deleteEmpty: e.target.checked, renumber: e.target.checked ? f.renumber : false }))} />
-                        <span>
-                          <strong>Delete {emptyClasses.length} {emptyClasses.length === 1 ? "class" : "classes"} with no entries</strong>
-                          <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                            {emptyClasses.slice(0, 6).map((c) => `Class ${c.num} · ${c.name}`).join(", ")}{emptyClasses.length > 6 ? `, and ${emptyClasses.length - 6} more` : ""}
+                      <p style={{ fontSize: 13.5, color: "var(--leather)", fontWeight: 700, margin: "6px 0 2px" }}>
+                        {emptyClasses.length} {emptyClasses.length === 1 ? "class has" : "classes have"} no entries — what should happen to {emptyClasses.length === 1 ? "it" : "them"}?
+                      </p>
+                      <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 8px" }}>
+                        {emptyClasses.slice(0, 6).map((c) => `Class ${c.num} · ${c.name}`).join(", ")}{emptyClasses.length > 6 ? `, and ${emptyClasses.length - 6} more` : ""}
+                      </p>
+                      {[
+                        { val: "hide", title: "Hide them (recommended)", desc: "Removed from the public schedule and program but kept — reactivate any one in a click if someone enters it on the day." },
+                        { val: "delete", title: "Delete them permanently", desc: "Removes the classes for good. You'd have to re-add one if it's needed later. This cannot be undone." },
+                        { val: "leave", title: "Leave them as they are", desc: "Keep the empty classes visible on the schedule." },
+                      ].map((opt) => (
+                        <label key={opt.val} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 0", cursor: "pointer" }}>
+                          <input type="radio" name="emptyAction" checked={(form.emptyAction ?? "hide") === opt.val} style={{ marginTop: 3 }}
+                            onChange={() => setForm((f) => ({ ...f, emptyAction: opt.val }))} />
+                          <span>
+                            <strong>{opt.title}</strong>
+                            <span style={{ display: "block", fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>{opt.desc}</span>
                           </span>
-                        </span>
-                      </label>
-                      {form.deleteEmpty && (
+                        </label>
+                      ))}
+                      {(form.emptyAction ?? "hide") === "delete" && (
                         <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "4px 0 10px 30px", cursor: "pointer" }}>
                           <input type="checkbox" checked={!!form.renumber} style={{ marginTop: 3 }}
                             onChange={(e) => setForm((f) => ({ ...f, renumber: e.target.checked }))} />

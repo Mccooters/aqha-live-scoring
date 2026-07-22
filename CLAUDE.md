@@ -218,7 +218,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v37)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v38)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -231,7 +231,11 @@ PR with a clear plain-English description.
 - `classes` — event_id, num, name, judge, judge2 (optional second judge),
   status: upcoming|live|completed, sort_order, pattern_url, day (multi-day
   shows, default 1), scoring_mode (see Scoring modes below), capacity
-  (spot limit for online registration — null = unlimited).
+  (spot limit for online registration — null = unlimited), hidden (schema-v38 —
+  when true the class is kept but removed from the public event page, schedule,
+  program, results and online entry; the "Close entries" flow offers to hide
+  empty classes instead of deleting them, and staff reactivate them from a
+  collapsed "Hidden classes" section on the dashboard).
 - `entries` — class_id, back_number, horse, exhibitor, draw_order, score,
   score2 (second judge's independent score), scratched bool, called bool
   (TBC draw mode — see below). "Current" entry of a live class = first entry

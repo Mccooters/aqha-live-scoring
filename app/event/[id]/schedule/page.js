@@ -21,7 +21,7 @@ export default function SchedulePage() {
         .order("sort_order"),
     ]);
     if (ev) setEvent(ev);
-    if (cls) setClasses(cls);
+    if (cls) setClasses(cls.filter((c) => !c.hidden)); // hidden classes (schema-v38) stay off the public schedule
   }, [id]);
 
   useEffect(() => {
