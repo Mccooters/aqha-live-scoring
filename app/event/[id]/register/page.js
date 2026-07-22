@@ -769,7 +769,18 @@ export default function RegisterPage() {
     setError("");
     if (!contactName.trim()) { setError("Please enter your full name."); return; }
     if (!contactEmail.trim() || !contactEmail.includes("@")) { setError("Please enter a valid email address."); return; }
-    const hasNumber = (e) => e.back_number || e.no_back_number;
+    // A back number is only valid if it's a whole number of 1 or more — 0 and
+    // blanks aren't real back numbers; a horse with no number uses the tick-box.
+    const backOk = (e) => e.no_back_number || Number.isInteger(Number(e.back_number)) && Number(e.back_number) >= 1;
+    const hasNumber = (e) => backOk(e);
+    // Called out a real (non-empty) but invalid back number so the message is clear.
+    const badBack = !isClinic && submissionEntries.some(
+      (e) => e.class_id && !e.no_back_number && String(e.back_number ?? "").trim() !== "" && !backOk(e)
+    );
+    if (badBack) {
+      setError("A back number must be a whole number of 1 or more. If the horse doesn’t have one, tick “This horse doesn’t have a back number yet”.");
+      return;
+    }
     const valid = isClinic
       ? submissionEntries.filter((e) => e.class_id && e.exhibitor.trim())
       : submissionEntries.filter((e) => e.class_id && hasNumber(e) && e.horse_name.trim() && e.exhibitor.trim());
@@ -1119,7 +1130,7 @@ export default function RegisterPage() {
             </div>
             <div style={{ paddingBottom: 8 }}>
               <label className="modal-label">Back number *</label>
-              <input className="field" type="number" style={{ width: "100%", fontSize: 16, ...(multiEntry.no_back_number ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
+              <input className="field" type="number" min="1" step="1" style={{ width: "100%", fontSize: 16, ...(multiEntry.no_back_number ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
                 value={multiEntry.back_number}
                 disabled={multiEntry.no_back_number}
                 onChange={(e) => updateMultiEntry("back_number", e.target.value)}
@@ -1239,7 +1250,7 @@ export default function RegisterPage() {
                 {!isClinic && (
                   <>
                     <label className="modal-label">Back number *</label>
-                    <input className="field" type="number" style={{ width: "100%", fontSize: 16, ...(entry.no_back_number ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
+                    <input className="field" type="number" min="1" step="1" style={{ width: "100%", fontSize: 16, ...(entry.no_back_number ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
                       value={entry.back_number}
                       disabled={entry.no_back_number}
                       onChange={(e) => updateEntry(entry._id, "back_number", e.target.value)}

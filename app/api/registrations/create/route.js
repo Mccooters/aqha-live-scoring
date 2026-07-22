@@ -252,6 +252,20 @@ export async function POST(req) {
     }
 
     if (!isClinic) {
+      // A back number is either null (new horse — assigned at payment) or a
+      // whole number of 1 or more. Reject 0 / negative / non-integer so a
+      // "#000" entry can't be created by typing 0 or a crafted request.
+      for (const entry of normalEntries) {
+        if (entry.back_number != null && (!Number.isInteger(entry.back_number) || entry.back_number < 1)) {
+          return NextResponse.json(
+            { error: `"${entry.horse_name || "A horse"}" has an invalid back number. Use a whole number of 1 or more, or mark the horse as not having a back number yet.` },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    if (!isClinic) {
       // The back number is the horse's permanent registry identity — a horse
       // can only enter a given class once, keyed by back number, not by name
       // (two unrelated horses can share a name; a back number can't).
