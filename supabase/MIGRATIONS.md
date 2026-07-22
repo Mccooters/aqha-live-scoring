@@ -115,6 +115,11 @@ hasn't been run.
       → lets staff **issue Square refunds** (full or part of an online entry)
         from the Registrations page and records how much was refunded. Without
         this the refund button still works, but the running total isn't stored.
+- [ ] **v37** — `schema-v37-registration-membership-basis.sql`
+      → stamps each online entry with **how it met the membership rule**
+        (member, joined at checkout, day membership, or "rule was off") so the
+        Registrations page can show it with certainty. Without this the page
+        still works — it just works out the status from the members list.
 
 Tick these off once you've run them.
 
@@ -160,6 +165,7 @@ Tick these off once you've run them.
 | `schema-v34-event-fees.sql` | Per-event ground fee + admin fee, charged once per person per event |
 | `schema-v35-entry-registration-numbers.sql` | Rider + horse association registration numbers on show entries (points checking) |
 | `schema-v36-registration-refunds.sql` | Records Square refunds issued from the Registrations page (refunded amount + reason) |
+| `schema-v37-registration-membership-basis.sql` | Stamps each online entry with how it satisfied the membership rule (audit) |
 
 ## For whoever updates the code next
 
