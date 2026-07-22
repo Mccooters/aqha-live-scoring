@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
+import { activeSeasons } from "../../../lib/membershipSeason";
 
 const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
 // "AQHA 12345 · PHAA 678" from an entry's stored registration numbers.
@@ -28,12 +29,18 @@ export default function RegistrationsPage() {
   const [squareStatus, setSquareStatus] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [squareNotice, setSquareNotice] = useState("");
+  // "Why was this entry allowed in?" cross-reference: approved members for the
+  // event's season(s), memberships bought on the same Square order (join /
+  // renew at checkout), and whether membership is currently required.
+  const [approvedEmails, setApprovedEmails] = useState(() => new Set());
+  const [checkoutOrderIds, setCheckoutOrderIds] = useState(() => new Set());
+  const [membershipRequired, setMembershipRequired] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     supabase
       .from("events")
-      .select("id, name, status")
+      .select("id, name, status, starts_on, event_type")
       .order("starts_on", { ascending: false })
       .then(({ data }) => {
         setEvents(data ?? []);
@@ -98,6 +105,53 @@ export default function RegistrationsPage() {
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [eventId, load]);
+
+  // Work out, for each paid registration, how it satisfied the membership
+  // rule. Reads approved members for the event's active season(s) and any
+  // membership bought on the same Square order as an entry. Staff-only tables,
+  // readable here because this page runs under a signed-in staff session.
+  useEffect(() => {
+    if (!session || !eventId) return;
+    const event = events.find((e) => e.id === eventId);
+    if (!event) return;
+    let cancelled = false;
+    (async () => {
+      const seasons = activeSeasons(event.starts_on ? new Date(event.starts_on) : new Date());
+      const orderIds = [...new Set(registrations.map((r) => r.square_order_id).filter(Boolean))];
+      const [settingRes, approvedRes, checkoutRes] = await Promise.all([
+        supabase.from("site_settings").select("value").eq("key", "membership_required").maybeSingle(),
+        supabase.from("club_members").select("email").eq("status", "approved").in("season", seasons),
+        orderIds.length
+          ? supabase.from("club_members").select("square_order_id").in("square_order_id", orderIds)
+          : Promise.resolve({ data: [] }),
+      ]);
+      if (cancelled) return;
+      const value = settingRes.data?.value ?? {};
+      const required = Boolean(value.enabled) && !(event.event_type === "clinic" && !value.include_clinics);
+      setMembershipRequired(required);
+      setApprovedEmails(new Set((approvedRes.data ?? []).map((m) => String(m.email ?? "").trim().toLowerCase())));
+      setCheckoutOrderIds(new Set((checkoutRes.data ?? []).map((m) => m.square_order_id).filter(Boolean)));
+    })();
+    return () => { cancelled = true; };
+  }, [session, eventId, events, registrations]);
+
+  // The badge shown on a paid registration explaining why it was allowed in.
+  const membershipBadge = (reg) => {
+    const email = String(reg.contact_email ?? "").trim().toLowerCase();
+    if (approvedEmails.has(email)) {
+      return { label: "Member ✓", bg: "#2D7A52", title: "This email has an approved club membership covering this event." };
+    }
+    if (reg.square_order_id && checkoutOrderIds.has(reg.square_order_id)) {
+      return { label: "Joined at checkout", bg: "#3A6EA5", title: "Bought a club membership as part of this entry — check the Memberships page to approve it if you haven't already." };
+    }
+    if (reg.day_membership) {
+      return { label: "Day membership", bg: "var(--brass)", title: "Entered with a one-day membership for this event only — this person is not a club member." };
+    }
+    if (membershipRequired) {
+      return { label: "⚠ No membership on file", bg: "var(--clay)", title: "Membership is required for this event, but this entry has no approved membership, day membership, or checkout join on record. It may have been added by staff or predate the membership rule — worth checking." };
+    }
+    return null;
+  };
 
   const forceApprove = async (regId) => {
     if (!confirm("Force-create entries from this registration?\n\nOnly do this if the Square payment has been confirmed but entries didn't appear automatically.")) return;
@@ -240,6 +294,11 @@ export default function RegistrationsPage() {
   const entryCount = paid.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
   const dayMembershipCount = paid.filter((r) => r.day_membership).length;
   const replacementNumbersCount = paid.filter((r) => r.replacement_numbers).length;
+  // Paid entries flagged with no membership on record (only meaningful when
+  // membership is required) — the audit number for "how did they get in?".
+  const noMembershipCount = membershipRequired
+    ? paid.filter((r) => membershipBadge(r)?.label.startsWith("⚠")).length
+    : 0;
 
   return (
     <>
@@ -366,10 +425,11 @@ export default function RegistrationsPage() {
               { label: "Confirmed entries", value: entryCount },
               { label: "Day memberships", value: dayMembershipCount },
               { label: "Replacement numbers", value: replacementNumbersCount },
+              ...(membershipRequired ? [{ label: "No membership on file", value: noMembershipCount, warn: noMembershipCount > 0 }] : []),
               { label: "Revenue", value: fmtMoney(revenue) },
             ].map((s) => (
-              <div key={s.label} className="card" style={{ flex: "1 1 120px", padding: "12px 16px", margin: 0 }}>
-                <div className="display" style={{ fontWeight: 700, fontSize: 22 }}>{s.value}</div>
+              <div key={s.label} className="card" style={{ flex: "1 1 120px", padding: "12px 16px", margin: 0, borderColor: s.warn ? "var(--clay)" : undefined }}>
+                <div className="display" style={{ fontWeight: 700, fontSize: 22, color: s.warn ? "var(--clay)" : undefined }}>{s.value}</div>
                 <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>{s.label}</div>
               </div>
             ))}
@@ -408,6 +468,17 @@ export default function RegistrationsPage() {
                     {reg.day_membership && ` · day membership ${fmtMoney(reg.day_membership_cents ?? 2000)}`}
                     {reg.replacement_numbers && ` · replacement numbers ${fmtMoney(reg.replacement_numbers_cents ?? 500)}`}
                   </div>
+                  {isPaid && (() => {
+                    const b = membershipBadge(reg);
+                    return b ? (
+                      <span
+                        title={b.title}
+                        style={{ display: "inline-block", marginTop: 5, fontSize: 11, fontWeight: 800, padding: "2px 8px", borderRadius: 999, background: b.bg, color: "#fff", letterSpacing: ".02em" }}
+                      >
+                        {b.label}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <span style={{ fontWeight: 700, fontSize: 14, textDecoration: isCancelled ? "line-through" : "none" }}>{fmtMoney(reg.total_cents)}</span>
