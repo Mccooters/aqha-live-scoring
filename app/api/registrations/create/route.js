@@ -124,8 +124,14 @@ export async function POST(req) {
       try {
         isMember = await hasMembershipForEvent(db, contact_email, eventDate);
       } catch (err) {
-        console.error("Membership lookup failed (allowing entry):", err);
-        isMember = true;
+        // Fail CLOSED for a members-only show: if we genuinely can't check
+        // membership right now, ask them to retry rather than letting a
+        // non-member through. (Entries aren't time-critical to the second.)
+        console.error("Membership lookup failed (blocking entry):", err);
+        return NextResponse.json(
+          { error: "We couldn't confirm your club membership just now — please try again in a moment. If it keeps happening, contact the club." },
+          { status: 503 }
+        );
       }
       // Non-members can join the club as part of this checkout: the fee is
       // added to the same Square payment and a normal membership application

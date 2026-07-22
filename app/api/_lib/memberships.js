@@ -222,22 +222,30 @@ export async function renewalOffer(db, email) {
 }
 
 // Does event entry require a membership? Reads the coordinator's switch in
-// site_settings. Fails open on any database error (e.g. the membership
-// migration hasn't been run yet) so event registration is never blocked by
-// a missing table — the switch simply hasn't been turned on in that case.
+// site_settings. If the table/settings simply don't exist yet (migration not
+// run) the feature isn't set up, so it's not required. But a GENUINE read
+// error defaults to "required" — for a members-only club it's safer to make
+// the entry prove membership (and retry if the DB is briefly unreachable)
+// than to wave a non-member through on a glitch.
 export async function membershipRequirement(db, event) {
   try {
-    const { data } = await db
+    const { data, error } = await db
       .from("site_settings")
       .select("value")
       .eq("key", "membership_required")
       .maybeSingle();
+    if (error) {
+      const missing = /does not exist|schema cache/i.test(error.message ?? "");
+      if (missing) return false; // feature not set up yet
+      console.error("membership_required read error (defaulting to required):", error.message);
+      return true;
+    }
     const value = data?.value ?? {};
     if (!value.enabled) return false;
     if (event?.event_type === "clinic" && !value.include_clinics) return false;
     return true;
   } catch (err) {
-    console.error("membership_required check failed (allowing entry):", err);
-    return false;
+    console.error("membership_required check failed (defaulting to required):", err);
+    return true;
   }
 }
