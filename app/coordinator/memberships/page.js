@@ -19,7 +19,11 @@ export default function MembershipsPage() {
   const [session, setSession] = useState(null);
   const [members, setMembers] = useState([]);
   const [types, setTypes] = useState([]);
-  const [season, setSeason] = useState(signupSeason());
+  // Default to the CURRENT season (the one today's shows belong to), not the
+  // coming season — so staff don't look at an empty/next-season list and think
+  // this year's members are missing. "all" shows every season at once.
+  const [season, setSeason] = useState(currentSeason());
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [tableError, setTableError] = useState(false);
   const [expanded, setExpanded] = useState(null);
@@ -169,8 +173,10 @@ export default function MembershipsPage() {
     if (!form.member_name?.trim()) { setFormError("Name is required"); return; }
     if (!form.email?.trim() || !form.email.includes("@")) { setFormError("A valid email is required"); return; }
     const type = types.find((t) => t.id === form.type_id);
+    // "all" is a view filter, not a real season — add to the current season.
+    const addSeason = season === "all" ? currentSeason() : season;
     const { error } = await supabase.from("club_members").insert({
-      season,
+      season: addSeason,
       membership_type_id: type?.id ?? null,
       membership_type_name: type?.name ?? null,
       member_name: form.member_name.trim(),
@@ -238,7 +244,23 @@ export default function MembershipsPage() {
 
   const dataSeasons = [...new Set(members.map((m) => m.season))];
   const seasons = [...new Set([signupSeason(), currentSeason(), ...dataSeasons])].sort().reverse();
-  const seasonMembers = members.filter((m) => m.season === season);
+  // A name/email search spans EVERY season (the point is "is this person a
+  // member at all?"), so it overrides the season filter while typing.
+  const q = query.trim().toLowerCase();
+  const matchesQuery = (m) => !q || [m.member_name, m.email, ...((m.people ?? []).map((p) => p.name))]
+    .some((v) => String(v ?? "").toLowerCase().includes(q));
+  const searching = q.length > 0;
+  const seasonMembers = members.filter((m) =>
+    searching ? matchesQuery(m) : (season === "all" || m.season === season)
+  );
+  // Show which season each card belongs to when the list isn't pinned to one.
+  const showCardSeason = searching || season === "all";
+  // July heads-up: while viewing the current season, point out that next
+  // season's early sign-ups live under a different tab.
+  const nextSeason = signupSeason();
+  const nextSeasonCount = nextSeason !== currentSeason()
+    ? members.filter((m) => m.season === nextSeason).length
+    : 0;
   const byStatus = (s) => seasonMembers.filter((m) => m.status === s);
   const revenue = seasonMembers
     .filter((m) => m.status === "paid" || m.status === "approved")
@@ -269,20 +291,36 @@ export default function MembershipsPage() {
       </header>
 
       <main className="wrap">
-        {/* Season selector + add */}
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 20 }}>
-          <div style={{ flex: "1 1 220px" }}>
+        {/* Season selector + search + add */}
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>
+          <div style={{ flex: "1 1 200px" }}>
             <label style={{ display: "block", fontSize: 12, color: "var(--quiet)", marginBottom: 4 }}>Season (1 Aug – 31 Jul)</label>
-            <select className="field" value={season} onChange={(e) => setSeason(e.target.value)} style={{ fontSize: 15, width: "100%" }}>
+            <select className="field" value={season} onChange={(e) => setSeason(e.target.value)} disabled={searching} style={{ fontSize: 15, width: "100%", opacity: searching ? 0.5 : 1 }}>
               {seasons.map((s) => (
                 <option key={s} value={s}>{s}{s === signupSeason() ? " (new sign-ups)" : s === currentSeason() ? " (current)" : ""}</option>
               ))}
+              <option value="all">All seasons</option>
             </select>
+          </div>
+          <div style={{ flex: "1 1 200px" }}>
+            <label style={{ display: "block", fontSize: 12, color: "var(--quiet)", marginBottom: 4 }}>Find a member (all seasons)</label>
+            <input className="field" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or email…" style={{ fontSize: 15, width: "100%" }} />
           </div>
           <button className="btn-ghost" onClick={() => { setModal({ type: "addMember" }); setForm({ type_id: types[0]?.id ?? "" }); }}>
             + Add member manually
           </button>
         </div>
+        {searching ? (
+          <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 20px" }}>
+            Showing all-season matches for “{query.trim()}”. <button onClick={() => setQuery("")} style={{ background: "none", border: "none", color: "var(--brass)", cursor: "pointer", padding: 0, fontSize: 12.5, textDecoration: "underline" }}>Clear search</button>
+          </p>
+        ) : season === currentSeason() && nextSeasonCount > 0 ? (
+          <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 20px" }}>
+            Viewing the current season. There {nextSeasonCount === 1 ? "is" : "are"} also <strong>{nextSeasonCount}</strong> for next season ({nextSeason}) — switch the season above, or search, to see {nextSeasonCount === 1 ? "them" : "those"}.
+          </p>
+        ) : (
+          <div style={{ marginBottom: 20 }} />
+        )}
 
         {/* Summary */}
         <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
@@ -403,10 +441,16 @@ export default function MembershipsPage() {
         {!loading && seasonMembers.length === 0 && (
           <div className="card" style={{ textAlign: "center", padding: "30px 20px" }}>
             <p className="display" style={{ fontSize: 18, color: "var(--quiet)", margin: 0 }}>
-              No memberships for the {season} season yet.
+              {searching
+                ? `No members match “${query.trim()}” in any season.`
+                : season === "all"
+                ? "No memberships yet."
+                : `No memberships for the ${season} season yet.`}
             </p>
             <p style={{ fontSize: 13, color: "var(--quiet)", marginTop: 8 }}>
-              Share the Members page so people can join online, or add members manually.
+              {searching
+                ? "Try part of the name or email, or check the spelling."
+                : "Share the Members page so people can join online, or add members manually."}
             </p>
           </div>
         )}
@@ -424,6 +468,7 @@ export default function MembershipsPage() {
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 15 }}>{m.member_name}</div>
                   <div style={{ fontSize: 12.5, color: "var(--quiet)" }}>
+                    {showCardSeason && <><strong style={{ color: "var(--leather)" }}>{m.season}</strong> · </>}
                     {m.email} · {m.membership_type_name || "Membership"} · applied {fmtDate(m.created_at)}
                     {people.length > 0 && <> · {people.length + 1} people</>}
                     {horses.length > 0 && <> · {horses.length} {horses.length === 1 ? "horse" : "horses"}</>}
@@ -532,7 +577,7 @@ export default function MembershipsPage() {
                 <h2 className="display modal-title">Add member manually</h2>
                 <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
                   For members who joined on paper or paid in person. They&apos;re approved immediately —
-                  {" "}{seasonLabel(season)}.
+                  {" "}{seasonLabel(season === "all" ? currentSeason() : season)}.
                 </p>
                 <label className="modal-label">Full name *</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }}
