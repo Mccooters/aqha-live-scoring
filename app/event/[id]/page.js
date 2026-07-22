@@ -90,8 +90,10 @@ export default function EventPage() {
     ]);
     if (ev) setEvent(ev);
     if (cls) {
-      cls.forEach((c) => c.entries.sort((a, b) => a.draw_order - b.draw_order));
-      setClasses(cls);
+      // Hidden classes (schema-v38) never appear to the public.
+      const visible = cls.filter((c) => !c.hidden);
+      visible.forEach((c) => c.entries.sort((a, b) => a.draw_order - b.draw_order));
+      setClasses(visible);
     }
   }, [id]);
 

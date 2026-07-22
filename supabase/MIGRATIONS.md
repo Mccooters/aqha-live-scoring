@@ -120,6 +120,10 @@ hasn't been run.
         (member, joined at checkout, day membership, or "rule was off") so the
         Registrations page can show it with certainty. Without this the page
         still works — it just works out the status from the members list.
+- [ ] **v38** — `schema-v38-hide-classes.sql`
+      → lets you **hide empty classes instead of deleting them** when closing
+        entries, and reactivate them in one click if someone enters on the day.
+        Without this the "Hide" option shows a message asking you to run it.
 
 Tick these off once you've run them.
 
@@ -166,6 +170,7 @@ Tick these off once you've run them.
 | `schema-v35-entry-registration-numbers.sql` | Rider + horse association registration numbers on show entries (points checking) |
 | `schema-v36-registration-refunds.sql` | Records Square refunds issued from the Registrations page (refunded amount + reason) |
 | `schema-v37-registration-membership-basis.sql` | Stamps each online entry with how it satisfied the membership rule (audit) |
+| `schema-v38-hide-classes.sql` | Hide empty classes instead of deleting them when closing entries (reactivatable) |
 
 ## For whoever updates the code next
 
