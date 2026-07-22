@@ -137,6 +137,25 @@ export default function RegistrationsPage() {
 
   // The badge shown on a paid registration explaining why it was allowed in.
   const membershipBadge = (reg) => {
+    // Prefer the stamp recorded when the entry was created (schema-v37) — the
+    // exact truth, no guessing. Older rows have no stamp and fall through to
+    // the live cross-reference below.
+    switch (reg.membership_basis) {
+      case "member":
+        return { label: "Member ✓", bg: "#2D7A52", title: "This email had an approved club membership when they entered." };
+      case "annual_join":
+        return { label: "Joined at checkout", bg: "#3A6EA5", title: "Bought a club membership as part of this entry — check the Memberships page to approve it if you haven't already." };
+      case "renewal":
+        return { label: "Renewed at checkout", bg: "#3A6EA5", title: "A signed-in member renewed their membership as part of this entry." };
+      case "day_membership":
+        return { label: "Day membership", bg: "var(--brass)", title: "Entered with a one-day membership for this event only — this person is not a club member." };
+      case "not_required":
+        return membershipRequired
+          ? { label: "Entered — rule was off", bg: "#8B8073", title: "The membership requirement is on now, but it was switched OFF at the moment this person entered — that's how they got in without a membership." }
+          : null;
+      default:
+        break; // no stamp (entry predates schema-v37) — work it out below
+    }
     const email = String(reg.contact_email ?? "").trim().toLowerCase();
     if (approvedEmails.has(email)) {
       return { label: "Member ✓", bg: "#2D7A52", title: "This email has an approved club membership covering this event." };

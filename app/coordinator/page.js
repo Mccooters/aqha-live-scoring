@@ -848,7 +848,8 @@ export default function Coordinator() {
     if (type === "editEntry" && extra.entry) {
       const e = extra.entry;
       initialForm = {
-        back: String(e.back_number), horse: e.horse, exhibitor: e.exhibitor,
+        back: String(e.back_number), origBack: String(e.back_number),
+        horse: e.horse, exhibitor: e.exhibitor,
         score: e.score != null ? String(e.score) : "",
         score2: e.score2 != null ? String(e.score2) : "",
       };
@@ -871,6 +872,11 @@ export default function Coordinator() {
     setForm(initialForm);
     setFormError("");
     setHorseSuggestion(null);
+    // Show the registry match (name + club) straight away when editing an
+    // existing show entry, without overwriting its stored details.
+    if (type === "editEntry" && extra.entry && !isClinic && extra.entry.back_number != null) {
+      lookupHorse(String(extra.entry.back_number));
+    }
   };
   const closeModal = () => { setModal(null); setForm({}); setFormError(""); setHorseSuggestion(null); };
   const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -892,12 +898,33 @@ export default function Coordinator() {
     });
   };
 
-  const lookupHorse = async (backNum) => {
+  // Registry club registrations as "AQHA 12345, PHAA 678" for the suggestion line.
+  const registryClubs = (h) => (h?.horse_registrations ?? [])
+    .map((r) => `${r.club}${r.registration_number ? " " + r.registration_number : ""}`.trim())
+    .filter(Boolean)
+    .join(", ");
+
+  // Look up a horse in the permanent registry by back number and surface its
+  // name, owner and club registrations. force=true adopts the registry name and
+  // owner outright (used when the back number is CHANGED on an existing entry, so
+  // it re-points to the new horse); otherwise only empty fields are filled in so
+  // a coordinator's manual edits are never clobbered.
+  const lookupHorse = async (backNum, { force = false } = {}) => {
     if (!backNum) { setHorseSuggestion(null); return; }
     try {
-      const { data } = await supabase.from("horses").select("name, owner").eq("back_number", parseInt(backNum, 10)).maybeSingle();
+      const { data } = await supabase
+        .from("horses")
+        .select("name, owner, horse_registrations(club, registration_number)")
+        .eq("back_number", parseInt(backNum, 10))
+        .maybeSingle();
       setHorseSuggestion(data ?? false);
-      if (data) setForm((f) => ({ ...f, horse: f.horse || data.name, exhibitor: f.exhibitor || (data.owner ?? "") }));
+      if (data) {
+        setForm((f) => ({
+          ...f,
+          horse: force ? data.name : (f.horse || data.name),
+          exhibitor: force ? (data.owner ?? f.exhibitor ?? "") : (f.exhibitor || (data.owner ?? "")),
+        }));
+      }
     } catch { setHorseSuggestion(null); }
   };
 
@@ -2007,7 +2034,7 @@ export default function Coordinator() {
                       onBlur={(e) => lookupHorse(e.target.value)}
                       placeholder="e.g. 301" autoFocus />
                     {horseSuggestion === false && <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>Not in registry — fill in manually below</p>}
-                    {horseSuggestion && <p style={{ fontSize: 12, color: "var(--green)", margin: "4px 0 0" }}>Found in registry: {horseSuggestion.name}{horseSuggestion.owner ? ` · ${horseSuggestion.owner}` : ""}</p>}
+                    {horseSuggestion && <p style={{ fontSize: 12, color: "var(--green)", margin: "4px 0 0" }}>Found in registry: {horseSuggestion.name}{horseSuggestion.owner ? ` · ${horseSuggestion.owner}` : ""}{registryClubs(horseSuggestion) ? ` · ${registryClubs(horseSuggestion)}` : ""}</p>}
                   </>
                 )}
                 <label className="modal-label">{isClinic ? "Horse name (if participating, optional)" : "Horse name *"}</label>
@@ -2257,7 +2284,12 @@ export default function Coordinator() {
                   {!isClinic && (
                     <>
                       <label className="modal-label">Back number *</label>
-                      <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""} onChange={setField("back")} autoFocus />
+                      <input className="field" type="number" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""}
+                        onChange={setField("back")}
+                        onBlur={(e) => lookupHorse(e.target.value, { force: e.target.value !== (form.origBack ?? "") })}
+                        autoFocus />
+                      {horseSuggestion === false && <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>Not in registry — fill in manually below</p>}
+                      {horseSuggestion && <p style={{ fontSize: 12, color: "var(--green)", margin: "4px 0 0" }}>Registry: {horseSuggestion.name}{horseSuggestion.owner ? ` · ${horseSuggestion.owner}` : ""}{registryClubs(horseSuggestion) ? ` · ${registryClubs(horseSuggestion)}` : ""}</p>}
                     </>
                   )}
                   <label className="modal-label">{isClinic ? "Horse name (optional)" : "Horse name *"}</label>

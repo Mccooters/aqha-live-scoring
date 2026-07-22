@@ -119,6 +119,10 @@ export async function POST(req) {
     const renewalCoversEvent = renewal ? activeSeasons(eventDate).includes(renewal.season) : false;
     let includeDayMembership = false;
     let annualJoin = null; // { type, season } — full membership bought with this entry (also covers entry)
+    // How this entry satisfied the membership rule, recorded on the registration
+    // so staff never have to guess later. "not_required" = the rule was off when
+    // they entered (the answer to "how did a non-member get in?").
+    let membershipBasis = "not_required";
     if (requiresMembership) {
       let isMember = false;
       try {
@@ -166,6 +170,12 @@ export async function POST(req) {
           { status: 403 }
         );
       }
+      // Record which door this entry came through (checked before it can 403).
+      membershipBasis =
+        isMember ? "member"
+        : satisfiedByAnnual ? "annual_join"
+        : renewalCoversEvent ? "renewal"
+        : "day_membership";
     }
 
     // Load classes (with capacity) to build Square line items and enforce spot limits.
@@ -440,12 +450,23 @@ export async function POST(req) {
     if (feesCents > 0) {
       registrationRow.fees_cents = feesCents;
     }
+    // Permanent audit stamp (schema-v37). Recorded when available but never
+    // allowed to block an entry — retried without it on an older database.
+    registrationRow.membership_basis = membershipBasis;
 
-    const { data: reg, error: regErr } = await db
+    let { data: reg, error: regErr } = await db
       .from("registrations")
       .insert(registrationRow)
       .select()
       .single();
+    if (regErr && `${regErr.message ?? ""} ${regErr.details ?? ""}`.toLowerCase().includes("membership_basis")) {
+      delete registrationRow.membership_basis; // column not added yet — record without it
+      ({ data: reg, error: regErr } = await db
+        .from("registrations")
+        .insert(registrationRow)
+        .select()
+        .single());
+    }
     if (regErr) {
       const msg = `${regErr.message ?? ""} ${regErr.details ?? ""}`.toLowerCase();
       if ((includeDayMembership && msg.includes("day_membership")) || (includeReplacementNumbers && msg.includes("replacement_numbers"))) {

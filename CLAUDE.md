@@ -218,7 +218,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v34)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v37)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -277,8 +277,14 @@ PR with a clear plain-English description.
 - `registrations` — event_id, contact_name, contact_email, status
   (pending|paid|cancelled), square_order_id/checkout_url/payment_id,
   total_cents, fees_cents (schema-v34 — the one-off ground/admin fee portion
-  of the total). Staff-read-only since schema-v16 (contains personal contact
-  details); the public success page reads via `app/api/registrations/status`.
+  of the total), membership_basis (schema-v37 — how the entry satisfied the
+  membership rule at creation: `member`|`annual_join`|`renewal`|
+  `day_membership`|`not_required`; null on pre-v37 rows, which the coordinator
+  Registrations page falls back to deriving from the members list). The badge
+  answers "how did a non-member get in?" — `not_required` means the switch was
+  off when they entered. Staff-read-only since schema-v16 (contains personal
+  contact details); the public success page reads via
+  `app/api/registrations/status`.
   Since schema-v32 also square_payment_link_id + cancelled_at + cancel_reason
   ('staff'|'expired'): staff can cancel a pending registration from the
   Registrations page, and pending ones auto-expire after 48h
