@@ -816,6 +816,15 @@ export default function Coordinator() {
     await loadClasses();
   };
 
+  const unhideAllClasses = async () => {
+    const hidden = classes.filter((c) => c.hidden);
+    if (hidden.length === 0) return;
+    if (!window.confirm(`Reactivate all ${hidden.length} hidden ${isClinic ? "spot types" : "classes"}?\n\nThey'll go back on the public schedule, program and results.`)) return;
+    const { error } = await supabase.from("classes").update({ hidden: false }).in("id", hidden.map((c) => c.id));
+    if (error) { window.alert(/hidden/i.test(error.message ?? "") ? HIDE_MIGRATION_HINT : error.message); return; }
+    await loadClasses();
+  };
+
   const toggleClassSelect = (id) => {
     setSelectedClassIds((prev) => {
       const next = new Set(prev);
@@ -1857,7 +1866,12 @@ export default function Coordinator() {
             <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--quiet)", fontSize: 14 }}>
               Hidden {isClinic ? "spot types" : "classes"} ({classes.filter((c) => c.hidden).length}) — reactivate if someone enters on the day
             </summary>
-            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+            <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+              <button className="btn-ghost" style={{ fontSize: 12.5, fontWeight: 700 }} onClick={unhideAllClasses}>
+                ↺ Reactivate all
+              </button>
+            </div>
+            <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
               {classes.filter((c) => c.hidden).sort((a, b) => (a.day ?? 1) - (b.day ?? 1) || (a.sort_order ?? 0) - (b.sort_order ?? 0)).map((c) => (
                 <div key={c.id} style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 8 }}>
                   <span style={{ fontSize: 14, fontWeight: 600 }}>
