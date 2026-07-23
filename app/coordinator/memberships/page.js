@@ -176,9 +176,8 @@ export default function MembershipsPage() {
   // Carry an approved member over to the next season without them
   // re-registering — copies details, people and horses into a fresh approved
   // membership. Use once they've paid their renewal.
-  const renewMember = async (member) => {
-    const target = seasonLabel(signupSeason());
-    if (!confirm(`Renew ${member.member_name} into the ${target}?\n\nThis copies their details, people and horses into a new, approved membership for the coming season — they don't need to re-register. Do this once they've paid their renewal (record it like any manual member).`)) return;
+  const renewMember = async (member, targetSeason) => {
+    if (!confirm(`Renew ${member.member_name} into the ${seasonLabel(targetSeason)}?\n\nThis copies their details, people and horses into a new, approved membership for that season — they don't need to re-register. Do this once they've paid their renewal (record it like any manual member).`)) return;
     setActing(member.id);
     const { data: sessionData } = await supabase.auth.getSession();
     const res = await fetch("/api/memberships/renew", {
@@ -187,11 +186,11 @@ export default function MembershipsPage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}`,
       },
-      body: JSON.stringify({ member_id: member.id }),
+      body: JSON.stringify({ member_id: member.id, season: targetSeason }),
     });
     const data = await res.json();
     if (data.error) alert("Error: " + data.error);
-    else { setSeason(data.season ?? signupSeason()); await load(); }
+    else { setSeason(data.season ?? targetSeason); await load(); }
     setActing(null);
   };
 
@@ -604,13 +603,15 @@ export default function MembershipsPage() {
                         {acting === m.id ? "Working…" : "✓ Approve membership"}
                       </button>
                     )}
-                    {m.status === "approved" && m.season !== signupSeason() && (
-                      <button className="btn" style={{ background: "var(--brass)", fontSize: 13, padding: "8px 16px" }}
-                        onClick={() => renewMember(m)} disabled={acting === m.id}
-                        title="Carry this member over to the next season without re-registering">
-                        {acting === m.id ? "Working…" : `↻ Renew into ${signupSeason()}`}
-                      </button>
-                    )}
+                    {m.status === "approved" && [...new Set([currentSeason(), signupSeason()])]
+                      .filter((s) => s !== m.season)
+                      .map((s) => (
+                        <button key={s} className="btn" style={{ background: "var(--brass)", fontSize: 13, padding: "8px 16px" }}
+                          onClick={() => renewMember(m, s)} disabled={acting === m.id}
+                          title="Carry this member over without re-registering">
+                          {acting === m.id ? "Working…" : `↻ Renew into ${s}`}
+                        </button>
+                      ))}
                     {m.status === "pending" && (m.total_cents ?? 0) > 0 && (
                       <button className="btn-ghost" style={{ fontSize: 13 }}
                         onClick={() => markPaidManually(m)}>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { adminClient } from "../../_lib/registrations";
-import { signupSeason, seasonLabel } from "../../../../lib/membershipSeason";
+import { currentSeason, signupSeason, seasonLabel } from "../../../../lib/membershipSeason";
 import { escapeIlike } from "../../_lib/memberAuth";
 
 // Staff-only: carry an existing member over to the next season without them
@@ -26,11 +26,14 @@ export async function POST(req) {
     const staff = await verifyStaff(req);
     if (!staff) return NextResponse.json({ error: "Staff sign-in required" }, { status: 401 });
 
-    const { member_id } = await req.json();
+    const { member_id, season: requestedSeason } = await req.json();
     if (!member_id) return NextResponse.json({ error: "member_id required" }, { status: 400 });
 
     const db = adminClient();
-    const season = signupSeason();
+    // Renew into the current season or the coming one (they only differ during
+    // July). Anything else is rejected; default to the coming season.
+    const allowedSeasons = [currentSeason(), signupSeason()];
+    const season = allowedSeasons.includes(requestedSeason) ? requestedSeason : signupSeason();
 
     const { data: src, error: srcErr } = await db
       .from("club_members")
