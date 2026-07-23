@@ -136,6 +136,10 @@ hasn't been run.
 - [ ] **v41** — `schema-v41-family-member-details.sql`
       → adds each family member's own **AQHA member number**, phone and other
         associations. Without it those boxes still show but aren't saved.
+- [ ] **v42** — `schema-v42-member-club-registrations.sql`
+      → lets each member and family member list **multiple clubs** (AQHA, PHAA
+        Paint, AAA, etc.) with their number, instead of a single AQHA field.
+        Without it the club list shows but isn't saved.
 
 Tick these off once you've run them.
 
@@ -186,6 +190,7 @@ Tick these off once you've run them.
 | `schema-v39-new-number-fees.sql` | New-numbers staff list: $5 additional-horse fee on member horses + a flag on show-entry new-number requests |
 | `schema-v40-family-member-emails.sql` | Each person on a family membership can have their own email (enter events under it) |
 | `schema-v41-family-member-details.sql` | Each family member's own AQHA number, phone and other associations |
+| `schema-v42-member-club-registrations.sql` | Members + family members list multiple club registrations (AQHA/PHAA/AAA/…), not just AQHA |
 
 ## For whoever updates the code next
 

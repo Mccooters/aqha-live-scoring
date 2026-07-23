@@ -223,7 +223,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v41)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v42)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -259,7 +259,12 @@ PR with a clear plain-English description.
   (schema-v23; public read so the join form can list them, staff write).
 - `club_members` — season ('2026-2027', 1 Aug–31 Jul), membership_type_id +
   membership_type_name snapshot, member_name, email, phone, address,
-  aqha_member_number, other_memberships, emergency_contact_name/phone,
+  aqha_member_number, other_memberships, association_registrations
+  (schema-v42 — jsonb list of {club, number}; members aren't all AQHA, so this
+  replaces the single AQHA field with a horse-registry-style multi-club list,
+  edited via the shared `app/components/ClubRegistrations.js`; the legacy
+  aqha_member_number/other_memberships stay for old data and seed the list),
+  emergency_contact_name/phone,
   interests, applicant_notes (fields mirror the club's paper/Google
   application form; the liability waiver text shown on the join page lives
   in `lib/membershipWaiver.js`), status (pending|paid|approved|rejected),
@@ -283,7 +288,8 @@ PR with a clear plain-English description.
   own email; `hasMembershipForEvent`/`hasCurrentMembership` match it too, so a
   family member can enter events under their own address), aqha_member_number
   + phone + other_memberships (schema-v41 — each family member is their own
-  exhibitor). The extra people
+  exhibitor), association_registrations (schema-v42 — jsonb {club, number}
+  list, same multi-club editor as the applicant). The extra people
   covered by a membership (the applicant is `club_members.member_name`, not a
   row here). How many fit is `club_members.included_people`, snapshotted at
   application time from `membership_types.included_people` (both v25). Staff

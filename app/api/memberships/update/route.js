@@ -20,6 +20,14 @@ async function verifyStaff(req) {
 const clean = (v) => String(v ?? "").trim();
 const cleanOrNull = (v) => clean(v) || null;
 const cleanEmail = (v) => clean(v).toLowerCase() || null;
+// A list of { club, number } association memberships; null when empty.
+function cleanRegs(list) {
+  if (!Array.isArray(list)) return undefined; // not provided → don't touch
+  const rows = list
+    .map((r) => ({ club: clean(r?.club), number: clean(r?.number) }))
+    .filter((r) => r.club || r.number);
+  return rows.length ? rows : null;
+}
 
 async function includedPeople(db, member) {
   if (member.included_people != null) return member.included_people;
@@ -65,7 +73,13 @@ export async function POST(req) {
       emergency_contact_phone: cleanOrNull(fields?.emergency_contact_phone),
       interests: cleanOrNull(fields?.interests),
     };
-    const { error: upErr } = await db.from("club_members").update(update).eq("id", member_id);
+    const memberRegs = cleanRegs(fields?.association_registrations);
+    if (memberRegs !== undefined) update.association_registrations = memberRegs;
+    let { error: upErr } = await db.from("club_members").update(update).eq("id", member_id);
+    if (upErr && /association_registrations/i.test(`${upErr.message ?? ""} ${upErr.details ?? ""}`)) {
+      const { association_registrations: _r, ...bare } = update; // schema-v42 not run yet
+      ({ error: upErr } = await db.from("club_members").update(bare).eq("id", member_id));
+    }
     if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
     // Replace the people list when provided (the whole family is re-sent).
@@ -80,6 +94,7 @@ export async function POST(req) {
           aqha_member_number: cleanOrNull(p?.aqha_member_number),
           phone: cleanOrNull(p?.phone),
           other_memberships: cleanOrNull(p?.other_memberships),
+          association_registrations: cleanRegs(p?.association_registrations) ?? null,
           sort_order: idx + 1,
         }))
         .filter((p) => p.name)
@@ -88,9 +103,9 @@ export async function POST(req) {
       await db.from("club_member_people").delete().eq("member_id", member_id);
       if (rows.length) {
         let { error: pErr } = await db.from("club_member_people").insert(rows);
-        if (pErr && /(email|aqha_member_number|phone|other_memberships)/i.test(`${pErr.message ?? ""} ${pErr.details ?? ""}`)) {
-          // schema-v40/v41 not run yet — save people without the extra columns.
-          const bare = rows.map(({ email: _e, aqha_member_number: _a, phone: _p, other_memberships: _o, ...rest }) => rest);
+        if (pErr && /(email|aqha_member_number|phone|other_memberships|association_registrations)/i.test(`${pErr.message ?? ""} ${pErr.details ?? ""}`)) {
+          // schema-v40/v41/v42 not run yet — save people without the extra columns.
+          const bare = rows.map(({ email: _e, aqha_member_number: _a, phone: _p, other_memberships: _o, association_registrations: _ar, ...rest }) => rest);
           ({ error: pErr } = await db.from("club_member_people").insert(bare));
         }
         if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });

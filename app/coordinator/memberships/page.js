@@ -3,10 +3,16 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import { currentSeason, signupSeason, seasonLabel } from "../../../lib/membershipSeason";
+import ClubRegistrations, { registrationsToRows } from "../../components/ClubRegistrations";
 
 const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
 const fmtDate = (s) =>
   s ? new Date(s).toLocaleString("en-AU", { dateStyle: "short", timeStyle: "short" }) : "—";
+// "AQHA 12345, PHAA 678" from a stored association_registrations list.
+const regLabel = (list) =>
+  Array.isArray(list)
+    ? list.map((r) => [r.club, r.number].filter(Boolean).join(" ").trim()).filter(Boolean).join(", ")
+    : "";
 
 const STATUS_LABEL = {
   pending: "pending payment",
@@ -234,9 +240,11 @@ export default function MembershipsPage() {
       emergency_contact_name: m.emergency_contact_name ?? "",
       emergency_contact_phone: m.emergency_contact_phone ?? "",
       interests: m.interests ?? "",
+      association_registrations: registrationsToRows(m),
       people: (m.people ?? []).map((p) => ({
         name: p.name ?? "", person_type: p.person_type ?? "adult", email: p.email ?? "",
-        aqha_member_number: p.aqha_member_number ?? "", phone: p.phone ?? "", other_memberships: p.other_memberships ?? "",
+        phone: p.phone ?? "",
+        association_registrations: registrationsToRows(p),
       })),
     });
   };
@@ -265,6 +273,7 @@ export default function MembershipsPage() {
           aqha_member_number: form.aqha_member_number, other_memberships: form.other_memberships,
           emergency_contact_name: form.emergency_contact_name, emergency_contact_phone: form.emergency_contact_phone,
           interests: form.interests,
+          association_registrations: form.association_registrations ?? [],
         },
         people: form.people ?? [],
       }),
@@ -653,8 +662,12 @@ export default function MembershipsPage() {
                   <div style={{ fontSize: 13.5, color: "var(--ink)", display: "grid", gap: 3 }}>
                     {m.phone && <div><strong>Phone:</strong> {m.phone}</div>}
                     {m.address && <div><strong>Address:</strong> {m.address}</div>}
-                    {m.aqha_member_number && <div><strong>AQHA member number:</strong> {m.aqha_member_number}</div>}
-                    {m.other_memberships && <div><strong>Other associations:</strong> {m.other_memberships}</div>}
+                    {regLabel(m.association_registrations)
+                      ? <div><strong>Clubs:</strong> {regLabel(m.association_registrations)}</div>
+                      : <>
+                          {m.aqha_member_number && <div><strong>AQHA member number:</strong> {m.aqha_member_number}</div>}
+                          {m.other_memberships && <div><strong>Other associations:</strong> {m.other_memberships}</div>}
+                        </>}
                     {(m.emergency_contact_name || m.emergency_contact_phone) && (
                       <div><strong>Emergency contact:</strong> {[m.emergency_contact_name, m.emergency_contact_phone].filter(Boolean).join(" · ")}</div>
                     )}
@@ -664,7 +677,13 @@ export default function MembershipsPage() {
                     {people.length > 0 && (
                       <div>
                         <strong>People on this membership:</strong>{" "}
-                        {[`${m.member_name} (applicant)`, ...people.map((p) => `${p.name} (${p.person_type === "child" ? "child" : "adult"})`)].join(" · ")}
+                        {[
+                          `${m.member_name} (applicant)`,
+                          ...people.map((p) => {
+                            const clubs = regLabel(p.association_registrations);
+                            return `${p.name} (${p.person_type === "child" ? "child" : "adult"}${clubs ? `, ${clubs}` : ""})`;
+                          }),
+                        ].join(" · ")}
                       </div>
                     )}
                   </div>
@@ -793,20 +812,16 @@ export default function MembershipsPage() {
                   <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.member_name ?? ""} onChange={setField("member_name")} autoFocus />
                   <label className="modal-label">Email * (their sign-in / member identity)</label>
                   <input className="field" type="email" style={{ width: "100%", fontSize: 16 }} value={form.email ?? ""} onChange={setField("email")} />
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    <div>
-                      <label className="modal-label">Phone</label>
-                      <input className="field" type="tel" style={{ width: "100%", fontSize: 16 }} value={form.phone ?? ""} onChange={setField("phone")} />
-                    </div>
-                    <div>
-                      <label className="modal-label">AQHA member number</label>
-                      <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.aqha_member_number ?? ""} onChange={setField("aqha_member_number")} />
-                    </div>
-                  </div>
+                  <label className="modal-label">Phone</label>
+                  <input className="field" type="tel" style={{ width: "100%", fontSize: 16 }} value={form.phone ?? ""} onChange={setField("phone")} />
                   <label className="modal-label">Address</label>
                   <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.address ?? ""} onChange={setField("address")} />
-                  <label className="modal-label">Other associations</label>
-                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.other_memberships ?? ""} onChange={setField("other_memberships")} />
+                  <div style={{ marginTop: 8 }}>
+                    <ClubRegistrations
+                      value={form.association_registrations}
+                      onChange={(v) => setForm((f) => ({ ...f, association_registrations: v }))}
+                      hint="AQHA, PHAA (Paint), AAA (Appaloosa) or any club — add each with the member number." />
+                  </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div>
                       <label className="modal-label">Emergency contact</label>
@@ -837,12 +852,17 @@ export default function MembershipsPage() {
                             <option value="child">Child</option>
                           </select>
                         </div>
-                        <input className="field" type="email" style={{ width: "100%", fontSize: 15, marginTop: 8 }} placeholder="Their email (optional)" value={p.email} onChange={(e) => setPerson(idx, "email", e.target.value)} />
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
-                          <input className="field" style={{ fontSize: 15 }} placeholder="AQHA member number" value={p.aqha_member_number} onChange={(e) => setPerson(idx, "aqha_member_number", e.target.value)} />
+                          <input className="field" type="email" style={{ fontSize: 15 }} placeholder="Their email (optional)" value={p.email} onChange={(e) => setPerson(idx, "email", e.target.value)} />
                           <input className="field" type="tel" style={{ fontSize: 15 }} placeholder="Phone (optional)" value={p.phone} onChange={(e) => setPerson(idx, "phone", e.target.value)} />
                         </div>
-                        <input className="field" style={{ width: "100%", fontSize: 15, marginTop: 8 }} placeholder="Other associations (e.g. PHAA, AAA)" value={p.other_memberships} onChange={(e) => setPerson(idx, "other_memberships", e.target.value)} />
+                        <div style={{ marginTop: 8 }}>
+                          <ClubRegistrations
+                            value={p.association_registrations}
+                            onChange={(v) => setPerson(idx, "association_registrations", v)}
+                            label="Their clubs"
+                            hint="AQHA / PHAA / AAA or any — add each with the member number." />
+                        </div>
                       </div>
                     ))}
                     {(maxExtra == null || people.length < maxExtra) && (
