@@ -166,6 +166,21 @@ export async function approveMembership(db, memberId) {
   }
 }
 
+// A family membership (schema-v40) can list each person's own email, so a
+// non-applicant on an approved membership counts too. Returns false (not an
+// error) if the email column isn't there yet, so this is safe pre-migration.
+async function approvedFamilyEmail(db, cleanedEmail, seasons) {
+  const { data, error } = await db
+    .from("club_member_people")
+    .select("id, club_members!inner(status, season)")
+    .ilike("email", cleanedEmail)
+    .eq("club_members.status", "approved")
+    .in("club_members.season", seasons)
+    .limit(1);
+  if (error) return false;
+  return (data?.length ?? 0) > 0;
+}
+
 // Is there an approved annual membership for this email address in the season
 // the event belongs to?
 export async function hasCurrentMembership(db, email, date = new Date()) {
@@ -184,7 +199,8 @@ export async function hasCurrentMembership(db, email, date = new Date()) {
     .ilike("email", cleaned)
     .limit(1);
   if (error) throw new Error(error.message);
-  return (data?.length ?? 0) > 0;
+  if ((data?.length ?? 0) > 0) return true;
+  return approvedFamilyEmail(db, cleaned, seasons);
 }
 
 // Does this email have an approved membership that covers a SPECIFIC event?
@@ -204,7 +220,8 @@ export async function hasMembershipForEvent(db, email, eventDate) {
     .ilike("email", cleaned)
     .limit(1);
   if (error) throw new Error(error.message);
-  return (data?.length ?? 0) > 0;
+  if ((data?.length ?? 0) > 0) return true;
+  return approvedFamilyEmail(db, cleaned, seasons);
 }
 
 // July-only checkout add-on: can this email renew its club membership for the

@@ -223,7 +223,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v39)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v40)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -279,10 +279,16 @@ PR with a clear plain-English description.
   these plus show-entry new-number requests so staff can see who needs a tag
   made and who owes the $5.
 - `club_member_people` — member_id (cascade delete), name, person_type
-  (adult|child), sort_order (schema-v25). The extra people covered by a
-  membership (the applicant is `club_members.member_name`, not a row here).
-  How many fit is `club_members.included_people`, snapshotted at application
-  time from `membership_types.included_people` (both v25).
+  (adult|child), sort_order (schema-v25), email (schema-v40 — each person's
+  own email; `hasMembershipForEvent`/`hasCurrentMembership` match it too, so a
+  family member can enter events under their own address). The extra people
+  covered by a membership (the applicant is `club_members.member_name`, not a
+  row here). How many fit is `club_members.included_people`, snapshotted at
+  application time from `membership_types.included_people` (both v25). Staff
+  edit members + these people (incl. emails) via `app/api/memberships/update`
+  (staff JWT); members edit their own via `app/api/account/people`. NOTE:
+  family emails are recognised at event entry but do NOT yet grant portal
+  login (that stays keyed to `club_members.email`).
 - `member_accounts` / `member_login_codes` / `member_sessions` — the member
   portal's login tables (schema-v25): account per lowercase email (plus
   optional scrypt `password_hash` + failed-attempt lockout fields), hashed

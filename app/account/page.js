@@ -369,8 +369,8 @@ function PeopleCard({ m, onChanged }) {
     setBusy(true);
     try {
       const { ok, data } = modal.id
-        ? await api("/api/account/people", "PATCH", { id: modal.id, name: modal.name, person_type: modal.person_type })
-        : await api("/api/account/people", "POST", { member_id: m.id, name: modal.name, person_type: modal.person_type });
+        ? await api("/api/account/people", "PATCH", { id: modal.id, name: modal.name, person_type: modal.person_type, email: modal.email ?? "" })
+        : await api("/api/account/people", "POST", { member_id: m.id, name: modal.name, person_type: modal.person_type, email: modal.email ?? "" });
       if (!ok) { setError(data?.error ?? "Something went wrong — try again."); return; }
       setModal(null);
       onChanged();
@@ -407,11 +407,13 @@ function PeopleCard({ m, onChanged }) {
           <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
             <div>
               <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</div>
-              <div style={{ fontSize: 12, color: "var(--quiet)" }}>{p.person_type === "child" ? "Child" : "Adult"}</div>
+              <div style={{ fontSize: 12, color: "var(--quiet)" }}>
+                {p.person_type === "child" ? "Child" : "Adult"}{p.email ? ` · ${p.email}` : ""}
+              </div>
             </div>
             {m.editable && (
               <div style={{ display: "flex", gap: 6 }}>
-                <button className="btn-ghost" onClick={() => { setError(""); setModal({ id: p.id, name: p.name, person_type: p.person_type }); }}>
+                <button className="btn-ghost" onClick={() => { setError(""); setModal({ id: p.id, name: p.name, person_type: p.person_type, email: p.email ?? "" }); }}>
                   Edit
                 </button>
                 <button className="btn-ghost danger" onClick={() => remove(p)}>Remove</button>
@@ -422,7 +424,7 @@ function PeopleCard({ m, onChanged }) {
         {m.editable && (
           <>
             <button className="btn-ghost" style={{ width: "100%", marginTop: 12, fontSize: 14, padding: "8px 0" }}
-              onClick={() => { setError(""); setModal({ name: "", person_type: people.length ? "child" : "adult" }); }}
+              onClick={() => { setError(""); setModal({ name: "", person_type: people.length ? "child" : "adult", email: "" }); }}
               disabled={atCap}>
               + Add a person
             </button>
@@ -449,6 +451,10 @@ function PeopleCard({ m, onChanged }) {
               <option value="adult">Adult</option>
               <option value="child">Child</option>
             </select>
+            <label className="modal-label">Their email (optional)</label>
+            <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
+              value={modal.email ?? ""} onChange={(e) => setModal((v) => ({ ...v, email: e.target.value }))}
+              placeholder="So they can enter events under their own email" />
             {error && <p className="modal-error">{error}</p>}
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
               <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={save} disabled={busy}>
