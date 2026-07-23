@@ -133,6 +133,9 @@ hasn't been run.
       → lets each person on a **family membership** have their own email, so
         they can enter events under it and be recognised as a member. Without
         it the email boxes still show but the address isn't saved.
+- [ ] **v41** — `schema-v41-family-member-details.sql`
+      → adds each family member's own **AQHA member number**, phone and other
+        associations. Without it those boxes still show but aren't saved.
 
 Tick these off once you've run them.
 
@@ -182,6 +185,7 @@ Tick these off once you've run them.
 | `schema-v38-hide-classes.sql` | Hide empty classes instead of deleting them when closing entries (reactivatable) |
 | `schema-v39-new-number-fees.sql` | New-numbers staff list: $5 additional-horse fee on member horses + a flag on show-entry new-number requests |
 | `schema-v40-family-member-emails.sql` | Each person on a family membership can have their own email (enter events under it) |
+| `schema-v41-family-member-details.sql` | Each family member's own AQHA number, phone and other associations |
 
 ## For whoever updates the code next
 
