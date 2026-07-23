@@ -1468,6 +1468,9 @@ export default function Coordinator() {
             <Link href="/coordinator/memberships" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
               Memberships
             </Link>
+            <Link href="/coordinator/numbers" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
+              New numbers
+            </Link>
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={exportClasses} disabled={exportingClasses || !eventId || classes.length === 0}>
               {exportingClasses ? "Exporting…" : "⇩ Export classes"}

@@ -40,6 +40,9 @@ export async function POST(req) {
       );
     }
 
+    // A member's first NEW number is covered by the membership; each additional
+    // horse that needs a brand-new number is $5 (same as replacement numbers).
+    const ADDITIONAL_NUMBER_CENTS = 500;
     const season = signupSeason();
     const cleanedEmail = email.trim();
 
@@ -60,7 +63,27 @@ export async function POST(req) {
       return NextResponse.json({ error: msg }, { status: 409 });
     }
 
-    const totalCents = type.fee_cents ?? 0;
+    // Work out each horse's number and fee up front so the membership total
+    // (and the Square checkout) includes the additional-number charges. The
+    // first NEW number is free; each additional horse needing a new number is
+    // $5. Horses that already have a registry number are never charged.
+    const rawHorseRows = (horses ?? []).map(cleanHorseFields).filter((h) => h.horse_name);
+    const assignedHorses = [];
+    const reservedBackNumbers = [];
+    let newNumberCount = 0;
+    for (const rawHorse of rawHorseRows) {
+      const { fields, suggestion } = await assignHorseNumber(db, rawHorse, null, reservedBackNumbers);
+      let feeCents = 0;
+      if (!suggestion.matched_registry) {
+        newNumberCount += 1;
+        if (newNumberCount > 1) feeCents = ADDITIONAL_NUMBER_CENTS;
+      }
+      assignedHorses.push({ fields, feeCents });
+      if (fields.back_number != null) reservedBackNumbers.push(fields.back_number);
+    }
+    const additionalNumbersCents = assignedHorses.reduce((s, h) => s + h.feeCents, 0);
+    const additionalNumbersCount = assignedHorses.filter((h) => h.feeCents > 0).length;
+    const totalCents = (type.fee_cents ?? 0) + additionalNumbersCents;
 
     const memberFields = {
       season,
@@ -123,18 +146,19 @@ export async function POST(req) {
     }
     if (memberErr || !member) return NextResponse.json({ error: memberErr?.message ?? "Could not save the application" }, { status: 500 });
 
-    const rawHorseRows = (horses ?? [])
-      .map(cleanHorseFields)
-      .filter((h) => h.horse_name);
-    const horseRows = [];
-    const reservedBackNumbers = [];
-    for (const rawHorse of rawHorseRows) {
-      const { fields } = await assignHorseNumber(db, rawHorse, null, reservedBackNumbers);
-      horseRows.push({ member_id: member.id, ...fields });
-      if (fields.back_number != null) reservedBackNumbers.push(fields.back_number);
-    }
+    const horseRows = assignedHorses.map((h) => ({
+      member_id: member.id,
+      ...h.fields,
+      number_fee_cents: h.feeCents,
+      number_fee_paid: h.feeCents === 0, // a free number is never "owing"; paid ones flip true on payment
+    }));
     if (horseRows.length) {
-      const { error: horseErr } = await db.from("club_member_horses").insert(horseRows);
+      let { error: horseErr } = await db.from("club_member_horses").insert(horseRows);
+      if (horseErr && /number_fee/i.test(`${horseErr.message ?? ""} ${horseErr.details ?? ""}`)) {
+        // schema-v39 not run yet — save the horses without the fee columns.
+        const bare = horseRows.map(({ number_fee_cents, number_fee_paid, ...rest }) => rest);
+        ({ error: horseErr } = await db.from("club_member_horses").insert(bare));
+      }
       if (horseErr) return NextResponse.json({ error: horseErr.message }, { status: 500 });
     }
 
@@ -174,12 +198,17 @@ export async function POST(req) {
         location_id: process.env.SQUARE_LOCATION_ID,
         reference_id: member.id,
         line_items: [
-          {
+          ...((type.fee_cents ?? 0) > 0 ? [{
             name: `${type.name} — ${season} season`,
             quantity: "1",
-            base_price_money: { amount: totalCents, currency: "AUD" },
+            base_price_money: { amount: type.fee_cents, currency: "AUD" },
             note: member_name.trim(),
-          },
+          }] : []),
+          ...(additionalNumbersCount > 0 ? [{
+            name: "Additional horse number",
+            quantity: String(additionalNumbersCount),
+            base_price_money: { amount: ADDITIONAL_NUMBER_CENTS, currency: "AUD" },
+          }] : []),
         ],
       },
       checkout_options: {

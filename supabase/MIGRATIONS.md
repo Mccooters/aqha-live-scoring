@@ -124,6 +124,11 @@ hasn't been run.
       → lets you **hide empty classes instead of deleting them** when closing
         entries, and reactivate them in one click if someone enters on the day.
         Without this the "Hide" option shows a message asking you to run it.
+- [ ] **v39** — `schema-v39-new-number-fees.sql`
+      → powers the **New numbers** staff list and the **$5 additional-horse
+        number** fee (a member's first number is covered by membership). Without
+        it the list still shows members' horses, but the $5 fees aren't tracked
+        and show-entry new-number requests aren't flagged.
 
 Tick these off once you've run them.
 
@@ -171,6 +176,7 @@ Tick these off once you've run them.
 | `schema-v36-registration-refunds.sql` | Records Square refunds issued from the Registrations page (refunded amount + reason) |
 | `schema-v37-registration-membership-basis.sql` | Stamps each online entry with how it satisfied the membership rule (audit) |
 | `schema-v38-hide-classes.sql` | Hide empty classes instead of deleting them when closing entries (reactivatable) |
+| `schema-v39-new-number-fees.sql` | New-numbers staff list: $5 additional-horse fee on member horses + a flag on show-entry new-number requests |
 
 ## For whoever updates the code next
 

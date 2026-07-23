@@ -133,6 +133,14 @@ export async function markMembershipPaid(db, memberId) {
   if (error) throw new Error(error.message);
   if (!claimed?.length) return; // already handled
 
+  // The payment covers any additional-horse-number fees (schema-v39). Logged
+  // but non-fatal if that migration hasn't been run (the column isn't there).
+  const { error: feeErr } = await db
+    .from("club_member_horses")
+    .update({ number_fee_paid: true })
+    .eq("member_id", memberId);
+  if (feeErr) console.error("Marking horse number fees paid failed:", feeErr.message);
+
   try {
     await sendApplicationReceivedEmail(claimed[0]);
   } catch (err) {

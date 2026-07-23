@@ -592,10 +592,17 @@ function HorsesCard({ m, onChanged }) {
           </div>
         ))}
         {m.editable && (
-          <button className="btn-ghost" style={{ width: "100%", marginTop: 12, fontSize: 14, padding: "8px 0" }}
-            onClick={() => { setError(""); setNumberSuggestion(null); setCheckingNumber(false); setModal({ horse_name: "", breed: "", registrations: "", notes: "" }); }}>
-            + Add a horse
-          </button>
+          <>
+            <button className="btn-ghost" style={{ width: "100%", marginTop: 12, fontSize: 14, padding: "8px 0" }}
+              onClick={() => { setError(""); setNumberSuggestion(null); setCheckingNumber(false); setModal({ horse_name: "", breed: "", registrations: "", notes: "" }); }}>
+              + Add a horse
+            </button>
+            {horses.length >= 1 && (
+              <p style={{ fontSize: 12, color: "var(--quiet)", margin: "8px 0 0" }}>
+                Your first horse&apos;s number is covered by your membership. Each additional horse that needs a new number is $5, collected by the club.
+              </p>
+            )}
+          </>
         )}
       </div>
 

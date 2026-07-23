@@ -67,16 +67,24 @@ export async function POST(req) {
       );
     }
 
-    const { fields: assignedFields } = await assignHorseNumber(db, fields);
+    const { fields: assignedFields, suggestion } = await assignHorseNumber(db, fields);
 
-    const { data: horse, error } = await db
-      .from("club_member_horses")
-      .insert({ member_id: member.id, ...assignedFields })
-      .select()
-      .single();
+    // First horse's number is covered by the membership; each additional horse
+    // needing a brand-new number is $5 (schema-v39). There's no checkout in the
+    // portal, so it's recorded as owing and the club collects it — it shows on
+    // the staff "New numbers" list. Horses that already have a number: no fee.
+    const ADDITIONAL_NUMBER_CENTS = 500;
+    const feeCents = !suggestion.matched_registry && (count ?? 0) > 0 ? ADDITIONAL_NUMBER_CENTS : 0;
+    const row = { member_id: member.id, ...assignedFields, number_fee_cents: feeCents, number_fee_paid: feeCents === 0 };
+
+    let { data: horse, error } = await db.from("club_member_horses").insert(row).select().single();
+    if (error && /number_fee/i.test(`${error.message ?? ""} ${error.details ?? ""}`)) {
+      const { number_fee_cents, number_fee_paid, ...bare } = row; // schema-v39 not run yet
+      ({ data: horse, error } = await db.from("club_member_horses").insert(bare).select().single());
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ ok: true, horse });
+    return NextResponse.json({ ok: true, horse, number_fee_cents: feeCents });
   } catch (err) {
     console.error("account/horses POST error:", err);
     return NextResponse.json({ error: err.message ?? "Unexpected error" }, { status: 500 });

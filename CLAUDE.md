@@ -218,7 +218,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v38)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v39)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -264,9 +264,15 @@ PR with a clear plain-English description.
   named `club_members` because schema-v18 already uses `memberships` for
   staff↔club login roles.
 - `club_member_horses` — member_id (cascade delete), horse_name,
-  back_number, breed, registrations, notes. Staff-only read like its parent.
-  Members manage their own via `app/api/account/horses` (schema-v25); these
-  stay separate from the official `horses` registry.
+  back_number, breed, registrations, notes, number_fee_cents + number_fee_paid
+  (schema-v39 — the $5 additional-horse-number fee; a member's first NEW number
+  is free/covered by membership, each additional new number is $5, paid at
+  signup checkout or marked owing when added later in the portal). Staff-only
+  read like its parent. Members manage their own via `app/api/account/horses`
+  (schema-v25); these stay separate from the official `horses` registry. The
+  coordinator **New numbers** page (`app/coordinator/numbers/page.js`) lists
+  these plus show-entry new-number requests so staff can see who needs a tag
+  made and who owes the $5.
 - `club_member_people` — member_id (cascade delete), name, person_type
   (adult|child), sort_order (schema-v25). The extra people covered by a
   membership (the applicant is `club_members.member_name`, not a row here).
@@ -304,7 +310,9 @@ PR with a clear plain-English description.
   horse_registrations (schema-v35 — jsonb lists of {club, number} pairs for
   points checking; [] = declared not registered, null = not collected;
   required on show entries, auto-filled from the registry by back number,
-  and copied back into `horse_registrations` on approval).
+  and copied back into `horse_registrations` on approval), new_number
+  (schema-v39 — true when the exhibitor asked for a brand-new number; surfaced
+  on the coordinator New numbers page).
 - `push_subscriptions` — endpoint (unique), p256dh, auth_key. Not publicly
   accessible since schema-v16; subscribing goes through
   `app/api/push/subscribe` (service role), and the send-push edge function
