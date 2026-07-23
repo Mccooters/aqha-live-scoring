@@ -223,7 +223,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v40)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v41)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -281,7 +281,9 @@ PR with a clear plain-English description.
 - `club_member_people` — member_id (cascade delete), name, person_type
   (adult|child), sort_order (schema-v25), email (schema-v40 — each person's
   own email; `hasMembershipForEvent`/`hasCurrentMembership` match it too, so a
-  family member can enter events under their own address). The extra people
+  family member can enter events under their own address), aqha_member_number
+  + phone + other_memberships (schema-v41 — each family member is their own
+  exhibitor). The extra people
   covered by a membership (the applicant is `club_members.member_name`, not a
   row here). How many fit is `club_members.included_people`, snapshotted at
   application time from `membership_types.included_people` (both v25). Staff

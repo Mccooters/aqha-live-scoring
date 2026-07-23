@@ -234,7 +234,10 @@ export default function MembershipsPage() {
       emergency_contact_name: m.emergency_contact_name ?? "",
       emergency_contact_phone: m.emergency_contact_phone ?? "",
       interests: m.interests ?? "",
-      people: (m.people ?? []).map((p) => ({ name: p.name ?? "", person_type: p.person_type ?? "adult", email: p.email ?? "" })),
+      people: (m.people ?? []).map((p) => ({
+        name: p.name ?? "", person_type: p.person_type ?? "adult", email: p.email ?? "",
+        aqha_member_number: p.aqha_member_number ?? "", phone: p.phone ?? "", other_memberships: p.other_memberships ?? "",
+      })),
     });
   };
   const setPerson = (idx, key, value) =>
@@ -835,6 +838,11 @@ export default function MembershipsPage() {
                           </select>
                         </div>
                         <input className="field" type="email" style={{ width: "100%", fontSize: 15, marginTop: 8 }} placeholder="Their email (optional)" value={p.email} onChange={(e) => setPerson(idx, "email", e.target.value)} />
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+                          <input className="field" style={{ fontSize: 15 }} placeholder="AQHA member number" value={p.aqha_member_number} onChange={(e) => setPerson(idx, "aqha_member_number", e.target.value)} />
+                          <input className="field" type="tel" style={{ fontSize: 15 }} placeholder="Phone (optional)" value={p.phone} onChange={(e) => setPerson(idx, "phone", e.target.value)} />
+                        </div>
+                        <input className="field" style={{ width: "100%", fontSize: 15, marginTop: 8 }} placeholder="Other associations (e.g. PHAA, AAA)" value={p.other_memberships} onChange={(e) => setPerson(idx, "other_memberships", e.target.value)} />
                       </div>
                     ))}
                     {(maxExtra == null || people.length < maxExtra) && (

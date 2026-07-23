@@ -77,6 +77,9 @@ export async function POST(req) {
           name: clean(p?.name),
           person_type: p?.person_type === "child" ? "child" : "adult",
           email: cleanEmail(p?.email),
+          aqha_member_number: cleanOrNull(p?.aqha_member_number),
+          phone: cleanOrNull(p?.phone),
+          other_memberships: cleanOrNull(p?.other_memberships),
           sort_order: idx + 1,
         }))
         .filter((p) => p.name)
@@ -85,9 +88,9 @@ export async function POST(req) {
       await db.from("club_member_people").delete().eq("member_id", member_id);
       if (rows.length) {
         let { error: pErr } = await db.from("club_member_people").insert(rows);
-        if (pErr && /email/i.test(`${pErr.message ?? ""} ${pErr.details ?? ""}`)) {
-          // schema-v40 not run yet — save people without their emails.
-          const bare = rows.map(({ email: _e, ...rest }) => rest);
+        if (pErr && /(email|aqha_member_number|phone|other_memberships)/i.test(`${pErr.message ?? ""} ${pErr.details ?? ""}`)) {
+          // schema-v40/v41 not run yet — save people without the extra columns.
+          const bare = rows.map(({ email: _e, aqha_member_number: _a, phone: _p, other_memberships: _o, ...rest }) => rest);
           ({ error: pErr } = await db.from("club_member_people").insert(bare));
         }
         if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });

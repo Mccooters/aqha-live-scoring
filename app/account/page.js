@@ -368,9 +368,13 @@ function PeopleCard({ m, onChanged }) {
     if (!modal.name.trim()) { setError("Enter the person's name."); return; }
     setBusy(true);
     try {
+      const payload = {
+        name: modal.name, person_type: modal.person_type, email: modal.email ?? "",
+        aqha_member_number: modal.aqha_member_number ?? "", phone: modal.phone ?? "", other_memberships: modal.other_memberships ?? "",
+      };
       const { ok, data } = modal.id
-        ? await api("/api/account/people", "PATCH", { id: modal.id, name: modal.name, person_type: modal.person_type, email: modal.email ?? "" })
-        : await api("/api/account/people", "POST", { member_id: m.id, name: modal.name, person_type: modal.person_type, email: modal.email ?? "" });
+        ? await api("/api/account/people", "PATCH", { id: modal.id, ...payload })
+        : await api("/api/account/people", "POST", { member_id: m.id, ...payload });
       if (!ok) { setError(data?.error ?? "Something went wrong — try again."); return; }
       setModal(null);
       onChanged();
@@ -408,12 +412,12 @@ function PeopleCard({ m, onChanged }) {
             <div>
               <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</div>
               <div style={{ fontSize: 12, color: "var(--quiet)" }}>
-                {p.person_type === "child" ? "Child" : "Adult"}{p.email ? ` · ${p.email}` : ""}
+                {p.person_type === "child" ? "Child" : "Adult"}{p.email ? ` · ${p.email}` : ""}{p.aqha_member_number ? ` · AQHA ${p.aqha_member_number}` : ""}
               </div>
             </div>
             {m.editable && (
               <div style={{ display: "flex", gap: 6 }}>
-                <button className="btn-ghost" onClick={() => { setError(""); setModal({ id: p.id, name: p.name, person_type: p.person_type, email: p.email ?? "" }); }}>
+                <button className="btn-ghost" onClick={() => { setError(""); setModal({ id: p.id, name: p.name, person_type: p.person_type, email: p.email ?? "", aqha_member_number: p.aqha_member_number ?? "", phone: p.phone ?? "", other_memberships: p.other_memberships ?? "" }); }}>
                   Edit
                 </button>
                 <button className="btn-ghost danger" onClick={() => remove(p)}>Remove</button>
@@ -424,7 +428,7 @@ function PeopleCard({ m, onChanged }) {
         {m.editable && (
           <>
             <button className="btn-ghost" style={{ width: "100%", marginTop: 12, fontSize: 14, padding: "8px 0" }}
-              onClick={() => { setError(""); setModal({ name: "", person_type: people.length ? "child" : "adult", email: "" }); }}
+              onClick={() => { setError(""); setModal({ name: "", person_type: people.length ? "child" : "adult", email: "", aqha_member_number: "", phone: "", other_memberships: "" }); }}
               disabled={atCap}>
               + Add a person
             </button>
@@ -455,6 +459,16 @@ function PeopleCard({ m, onChanged }) {
             <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
               value={modal.email ?? ""} onChange={(e) => setModal((v) => ({ ...v, email: e.target.value }))}
               placeholder="So they can enter events under their own email" />
+            <label className="modal-label">AQHA member number (optional)</label>
+            <input className="field" style={{ width: "100%", fontSize: 16 }}
+              value={modal.aqha_member_number ?? ""} onChange={(e) => setModal((v) => ({ ...v, aqha_member_number: e.target.value }))} />
+            <label className="modal-label">Phone (optional)</label>
+            <input className="field" type="tel" style={{ width: "100%", fontSize: 16 }}
+              value={modal.phone ?? ""} onChange={(e) => setModal((v) => ({ ...v, phone: e.target.value }))} />
+            <label className="modal-label">Other associations (optional)</label>
+            <input className="field" style={{ width: "100%", fontSize: 16 }}
+              value={modal.other_memberships ?? ""} onChange={(e) => setModal((v) => ({ ...v, other_memberships: e.target.value }))}
+              placeholder="e.g. PHAA, AAA" />
             {error && <p className="modal-error">{error}</p>}
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
               <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={save} disabled={busy}>

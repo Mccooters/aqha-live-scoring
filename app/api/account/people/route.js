@@ -29,13 +29,26 @@ function cleanPersonType(value) {
 function cleanEmail(value) {
   return String(value ?? "").trim().toLowerCase() || null;
 }
+function cleanText(value) {
+  return String(value ?? "").trim() || null;
+}
 
-// Insert helper that drops the email column if schema-v40 hasn't been run.
+// Optional per-person columns added after v25 (email = v40; aqha number, phone,
+// other associations = v41). On an older database that lacks any of them, drop
+// them and retry rather than block the member from saving a person.
+const OPTIONAL_PERSON_COLS = ["email", "aqha_member_number", "phone", "other_memberships"];
+const missingOptionalCol = (error) =>
+  new RegExp(`(${OPTIONAL_PERSON_COLS.join("|")})`, "i").test(`${error?.message ?? ""} ${error?.details ?? ""}`);
+const stripOptional = (obj) => {
+  const bare = { ...obj };
+  OPTIONAL_PERSON_COLS.forEach((c) => delete bare[c]);
+  return bare;
+};
+
 async function insertPerson(db, row) {
   let { data, error } = await db.from("club_member_people").insert(row).select().single();
-  if (error && /email/i.test(`${error.message ?? ""} ${error.details ?? ""}`)) {
-    const { email: _e, ...bare } = row;
-    ({ data, error } = await db.from("club_member_people").insert(bare).select().single());
+  if (error && missingOptionalCol(error)) {
+    ({ data, error } = await db.from("club_member_people").insert(stripOptional(row)).select().single());
   }
   return { data, error };
 }
@@ -73,6 +86,9 @@ export async function POST(req) {
       name,
       person_type: cleanPersonType(body?.person_type),
       email: cleanEmail(body?.email),
+      aqha_member_number: cleanText(body?.aqha_member_number),
+      phone: cleanText(body?.phone),
+      other_memberships: cleanText(body?.other_memberships),
       sort_order: Math.max(0, ...(existing ?? []).map((p) => p.sort_order ?? 0)) + 1,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -105,6 +121,9 @@ export async function PATCH(req) {
     }
     if ("person_type" in body) patch.person_type = cleanPersonType(body.person_type);
     if ("email" in body) patch.email = cleanEmail(body.email);
+    if ("aqha_member_number" in body) patch.aqha_member_number = cleanText(body.aqha_member_number);
+    if ("phone" in body) patch.phone = cleanText(body.phone);
+    if ("other_memberships" in body) patch.other_memberships = cleanText(body.other_memberships);
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
     }
@@ -115,8 +134,8 @@ export async function PATCH(req) {
       .eq("id", owned.row.id)
       .select()
       .single();
-    if (error && "email" in patch && /email/i.test(`${error.message ?? ""} ${error.details ?? ""}`)) {
-      const { email: _e, ...bare } = patch; // schema-v40 not run yet
+    if (error && missingOptionalCol(error)) {
+      const bare = stripOptional(patch); // older database without these columns
       if (Object.keys(bare).length) {
         ({ data: person, error } = await db.from("club_member_people").update(bare).eq("id", owned.row.id).select().single());
       } else { error = null; }
