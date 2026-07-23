@@ -37,6 +37,7 @@ export default function MembershipsPage() {
   const [settingReady, setSettingReady] = useState(false);
   const [settingSaving, setSettingSaving] = useState(false);
   const [settingUpdatedAt, setSettingUpdatedAt] = useState(null);
+  const [bulkRenewing, setBulkRenewing] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -192,6 +193,30 @@ export default function MembershipsPage() {
     if (data.error) alert("Error: " + data.error);
     else { setSeason(data.season ?? targetSeason); await load(); }
     setActing(null);
+  };
+
+  // Bulk carry-over: renew every approved member of the season being viewed
+  // into a target season in one go (skips anyone who already has one).
+  const renewAll = async (fromSeason, targetSeason, approvedCount) => {
+    if (!confirm(`Renew all ${approvedCount} approved member${approvedCount === 1 ? "" : "s"} from ${fromSeason} into the ${seasonLabel(targetSeason)}?\n\nEach is copied over as an approved membership (details, people, horses). Anyone who already has a ${targetSeason} membership is skipped. Do this once they've renewed.`)) return;
+    setBulkRenewing(true);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const res = await fetch("/api/memberships/renew", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({ source_season: fromSeason, season: targetSeason }),
+    });
+    const data = await res.json();
+    if (data.error) alert("Error: " + data.error);
+    else {
+      alert(`Renewed ${data.created} member${data.created === 1 ? "" : "s"} into ${targetSeason}.${data.skipped ? ` ${data.skipped} already had one and were skipped.` : ""}`);
+      setSeason(targetSeason);
+      await load();
+    }
+    setBulkRenewing(false);
   };
 
   // Remove a stray application — only ever an unpaid pending one or a rejected
@@ -391,6 +416,30 @@ export default function MembershipsPage() {
             </div>
           ))}
         </div>
+
+        {/* Bulk renew — carry a whole season's approved members forward */}
+        {!searching && season !== "all" && byStatus("approved").length > 0 &&
+          [...new Set([currentSeason(), signupSeason()])].filter((s) => s !== season).length > 0 && (
+          <section className="card" style={{ marginBottom: 20, borderColor: "var(--brass)" }}>
+            <div style={{ padding: "12px 16px" }}>
+              <div className="display" style={{ fontWeight: 600, fontSize: 15 }}>
+                Renew the whole {season} season
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--quiet)", margin: "2px 0 10px" }}>
+                Carry all {byStatus("approved").length} approved {season} member{byStatus("approved").length === 1 ? "" : "s"} over
+                in one go (details, people and horses). Anyone who already has the target season is skipped.
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[...new Set([currentSeason(), signupSeason()])].filter((s) => s !== season).map((s) => (
+                  <button key={s} className="btn" style={{ background: "var(--brass)", fontSize: 13, padding: "8px 16px" }}
+                    onClick={() => renewAll(season, s, byStatus("approved").length)} disabled={bulkRenewing}>
+                    {bulkRenewing ? "Renewing…" : `↻ Renew all into ${s}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Membership-required switch */}
         <section className="card">
