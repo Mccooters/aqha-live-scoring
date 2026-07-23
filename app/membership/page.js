@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import ClubRegistrations, { cleanRows } from "../components/ClubRegistrations";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
@@ -36,6 +37,7 @@ export default function MembershipPage() {
   const [address, setAddress] = useState("");
   const [aqhaNumber, setAqhaNumber] = useState("");
   const [otherMemberships, setOtherMemberships] = useState("");
+  const [associationRegs, setAssociationRegs] = useState([]);
   const [emergencyName, setEmergencyName] = useState("");
   const [emergencyPhone, setEmergencyPhone] = useState("");
   const [interests, setInterests] = useState([]);
@@ -289,6 +291,7 @@ export default function MembershipPage() {
           address: address.trim(),
           aqha_member_number: aqhaNumber.trim(),
           other_memberships: otherMemberships.trim(),
+          association_registrations: cleanRows(associationRegs),
           emergency_contact_name: emergencyName.trim(),
           emergency_contact_phone: emergencyPhone.trim(),
           interests: interests.join(", "),
@@ -499,14 +502,13 @@ export default function MembershipPage() {
                 <input className="field" style={{ width: "100%", fontSize: 16 }}
                   value={address} onChange={(e) => setAddress(e.target.value)}
                   placeholder="Street, suburb, state, postcode" />
-                <label className="modal-label">AQHA member number</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }}
-                  value={aqhaNumber} onChange={(e) => setAqhaNumber(e.target.value)}
-                  placeholder="If you have one" />
-                <label className="modal-label">Other breed and association memberships</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }}
-                  value={otherMemberships} onChange={(e) => setOtherMemberships(e.target.value)}
-                  placeholder="e.g. PHAA, ApHC" />
+                <div style={{ marginTop: 8 }}>
+                  <ClubRegistrations
+                    value={associationRegs}
+                    onChange={setAssociationRegs}
+                    label="Club / association memberships"
+                    hint="AQHA, PHAA (Paint), AAA (Appaloosa) or any club you're registered with — add each with your member number." />
+                </div>
               </div>
             </section>
 
