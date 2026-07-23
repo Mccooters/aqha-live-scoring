@@ -127,6 +127,21 @@ export default function MembershipPage() {
     return candidate;
   };
 
+  // First NEW number is covered by the membership; each additional horse
+  // needing a brand-new number is $5. Estimated live from the registry lookups
+  // (the server re-checks on submit, so this is a preview).
+  const ADDITIONAL_NUMBER_CENTS = 500;
+  let newNumberSoFar = 0;
+  let additionalNumberCount = 0;
+  horses.filter((h) => h.horse_name.trim()).forEach((h) => {
+    const s = horseSuggestion(h);
+    if (!s?.matched_registry) {
+      newNumberSoFar += 1;
+      if (newNumberSoFar > 1) additionalNumberCount += 1;
+    }
+  });
+  const additionalNumbersCents = additionalNumberCount * ADDITIONAL_NUMBER_CENTS;
+
   useEffect(() => {
     const activeHorseIds = new Set(horses.map((h) => h._id));
     setHorseNumberSuggestions((prev) => {
@@ -572,6 +587,7 @@ export default function MembershipPage() {
                   <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Your horses</div>
                   <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
                     Optional — add the horses you own or show so the committee can review them with your application.
+                    Your first horse&apos;s back number is included with your membership; each additional horse that needs a new number is $5.
                   </div>
                 </div>
               </div>
@@ -679,14 +695,19 @@ export default function MembershipPage() {
                     <div style={{ fontWeight: 600, fontSize: 15 }}>
                       {selectedType ? selectedType.name : "Membership"} · {seasonLabel(season)}
                     </div>
-                    {fee > 0 && (
+                    {additionalNumbersCents > 0 && (
+                      <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+                        {fmtMoney(fee)} membership + {fmtMoney(additionalNumbersCents)} for {additionalNumberCount} additional {additionalNumberCount === 1 ? "horse number" : "horse numbers"}
+                      </div>
+                    )}
+                    {(fee + additionalNumbersCents) > 0 && (
                       <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
                         Paid securely via Square · receipt emailed to you
                       </div>
                     )}
                   </div>
                   <div className="display" style={{ fontWeight: 700, fontSize: 28, color: "var(--leather)" }}>
-                    {fee > 0 ? fmtMoney(fee) : "Free"}
+                    {(fee + additionalNumbersCents) > 0 ? fmtMoney(fee + additionalNumbersCents) : "Free"}
                   </div>
                 </div>
                 {error && (
@@ -703,8 +724,8 @@ export default function MembershipPage() {
                   onClick={submit} disabled={submitting || !types.length}>
                   {submitting
                     ? "Submitting…"
-                    : fee > 0
-                    ? `Join & Pay ${fmtMoney(fee)}`
+                    : (fee + additionalNumbersCents) > 0
+                    ? `Join & Pay ${fmtMoney(fee + additionalNumbersCents)}`
                     : "Submit application"}
                 </button>
                 <p style={{ fontSize: 11.5, color: "var(--quiet)", lineHeight: 1.45, margin: "10px 0 0" }}>

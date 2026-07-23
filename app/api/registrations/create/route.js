@@ -496,13 +496,25 @@ export async function POST(req) {
       exhibitor: e.exhibitor,
       rider_registrations: e.rider_registrations,
       horse_registrations: e.horse_registrations,
+      new_number: e.back_number == null, // asked for a brand-new number (schema-v39)
     }));
-    let { error: entErr } = await db.from("registration_entries").insert(entryRows);
-    if (entErr && `${entErr.message ?? ""}`.match(/rider_registrations|horse_registrations/)) {
-      console.error("registration_entries is missing the registration-number columns (run schema-v35) — storing entries without them");
-      ({ error: entErr } = await db.from("registration_entries").insert(
-        entryRows.map(({ rider_registrations: _r, horse_registrations: _h, ...row }) => row)
-      ));
+    // Retry without whichever optional columns a not-yet-migrated database is
+    // missing (registration numbers = v35, new_number = v39), rather than block
+    // the entry — nothing there is enforced until the migration is run anyway.
+    const stripKeys = (rows, keys) => rows.map((r) => { const c = { ...r }; keys.forEach((k) => delete c[k]); return c; });
+    let attempt = entryRows;
+    let entErr;
+    for (let i = 0; i < 3; i++) {
+      ({ error: entErr } = await db.from("registration_entries").insert(attempt));
+      if (!entErr) break;
+      const m = `${entErr.message ?? ""} ${entErr.details ?? ""}`;
+      const keys = [];
+      if (/new_number/.test(m)) keys.push("new_number");
+      if (/rider_registrations/.test(m)) keys.push("rider_registrations");
+      if (/horse_registrations/.test(m)) keys.push("horse_registrations");
+      if (!keys.length) break;
+      console.error("registration_entries missing columns, retrying without: " + keys.join(", "));
+      attempt = stripKeys(attempt, keys);
     }
     if (entErr) return NextResponse.json({ error: entErr.message }, { status: 500 });
 
