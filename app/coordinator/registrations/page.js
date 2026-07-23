@@ -311,6 +311,11 @@ export default function RegistrationsPage() {
   // Only paid registrations become real entries in the show — pending and
   // cancelled ones must not inflate the count.
   const entryCount = paid.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
+  // Count unique PEOPLE (by email), so someone who checks out again to add
+  // more classes — a second registration row — isn't counted twice.
+  const confirmedPeople = new Set(
+    paid.map((r) => String(r.contact_email ?? "").trim().toLowerCase()).filter(Boolean)
+  ).size;
   const dayMembershipCount = paid.filter((r) => r.day_membership).length;
   const replacementNumbersCount = paid.filter((r) => r.replacement_numbers).length;
   // Paid entries flagged with no membership on record (only meaningful when
@@ -439,7 +444,7 @@ export default function RegistrationsPage() {
         {!loading && registrations.length > 0 && (
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
             {[
-              { label: "Confirmed", value: paid.length },
+              { label: "People confirmed", value: confirmedPeople },
               { label: "Pending payment", value: pending.length },
               { label: "Confirmed entries", value: entryCount },
               { label: "Day memberships", value: dayMembershipCount },
