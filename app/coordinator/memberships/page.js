@@ -173,6 +173,28 @@ export default function MembershipsPage() {
     setActing(null);
   };
 
+  // Carry an approved member over to the next season without them
+  // re-registering — copies details, people and horses into a fresh approved
+  // membership. Use once they've paid their renewal.
+  const renewMember = async (member) => {
+    const target = seasonLabel(signupSeason());
+    if (!confirm(`Renew ${member.member_name} into the ${target}?\n\nThis copies their details, people and horses into a new, approved membership for the coming season — they don't need to re-register. Do this once they've paid their renewal (record it like any manual member).`)) return;
+    setActing(member.id);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const res = await fetch("/api/memberships/renew", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({ member_id: member.id }),
+    });
+    const data = await res.json();
+    if (data.error) alert("Error: " + data.error);
+    else { setSeason(data.season ?? signupSeason()); await load(); }
+    setActing(null);
+  };
+
   // Remove a stray application — only ever an unpaid pending one or a rejected
   // one (never a paid/approved membership, which is a record). Handy for
   // clearing a duplicate left behind by a double submission.
@@ -580,6 +602,13 @@ export default function MembershipsPage() {
                       <button className="btn" style={{ background: "#2D7A52", fontSize: 13, padding: "8px 16px" }}
                         onClick={() => act(m.id, "approve")} disabled={acting === m.id}>
                         {acting === m.id ? "Working…" : "✓ Approve membership"}
+                      </button>
+                    )}
+                    {m.status === "approved" && m.season !== signupSeason() && (
+                      <button className="btn" style={{ background: "var(--brass)", fontSize: 13, padding: "8px 16px" }}
+                        onClick={() => renewMember(m)} disabled={acting === m.id}
+                        title="Carry this member over to the next season without re-registering">
+                        {acting === m.id ? "Working…" : `↻ Renew into ${signupSeason()}`}
                       </button>
                     )}
                     {m.status === "pending" && (m.total_cents ?? 0) > 0 && (

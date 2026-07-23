@@ -208,7 +208,12 @@ PR with a clear plain-English description.
   applications are read-only. Lives under the "Members" nav tab.
 - `app/coordinator/memberships/page.js` — staff: review/approve/reject
   applications (approve goes through `app/api/memberships/approve` so the
-  welcome email sends), add members manually (cash/paper), edit membership
+  welcome email sends), add members manually (cash/paper), **renew** an
+  approved member into the next season in one click via
+  `app/api/memberships/renew` (staff JWT — copies details, people and horses
+  into a fresh approved `club_members` row for `signupSeason()`, no Square /
+  no email, like a manual add; the "↻ Renew" button shows on approved rows
+  whose season ≠ signupSeason()), edit membership
   types & pricing (incl. "people included" per type since v25; expanded
   rows list the people on each membership), and toggle "membership
   required to enter events"
