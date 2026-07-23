@@ -219,6 +219,60 @@ export default function MembershipsPage() {
     setBulkRenewing(false);
   };
 
+  // Edit a member's details and the people on their membership (each with
+  // their own email). Goes through the staff update route (service-role).
+  const openEditMember = (m) => {
+    setFormError("");
+    setModal({ type: "editMember", memberId: m.id, coveredPeople: m.included_people ?? null });
+    setForm({
+      member_name: m.member_name ?? "",
+      email: m.email ?? "",
+      phone: m.phone ?? "",
+      address: m.address ?? "",
+      aqha_member_number: m.aqha_member_number ?? "",
+      other_memberships: m.other_memberships ?? "",
+      emergency_contact_name: m.emergency_contact_name ?? "",
+      emergency_contact_phone: m.emergency_contact_phone ?? "",
+      interests: m.interests ?? "",
+      people: (m.people ?? []).map((p) => ({ name: p.name ?? "", person_type: p.person_type ?? "adult", email: p.email ?? "" })),
+    });
+  };
+  const setPerson = (idx, key, value) =>
+    setForm((f) => ({ ...f, people: (f.people ?? []).map((p, i) => (i === idx ? { ...p, [key]: value } : p)) }));
+  const addPerson = () =>
+    setForm((f) => ({ ...f, people: [...(f.people ?? []), { name: "", person_type: "adult", email: "" }] }));
+  const removePerson = (idx) =>
+    setForm((f) => ({ ...f, people: (f.people ?? []).filter((_, i) => i !== idx) }));
+
+  const saveMemberEdit = async () => {
+    if (!form.member_name?.trim()) { setFormError("Name is required"); return; }
+    if (!form.email?.trim() || !form.email.includes("@")) { setFormError("A valid email is required"); return; }
+    setActing(modal.memberId);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const res = await fetch("/api/memberships/update", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}`,
+      },
+      body: JSON.stringify({
+        member_id: modal.memberId,
+        fields: {
+          member_name: form.member_name, email: form.email, phone: form.phone, address: form.address,
+          aqha_member_number: form.aqha_member_number, other_memberships: form.other_memberships,
+          emergency_contact_name: form.emergency_contact_name, emergency_contact_phone: form.emergency_contact_phone,
+          interests: form.interests,
+        },
+        people: form.people ?? [],
+      }),
+    });
+    const data = await res.json();
+    if (data.error) { setFormError(data.error); setActing(null); return; }
+    setActing(null);
+    closeModal();
+    await load();
+  };
+
   // Remove a stray application — only ever an unpaid pending one or a rejected
   // one (never a paid/approved membership, which is a record). Handy for
   // clearing a duplicate left behind by a double submission.
@@ -646,6 +700,10 @@ export default function MembershipsPage() {
                   )}
 
                   <div style={{ padding: "12px 0 0", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button className="btn-ghost" style={{ fontSize: 13 }}
+                      onClick={() => openEditMember(m)} disabled={acting === m.id}>
+                      ✎ Edit details
+                    </button>
                     {(m.status === "paid" || m.status === "pending") && (
                       <button className="btn" style={{ background: "#2D7A52", fontSize: 13, padding: "8px 16px" }}
                         onClick={() => act(m.id, "approve")} disabled={acting === m.id}>
@@ -721,6 +779,79 @@ export default function MembershipsPage() {
                 </div>
               </>
             )}
+
+            {modal.type === "editMember" && (() => {
+              const people = form.people ?? [];
+              const maxExtra = modal.coveredPeople ? Math.max(0, modal.coveredPeople - 1) : null;
+              return (
+                <>
+                  <h2 className="display modal-title">Edit member details</h2>
+                  <label className="modal-label">Full name *</label>
+                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.member_name ?? ""} onChange={setField("member_name")} autoFocus />
+                  <label className="modal-label">Email * (their sign-in / member identity)</label>
+                  <input className="field" type="email" style={{ width: "100%", fontSize: 16 }} value={form.email ?? ""} onChange={setField("email")} />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label className="modal-label">Phone</label>
+                      <input className="field" type="tel" style={{ width: "100%", fontSize: 16 }} value={form.phone ?? ""} onChange={setField("phone")} />
+                    </div>
+                    <div>
+                      <label className="modal-label">AQHA member number</label>
+                      <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.aqha_member_number ?? ""} onChange={setField("aqha_member_number")} />
+                    </div>
+                  </div>
+                  <label className="modal-label">Address</label>
+                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.address ?? ""} onChange={setField("address")} />
+                  <label className="modal-label">Other associations</label>
+                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.other_memberships ?? ""} onChange={setField("other_memberships")} />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label className="modal-label">Emergency contact</label>
+                      <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.emergency_contact_name ?? ""} onChange={setField("emergency_contact_name")} />
+                    </div>
+                    <div>
+                      <label className="modal-label">Emergency phone</label>
+                      <input className="field" type="tel" style={{ width: "100%", fontSize: 16 }} value={form.emergency_contact_phone ?? ""} onChange={setField("emergency_contact_phone")} />
+                    </div>
+                  </div>
+
+                  <div style={{ borderTop: "1px solid var(--line)", margin: "16px 0 10px", paddingTop: 12 }}>
+                    <div className="display" style={{ fontWeight: 600, fontSize: 15 }}>People on this membership</div>
+                    <p style={{ fontSize: 12, color: "var(--quiet)", margin: "2px 0 10px" }}>
+                      The applicant ({form.member_name || "above"}) is covered already. Add each additional person — give them their own email so they can enter events under it.
+                      {maxExtra != null ? ` This membership covers ${maxExtra} more.` : ""}
+                    </p>
+                    {people.map((p, idx) => (
+                      <div key={idx} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, background: "#fff" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: "var(--quiet)" }}>Person {idx + 1}</span>
+                          <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)", padding: "3px 9px", fontSize: 12 }} onClick={() => removePerson(idx)}>Remove</button>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 8 }}>
+                          <input className="field" style={{ fontSize: 15 }} placeholder="Full name" value={p.name} onChange={(e) => setPerson(idx, "name", e.target.value)} />
+                          <select className="field" style={{ fontSize: 15 }} value={p.person_type} onChange={(e) => setPerson(idx, "person_type", e.target.value)}>
+                            <option value="adult">Adult</option>
+                            <option value="child">Child</option>
+                          </select>
+                        </div>
+                        <input className="field" type="email" style={{ width: "100%", fontSize: 15, marginTop: 8 }} placeholder="Their email (optional)" value={p.email} onChange={(e) => setPerson(idx, "email", e.target.value)} />
+                      </div>
+                    ))}
+                    {(maxExtra == null || people.length < maxExtra) && (
+                      <button className="btn-ghost" style={{ width: "100%", fontSize: 14 }} onClick={addPerson}>+ Add a person</button>
+                    )}
+                  </div>
+
+                  {formError && <p className="modal-error">{formError}</p>}
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={saveMemberEdit} disabled={acting === modal.memberId}>
+                      {acting === modal.memberId ? "Saving…" : "Save changes"}
+                    </button>
+                    <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                  </div>
+                </>
+              );
+            })()}
 
             {modal.type === "editType" && (
               <>

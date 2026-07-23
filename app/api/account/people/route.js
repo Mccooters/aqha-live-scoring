@@ -26,6 +26,20 @@ function cleanPersonType(value) {
   return value === "child" ? "child" : "adult";
 }
 
+function cleanEmail(value) {
+  return String(value ?? "").trim().toLowerCase() || null;
+}
+
+// Insert helper that drops the email column if schema-v40 hasn't been run.
+async function insertPerson(db, row) {
+  let { data, error } = await db.from("club_member_people").insert(row).select().single();
+  if (error && /email/i.test(`${error.message ?? ""} ${error.details ?? ""}`)) {
+    const { email: _e, ...bare } = row;
+    ({ data, error } = await db.from("club_member_people").insert(bare).select().single());
+  }
+  return { data, error };
+}
+
 export async function POST(req) {
   try {
     const body = await req.json();
@@ -54,16 +68,13 @@ export async function POST(req) {
       );
     }
 
-    const { data: person, error } = await db
-      .from("club_member_people")
-      .insert({
-        member_id: member.id,
-        name,
-        person_type: cleanPersonType(body?.person_type),
-        sort_order: Math.max(0, ...(existing ?? []).map((p) => p.sort_order ?? 0)) + 1,
-      })
-      .select()
-      .single();
+    const { data: person, error } = await insertPerson(db, {
+      member_id: member.id,
+      name,
+      person_type: cleanPersonType(body?.person_type),
+      email: cleanEmail(body?.email),
+      sort_order: Math.max(0, ...(existing ?? []).map((p) => p.sort_order ?? 0)) + 1,
+    });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true, person });
@@ -93,16 +104,23 @@ export async function PATCH(req) {
       patch.name = name;
     }
     if ("person_type" in body) patch.person_type = cleanPersonType(body.person_type);
+    if ("email" in body) patch.email = cleanEmail(body.email);
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
     }
 
-    const { data: person, error } = await db
+    let { data: person, error } = await db
       .from("club_member_people")
       .update(patch)
       .eq("id", owned.row.id)
       .select()
       .single();
+    if (error && "email" in patch && /email/i.test(`${error.message ?? ""} ${error.details ?? ""}`)) {
+      const { email: _e, ...bare } = patch; // schema-v40 not run yet
+      if (Object.keys(bare).length) {
+        ({ data: person, error } = await db.from("club_member_people").update(bare).eq("id", owned.row.id).select().single());
+      } else { error = null; }
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true, person });

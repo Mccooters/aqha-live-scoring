@@ -129,6 +129,10 @@ hasn't been run.
         number** fee (a member's first number is covered by membership). Without
         it the list still shows members' horses, but the $5 fees aren't tracked
         and show-entry new-number requests aren't flagged.
+- [ ] **v40** — `schema-v40-family-member-emails.sql`
+      → lets each person on a **family membership** have their own email, so
+        they can enter events under it and be recognised as a member. Without
+        it the email boxes still show but the address isn't saved.
 
 Tick these off once you've run them.
 
@@ -177,6 +181,7 @@ Tick these off once you've run them.
 | `schema-v37-registration-membership-basis.sql` | Stamps each online entry with how it satisfied the membership rule (audit) |
 | `schema-v38-hide-classes.sql` | Hide empty classes instead of deleting them when closing entries (reactivatable) |
 | `schema-v39-new-number-fees.sql` | New-numbers staff list: $5 additional-horse fee on member horses + a flag on show-entry new-number requests |
+| `schema-v40-family-member-emails.sql` | Each person on a family membership can have their own email (enter events under it) |
 
 ## For whoever updates the code next
 
