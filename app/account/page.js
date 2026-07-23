@@ -2,6 +2,13 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { seasonLabel, signupSeason } from "../../lib/membershipSeason";
+import ClubRegistrations, { registrationsToRows } from "../components/ClubRegistrations";
+
+// "AQHA 12345, PHAA 678" from a stored association_registrations list.
+const regLabel = (list) =>
+  Array.isArray(list)
+    ? list.map((r) => [r.club, r.number].filter(Boolean).join(" ").trim()).filter(Boolean).join(", ")
+    : "";
 
 // Member portal: sign in with an emailed 6-digit code, then see and update
 // your membership details, the people it covers, and your horses. This page
@@ -267,8 +274,7 @@ function DetailsCard({ m, email, onChanged }) {
     setForm({
       phone: m.phone ?? "",
       address: m.address ?? "",
-      aqha_member_number: m.aqha_member_number ?? "",
-      other_memberships: m.other_memberships ?? "",
+      association_registrations: registrationsToRows(m),
       emergency_contact_name: m.emergency_contact_name ?? "",
       emergency_contact_phone: m.emergency_contact_phone ?? "",
     });
@@ -308,8 +314,7 @@ function DetailsCard({ m, email, onChanged }) {
         </p>
         <DetailRow label="Phone" value={m.phone} />
         <DetailRow label="Address" value={m.address} />
-        <DetailRow label="AQHA member number" value={m.aqha_member_number} />
-        <DetailRow label="Other memberships" value={m.other_memberships} />
+        <DetailRow label="Club registrations" value={regLabel(m.association_registrations) || [m.aqha_member_number && `AQHA ${m.aqha_member_number}`, m.other_memberships].filter(Boolean).join(", ")} />
         <DetailRow label="Emergency contact"
           value={[m.emergency_contact_name, m.emergency_contact_phone].filter(Boolean).join(" · ")} />
       </div>
@@ -324,12 +329,12 @@ function DetailsCard({ m, email, onChanged }) {
             <label className="modal-label">Address *</label>
             <input className="field" style={{ width: "100%", fontSize: 16 }}
               value={form.address} onChange={set("address")} />
-            <label className="modal-label">AQHA member number</label>
-            <input className="field" style={{ width: "100%", fontSize: 16 }}
-              value={form.aqha_member_number} onChange={set("aqha_member_number")} />
-            <label className="modal-label">Other breed and association memberships</label>
-            <input className="field" style={{ width: "100%", fontSize: 16 }}
-              value={form.other_memberships} onChange={set("other_memberships")} />
+            <div style={{ marginTop: 4, marginBottom: 4 }}>
+              <ClubRegistrations
+                value={form.association_registrations}
+                onChange={(v) => setForm((f) => ({ ...f, association_registrations: v }))}
+                hint="AQHA, PHAA (Paint), AAA (Appaloosa) or any club — add each with your member number." />
+            </div>
             <label className="modal-label">Emergency contact name *</label>
             <input className="field" style={{ width: "100%", fontSize: 16 }}
               value={form.emergency_contact_name} onChange={set("emergency_contact_name")} />
@@ -369,8 +374,8 @@ function PeopleCard({ m, onChanged }) {
     setBusy(true);
     try {
       const payload = {
-        name: modal.name, person_type: modal.person_type, email: modal.email ?? "",
-        aqha_member_number: modal.aqha_member_number ?? "", phone: modal.phone ?? "", other_memberships: modal.other_memberships ?? "",
+        name: modal.name, person_type: modal.person_type, email: modal.email ?? "", phone: modal.phone ?? "",
+        association_registrations: modal.association_registrations ?? [],
       };
       const { ok, data } = modal.id
         ? await api("/api/account/people", "PATCH", { id: modal.id, ...payload })
@@ -412,12 +417,12 @@ function PeopleCard({ m, onChanged }) {
             <div>
               <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</div>
               <div style={{ fontSize: 12, color: "var(--quiet)" }}>
-                {p.person_type === "child" ? "Child" : "Adult"}{p.email ? ` · ${p.email}` : ""}{p.aqha_member_number ? ` · AQHA ${p.aqha_member_number}` : ""}
+                {p.person_type === "child" ? "Child" : "Adult"}{p.email ? ` · ${p.email}` : ""}{regLabel(p.association_registrations) ? ` · ${regLabel(p.association_registrations)}` : ""}
               </div>
             </div>
             {m.editable && (
               <div style={{ display: "flex", gap: 6 }}>
-                <button className="btn-ghost" onClick={() => { setError(""); setModal({ id: p.id, name: p.name, person_type: p.person_type, email: p.email ?? "", aqha_member_number: p.aqha_member_number ?? "", phone: p.phone ?? "", other_memberships: p.other_memberships ?? "" }); }}>
+                <button className="btn-ghost" onClick={() => { setError(""); setModal({ id: p.id, name: p.name, person_type: p.person_type, email: p.email ?? "", phone: p.phone ?? "", association_registrations: registrationsToRows(p) }); }}>
                   Edit
                 </button>
                 <button className="btn-ghost danger" onClick={() => remove(p)}>Remove</button>
@@ -428,7 +433,7 @@ function PeopleCard({ m, onChanged }) {
         {m.editable && (
           <>
             <button className="btn-ghost" style={{ width: "100%", marginTop: 12, fontSize: 14, padding: "8px 0" }}
-              onClick={() => { setError(""); setModal({ name: "", person_type: people.length ? "child" : "adult", email: "", aqha_member_number: "", phone: "", other_memberships: "" }); }}
+              onClick={() => { setError(""); setModal({ name: "", person_type: people.length ? "child" : "adult", email: "", phone: "", association_registrations: [] }); }}
               disabled={atCap}>
               + Add a person
             </button>
@@ -459,16 +464,16 @@ function PeopleCard({ m, onChanged }) {
             <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
               value={modal.email ?? ""} onChange={(e) => setModal((v) => ({ ...v, email: e.target.value }))}
               placeholder="So they can enter events under their own email" />
-            <label className="modal-label">AQHA member number (optional)</label>
-            <input className="field" style={{ width: "100%", fontSize: 16 }}
-              value={modal.aqha_member_number ?? ""} onChange={(e) => setModal((v) => ({ ...v, aqha_member_number: e.target.value }))} />
             <label className="modal-label">Phone (optional)</label>
             <input className="field" type="tel" style={{ width: "100%", fontSize: 16 }}
               value={modal.phone ?? ""} onChange={(e) => setModal((v) => ({ ...v, phone: e.target.value }))} />
-            <label className="modal-label">Other associations (optional)</label>
-            <input className="field" style={{ width: "100%", fontSize: 16 }}
-              value={modal.other_memberships ?? ""} onChange={(e) => setModal((v) => ({ ...v, other_memberships: e.target.value }))}
-              placeholder="e.g. PHAA, AAA" />
+            <div style={{ marginTop: 4 }}>
+              <ClubRegistrations
+                value={modal.association_registrations}
+                onChange={(v) => setModal((prev) => ({ ...prev, association_registrations: v }))}
+                label="Their clubs (optional)"
+                hint="AQHA / PHAA / AAA or any — add each with the member number." />
+            </div>
             {error && <p className="modal-error">{error}</p>}
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
               <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={save} disabled={busy}>

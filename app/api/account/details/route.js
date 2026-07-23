@@ -38,16 +38,31 @@ export async function PATCH(req) {
       }
       patch[field] = value || null;
     }
+    // Multi-club registrations (schema-v42): a jsonb {club, number} list.
+    let regsIncluded = false;
+    if ("association_registrations" in body && Array.isArray(body.association_registrations)) {
+      const rows = body.association_registrations
+        .map((r) => ({ club: String(r?.club ?? "").trim(), number: String(r?.number ?? "").trim() }))
+        .filter((r) => r.club || r.number);
+      patch.association_registrations = rows.length ? rows : null;
+      regsIncluded = true;
+    }
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
     }
 
-    const { data: updated, error } = await db
+    let { data: updated, error } = await db
       .from("club_members")
       .update(patch)
       .eq("id", member.id)
       .select(EDITABLE.join(", "))
       .single();
+    if (error && regsIncluded && /association_registrations/i.test(`${error.message ?? ""} ${error.details ?? ""}`)) {
+      const { association_registrations: _r, ...bare } = patch; // schema-v42 not run yet
+      if (Object.keys(bare).length) {
+        ({ data: updated, error } = await db.from("club_members").update(bare).eq("id", member.id).select(EDITABLE.join(", ")).single());
+      } else { error = null; }
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true, details: updated });

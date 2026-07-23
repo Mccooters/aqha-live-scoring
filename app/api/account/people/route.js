@@ -32,11 +32,19 @@ function cleanEmail(value) {
 function cleanText(value) {
   return String(value ?? "").trim() || null;
 }
+function cleanRegs(list) {
+  if (!Array.isArray(list)) return null;
+  const rows = list
+    .map((r) => ({ club: String(r?.club ?? "").trim(), number: String(r?.number ?? "").trim() }))
+    .filter((r) => r.club || r.number);
+  return rows.length ? rows : null;
+}
 
 // Optional per-person columns added after v25 (email = v40; aqha number, phone,
-// other associations = v41). On an older database that lacks any of them, drop
-// them and retry rather than block the member from saving a person.
-const OPTIONAL_PERSON_COLS = ["email", "aqha_member_number", "phone", "other_memberships"];
+// other associations = v41; association_registrations = v42). On an older
+// database that lacks any of them, drop them and retry rather than block the
+// member from saving a person.
+const OPTIONAL_PERSON_COLS = ["email", "aqha_member_number", "phone", "other_memberships", "association_registrations"];
 const missingOptionalCol = (error) =>
   new RegExp(`(${OPTIONAL_PERSON_COLS.join("|")})`, "i").test(`${error?.message ?? ""} ${error?.details ?? ""}`);
 const stripOptional = (obj) => {
@@ -89,6 +97,7 @@ export async function POST(req) {
       aqha_member_number: cleanText(body?.aqha_member_number),
       phone: cleanText(body?.phone),
       other_memberships: cleanText(body?.other_memberships),
+      association_registrations: cleanRegs(body?.association_registrations),
       sort_order: Math.max(0, ...(existing ?? []).map((p) => p.sort_order ?? 0)) + 1,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -124,6 +133,7 @@ export async function PATCH(req) {
     if ("aqha_member_number" in body) patch.aqha_member_number = cleanText(body.aqha_member_number);
     if ("phone" in body) patch.phone = cleanText(body.phone);
     if ("other_memberships" in body) patch.other_memberships = cleanText(body.other_memberships);
+    if ("association_registrations" in body) patch.association_registrations = cleanRegs(body.association_registrations);
     if (!Object.keys(patch).length) {
       return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
     }

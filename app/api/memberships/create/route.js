@@ -11,10 +11,17 @@ export async function POST(req) {
   try {
     const {
       membership_type_id, member_name, email, phone, address,
-      aqha_member_number, other_memberships,
+      aqha_member_number, other_memberships, association_registrations,
       emergency_contact_name, emergency_contact_phone,
       interests, applicant_notes, horses, people,
     } = await req.json();
+    const cleanRegs = (list) => {
+      if (!Array.isArray(list)) return undefined;
+      const rows = list
+        .map((r) => ({ club: String(r?.club ?? "").trim(), number: String(r?.number ?? "").trim() }))
+        .filter((r) => r.club || r.number);
+      return rows.length ? rows : null;
+    };
 
     // Required fields match the club's membership application form.
     if (
@@ -145,6 +152,16 @@ export async function POST(req) {
         .single());
     }
     if (memberErr || !member) return NextResponse.json({ error: memberErr?.message ?? "Could not save the application" }, { status: 500 });
+
+    // Multi-club registrations (schema-v42). Best-effort update after the row
+    // exists so a not-yet-migrated database still saves the application.
+    const memberRegs = cleanRegs(association_registrations);
+    if (memberRegs !== undefined) {
+      const { error: regErr } = await db.from("club_members").update({ association_registrations: memberRegs }).eq("id", member.id);
+      if (regErr && !/association_registrations/i.test(`${regErr.message ?? ""} ${regErr.details ?? ""}`)) {
+        console.error("Saving association registrations failed:", regErr.message);
+      }
+    }
 
     const horseRows = assignedHorses.map((h) => ({
       member_id: member.id,
