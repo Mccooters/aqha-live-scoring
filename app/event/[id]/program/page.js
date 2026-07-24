@@ -11,7 +11,7 @@ function PrintStyles() {
     <style jsx global>{`
       .print-toolbar { max-width: 980px; margin: 0 auto; padding: 14px 18px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
       .print-toolbar a, .print-toolbar button { text-decoration: none; border: 1px solid #d8d0c3; background: #fff; color: #3A2A1C; border-radius: 7px; padding: 7px 11px; font: 700 12px Archivo, sans-serif; }
-      .program-sheet { width: 8.5in; min-height: 11in; margin: 18px auto 40px; padding: .42in .46in; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 12px 30px rgba(42, 30, 18, .14); }
+      .program-sheet { width: 210mm; min-height: 297mm; margin: 18px auto 40px; padding: .42in .46in; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 12px 30px rgba(42, 30, 18, .14); }
       .program-title { margin: 0 0 12px; text-align: center; font-size: 14px; line-height: 1.25; font-weight: 800; }
       .program-subtitle { margin: -6px 0 12px; text-align: center; font-size: 10.5px; color: #333; }
       .program-columns { column-count: 3; column-gap: 28px; font-size: 10px; line-height: 1.2; }
@@ -29,11 +29,15 @@ function PrintStyles() {
       .rules-title { color: #2D7A52; font-weight: 800; text-transform: uppercase; margin: 8px 0 3px; }
       .rules-block ol { margin: 0; padding-left: 15px; }
       .rules-block li { margin-bottom: 2px; }
-      @page { size: Letter; margin: 0.32in; }
+      @page { size: A4; margin: 0.32in; }
       @media print {
         body { background: #fff !important; }
         .header, .print-toolbar, .bottom-nav { display: none !important; }
         .program-sheet { width: auto; min-height: auto; margin: 0; padding: 0; box-shadow: none; }
+        /* Fill each page's three columns top-to-bottom before the next page,
+           instead of balancing across the whole document — Safari otherwise
+           spreads the program thinly over many pages. */
+        .program-columns { -webkit-column-fill: auto; column-fill: auto; }
       }
       @media (max-width: 760px) {
         .program-sheet { width: calc(100vw - 24px); padding: 24px 18px; overflow-x: auto; }
