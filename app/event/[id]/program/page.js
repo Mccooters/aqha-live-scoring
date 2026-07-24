@@ -32,7 +32,7 @@ function PrintStyles() {
       @page { size: A4; margin: 0.32in; }
       @media print {
         body { background: #fff !important; }
-        .header, .print-toolbar, .bottom-nav { display: none !important; }
+        .header, .print-toolbar, .bottom-nav, nav { display: none !important; }
         .program-sheet { width: auto; min-height: auto; margin: 0; padding: 0; box-shadow: none; }
         /* Fill each page's three columns top-to-bottom before the next page,
            instead of balancing across the whole document — Safari otherwise

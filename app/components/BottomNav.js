@@ -22,7 +22,7 @@ export default function BottomNav() {
   };
 
   return (
-    <nav style={{
+    <nav className="bottom-nav" style={{
       position: "sticky",
       top: 0,
       background: "var(--leather-deep)",
