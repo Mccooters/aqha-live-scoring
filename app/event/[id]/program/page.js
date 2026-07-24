@@ -1,23 +1,35 @@
 "use client";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
 import { programDisplayRows } from "../../../../lib/classCategories";
 import { activeEntries, BEGINNER_RULES, dateRange, dayDate, drawIsPublished, fmtBack, HCQHA_RULES } from "../../../../lib/showPrint";
 
+// The program is laid out into explicit A4 pages, each with three columns that
+// we pack ourselves (by measuring every item's real height). This avoids
+// relying on the browser's CSS multi-column pagination, which Safari renders
+// unreliably in print (spreading the program thinly over many pages). Because
+// we measure at the exact print width, the on-screen preview and the printed
+// sheets are identical.
+
 function PrintStyles() {
   return (
     <style jsx global>{`
       .print-toolbar { max-width: 980px; margin: 0 auto; padding: 14px 18px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
       .print-toolbar a, .print-toolbar button { text-decoration: none; border: 1px solid #d8d0c3; background: #fff; color: #3A2A1C; border-radius: 7px; padding: 7px 11px; font: 700 12px Archivo, sans-serif; }
-      .program-sheet { width: 210mm; min-height: 297mm; margin: 18px auto 40px; padding: .42in .46in; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 12px 30px rgba(42, 30, 18, .14); }
-      .program-title { margin: 0 0 12px; text-align: center; font-size: 14px; line-height: 1.25; font-weight: 800; }
-      .program-subtitle { margin: -6px 0 12px; text-align: center; font-size: 10.5px; color: #333; }
-      .program-columns { column-count: 3; column-gap: 28px; font-size: 10px; line-height: 1.2; }
-      .program-row { break-inside: avoid; margin: 0 0 4px; }
-      .program-category { margin: 8px 0 4px; color: #003DE0; font-size: 10px; font-weight: 800; text-transform: uppercase; break-after: avoid; }
-      .program-break { display: inline-block; margin: 7px 0 4px; padding: 1px 2px; background: #fff200; color: #003DE0; font-size: 10px; font-weight: 800; text-transform: uppercase; break-after: avoid; }
+
+      .program-shell { padding-bottom: 40px; }
+      .program-page { width: 210mm; min-height: 297mm; box-sizing: border-box; margin: 18px auto; padding: 12mm 10mm; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 12px 30px rgba(42, 30, 18, .14); }
+      .program-page-body { display: flex; gap: 6mm; align-items: flex-start; }
+      .program-col { width: calc((190mm - 12mm) / 3); }
+      .prog-item { display: flow-root; }
+
+      .program-title { margin: 0 0 6px; text-align: center; font-size: 14px; line-height: 1.25; font-weight: 800; }
+      .program-subtitle { margin: 0 0 12px; text-align: center; font-size: 10.5px; color: #333; }
+      .program-category { margin: 8px 0 4px; color: #003DE0; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+      .program-break { display: inline-block; margin: 7px 0 4px; padding: 1px 2px; background: #fff200; color: #003DE0; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+      .program-row { margin: 0 0 4px; font-size: 10px; line-height: 1.2; }
       .class-line { display: grid; grid-template-columns: 25px 1fr; gap: 4px; }
       .class-num { text-align: right; font-weight: 700; }
       .class-name { font-weight: 600; }
@@ -25,37 +37,124 @@ function PrintStyles() {
       .draw-list { grid-column: 2; margin: 2px 0 4px 0; padding-left: 0; list-style: none; font-size: 8.8px; color: #222; }
       .draw-list li { margin: 1px 0; }
       .entry-back { font-weight: 700; }
-      .rules-block { break-inside: avoid; margin-top: 12px; font-size: 8.4px; }
-      .rules-title { color: #2D7A52; font-weight: 800; text-transform: uppercase; margin: 8px 0 3px; }
-      .rules-block ol { margin: 0; padding-left: 15px; }
-      .rules-block li { margin-bottom: 2px; }
-      @page { size: A4; margin: 0.32in; }
+      .program-note { font-size: 8.6px; margin: 8px 0 4px; }
+      .rules-title { color: #2D7A52; font-weight: 800; text-transform: uppercase; margin: 8px 0 3px; font-size: 8.6px; }
+      .rule-line { font-size: 8.4px; line-height: 1.25; margin: 0 0 2px; padding-left: 10px; text-indent: -10px; }
+
+      /* Off-screen measuring copy — never shown, never printed. */
+      .program-measure { position: absolute; left: -10000px; top: 0; visibility: hidden; pointer-events: none; }
+
+      @page { size: A4; margin: 0; }
       @media print {
         body { background: #fff !important; }
         .header, .print-toolbar, .bottom-nav, nav { display: none !important; }
-        .program-sheet { width: auto; min-height: auto; margin: 0; padding: 0; box-shadow: none; }
-        /* Fill each page's three columns top-to-bottom before the next page,
-           instead of balancing across the whole document — Safari otherwise
-           spreads the program thinly over many pages. */
-        .program-columns { -webkit-column-fill: auto; column-fill: auto; }
+        .program-measure { display: none !important; }
+        .program-shell { padding: 0; }
+        .program-page { margin: 0; box-shadow: none; break-after: page; page-break-after: always; }
+        .program-page:last-child { break-after: auto; page-break-after: auto; }
       }
       @media (max-width: 760px) {
-        .program-sheet { width: calc(100vw - 24px); padding: 24px 18px; overflow-x: auto; }
-        .program-columns { column-count: 1; }
+        .program-page { width: 100%; min-height: 0; padding: 18px; }
+        .program-page-body { flex-direction: column; gap: 0; }
+        .program-col { width: 100%; }
       }
     `}</style>
   );
 }
+
+function ItemView({ item }) {
+  switch (item.kind) {
+    case "category":
+      return <div className="program-category">{item.label}</div>;
+    case "break":
+      return <div className="program-break">{item.label}</div>;
+    case "note":
+      return <p className="program-note"><strong>Note:</strong> {item.text}</p>;
+    case "rulesTitle":
+      return <div className="rules-title">{item.label}</div>;
+    case "ruleLine":
+      return <div className="rule-line">• {item.text}</div>;
+    case "class": {
+      const cls = item.cls;
+      return (
+        <div className="program-row">
+          <div className="class-line">
+            <div className="class-num">{cls.num}.</div>
+            <div className="class-name">{cls.name}</div>
+            {(cls.judge || cls.judge2) && (
+              <div className="judge-line">
+                {cls.judge2 ? `Judges: ${cls.judge || "-"} / ${cls.judge2}` : `Judge: ${cls.judge}`}
+              </div>
+            )}
+            {item.entries.length > 0 && (
+              <ul className="draw-list">
+                {item.entries.map((entry) => (
+                  <li key={entry.id}>
+                    <span className="entry-back">#{fmtBack(entry.back_number)}</span> {entry.horse} - {entry.exhibitor}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      );
+    }
+    default:
+      return null;
+  }
+}
+
+function buildItems(dayClasses, showDraw) {
+  const items = programDisplayRows(dayClasses).map((row) => {
+    if (row.type === "category") return { key: row.key, kind: "category", label: row.label };
+    if (row.type === "break") return { key: row.key, kind: "break", label: row.label };
+    const cls = row.cls;
+    return { key: row.key, kind: "class", cls, entries: showDraw ? activeEntries(cls) : [] };
+  });
+  items.push({ key: "note", kind: "note", text: "All Beginner and EWD classes are walk/jog or walk/trot only." });
+  items.push({ key: "finish", kind: "break", label: "FINISH" });
+  items.push({ key: "hcqha-title", kind: "rulesTitle", label: "HCQHA Rules" });
+  HCQHA_RULES.forEach((rule, i) => items.push({ key: `hcqha-${i}`, kind: "ruleLine", text: rule }));
+  items.push({ key: "beg-title", kind: "rulesTitle", label: "Beginner Rules" });
+  BEGINNER_RULES.forEach((rule, i) => items.push({ key: `beg-${i}`, kind: "ruleLine", text: rule }));
+  return items;
+}
+
+// Greedily pack item indices into columns of `cap` px (first page smaller to
+// make room for the title), three columns per page.
+function paginate(heights, firstCap, cap) {
+  const pages = [];
+  let cols = [[], [], []];
+  let col = 0;
+  let used = 0;
+  for (let i = 0; i < heights.length; i++) {
+    const h = heights[i];
+    const capacity = pages.length === 0 ? firstCap : cap;
+    if (used > 0 && used + h > capacity) {
+      col += 1;
+      used = 0;
+      if (col > 2) { pages.push(cols); cols = [[], [], []]; col = 0; }
+    }
+    cols[col].push(i);
+    used += h;
+  }
+  if (cols.some((c) => c.length)) pages.push(cols);
+  return pages;
+}
+
+const MM_TO_PX = 96 / 25.4;
+const PAGE_CONTENT_H_PX = (297 - 24) * MM_TO_PX; // A4 height minus 12mm top+bottom padding
 
 export default function ProgramPrintPage() {
   const { id } = useParams();
   const searchParams = useSearchParams();
   const [event, setEvent] = useState(null);
   const [classes, setClasses] = useState([]);
-  // null = follow the event status (draw shown once closed/live/completed);
-  // true/false = staff override via the "Show riders" toggle, so a program
-  // with riders can be printed while entries are still open.
   const [drawOverride, setDrawOverride] = useState(null);
+  const [pages, setPages] = useState(null);
+
+  const measureColRef = useRef(null);
+  const measureTitleRef = useRef(null);
 
   const load = useCallback(async () => {
     const [{ data: ev }, { data: cls }] = await Promise.all([
@@ -73,10 +172,27 @@ export default function ProgramPrintPage() {
     return values.length ? values : [1];
   }, [classes]);
   const selectedDay = Number(searchParams.get("day") || days[0] || 1);
-  const dayClasses = classes.filter((cls) => (cls.day ?? 1) === selectedDay);
+  const dayClasses = useMemo(() => classes.filter((cls) => (cls.day ?? 1) === selectedDay), [classes, selectedDay]);
   const multiDay = days.length > 1;
   const anyEntries = classes.some((cls) => (cls.entries?.length ?? 0) > 0);
   const showDraw = drawOverride ?? drawIsPublished(event);
+  const items = useMemo(() => buildItems(dayClasses, showDraw), [dayClasses, showDraw]);
+
+  const title = event ? `HUNTER COAST QUARTER HORSE ASSOCIATION - ${event.name} ${showDraw ? "Draw" : "Show Program"}` : "";
+  const subtitle = event
+    ? `${multiDay ? `Day ${selectedDay}${dayDate(event, selectedDay) ? ` - ${dayDate(event, selectedDay)}` : ""}` : dateRange(event)}${event.location ? ` - ${event.location}` : ""}`
+    : "";
+
+  // Measure each item at the real column width, then pack into A4 pages.
+  useLayoutEffect(() => {
+    if (!measureColRef.current) return;
+    const itemEls = measureColRef.current.querySelectorAll(".prog-item");
+    const heights = Array.from(itemEls).map((el) => el.getBoundingClientRect().height);
+    const titleH = measureTitleRef.current ? measureTitleRef.current.getBoundingClientRect().height : 0;
+    const cap = PAGE_CONTENT_H_PX * 0.97;
+    const firstCap = (PAGE_CONTENT_H_PX - titleH - 6) * 0.97;
+    setPages(paginate(heights, firstCap, cap));
+  }, [items, title, subtitle]);
 
   if (!event) return <main className="wrap"><p style={{ color: "var(--quiet)" }}>Loading...</p></main>;
 
@@ -108,53 +224,40 @@ export default function ProgramPrintPage() {
         </div>
       </div>
 
-      <section className="program-sheet">
-        <h1 className="program-title">
-          HUNTER COAST QUARTER HORSE ASSOCIATION - {event.name} {showDraw ? "Draw" : "Show Program"}
-        </h1>
-        <div className="program-subtitle">
-          {multiDay ? `Day ${selectedDay}${dayDate(event, selectedDay) ? ` - ${dayDate(event, selectedDay)}` : ""}` : dateRange(event)}
-          {event.location ? ` - ${event.location}` : ""}
+      {/* Off-screen measuring copy: one full-width title + one column of every item. */}
+      <div className="program-measure" aria-hidden="true">
+        <div ref={measureTitleRef} style={{ width: "190mm" }}>
+          <h1 className="program-title">{title}</h1>
+          <div className="program-subtitle">{subtitle}</div>
         </div>
-        <div className="program-columns">
-          {programDisplayRows(dayClasses).map((row) => {
-            if (row.type === "category") return <div key={row.key} className="program-category">{row.label}</div>;
-            if (row.type === "break") return <div key={row.key} className="program-break">{row.label}</div>;
-            const cls = row.cls;
-            const entries = activeEntries(cls);
-            return (
-              <div key={row.key} className="program-row">
-                <div className="class-line">
-                  <div className="class-num">{cls.num}.</div>
-                  <div className="class-name">{cls.name}</div>
-                  {(cls.judge || cls.judge2) && (
-                    <div className="judge-line">
-                      {cls.judge2 ? `Judges: ${cls.judge || "-"} / ${cls.judge2}` : `Judge: ${cls.judge}`}
-                    </div>
-                  )}
-                  {showDraw && entries.length > 0 && (
-                    <ul className="draw-list">
-                      {entries.map((entry) => (
-                        <li key={entry.id}>
-                          <span className="entry-back">#{fmtBack(entry.back_number)}</span> {entry.horse} - {entry.exhibitor}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+        <div className="program-col" ref={measureColRef}>
+          {items.map((item, i) => (
+            <div className="prog-item" key={item.key}><ItemView item={item} /></div>
+          ))}
+        </div>
+      </div>
+
+      <div className="program-shell">
+        {(pages ?? []).map((cols, pi) => (
+          <section className="program-page" key={pi}>
+            {pi === 0 && (
+              <>
+                <h1 className="program-title">{title}</h1>
+                <div className="program-subtitle">{subtitle}</div>
+              </>
+            )}
+            <div className="program-page-body">
+              {cols.map((colItems, ci) => (
+                <div className="program-col" key={ci}>
+                  {colItems.map((idx) => (
+                    <div className="prog-item" key={items[idx].key}><ItemView item={items[idx]} /></div>
+                  ))}
                 </div>
-              </div>
-            );
-          })}
-          <div className="rules-block">
-            <p><strong>Note:</strong> All Beginner and EWD classes are walk/jog or walk/trot only.</p>
-            <div className="program-break">FINISH</div>
-            <div className="rules-title">HCQHA Rules</div>
-            <ol>{HCQHA_RULES.map((rule) => <li key={rule}>{rule}</li>)}</ol>
-            <div className="rules-title">Beginner Rules</div>
-            <ol>{BEGINNER_RULES.map((rule) => <li key={rule}>{rule}</li>)}</ol>
-          </div>
-        </div>
-      </section>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
     </>
   );
 }
