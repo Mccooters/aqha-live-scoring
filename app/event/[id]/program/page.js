@@ -184,7 +184,7 @@ export default function ProgramPrintPage() {
     : "";
 
   // Measure each item at the real column width, then pack into A4 pages.
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!measureColRef.current) return;
     const itemEls = measureColRef.current.querySelectorAll(".prog-item");
     const heights = Array.from(itemEls).map((el) => el.getBoundingClientRect().height);
