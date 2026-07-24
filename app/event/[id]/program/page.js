@@ -50,7 +50,11 @@ function PrintStyles() {
         .header, .print-toolbar, .bottom-nav, nav { display: none !important; }
         .program-measure { display: none !important; }
         .program-shell { padding: 0; }
-        .program-page { margin: 0; box-shadow: none; break-after: page; page-break-after: always; }
+        /* Size each page section to its content (which is measured to fit
+           inside A4 with slack) and let the forced break do the paging.
+           Forcing min-height: 297mm here makes Safari spill each sheet a
+           fraction onto a second, doubling the page count. */
+        .program-page { margin: 0; box-shadow: none; min-height: 0; height: auto; break-after: page; page-break-after: always; }
         .program-page:last-child { break-after: auto; page-break-after: auto; }
       }
       @media (max-width: 760px) {
@@ -189,8 +193,11 @@ export default function ProgramPrintPage() {
     const itemEls = measureColRef.current.querySelectorAll(".prog-item");
     const heights = Array.from(itemEls).map((el) => el.getBoundingClientRect().height);
     const titleH = measureTitleRef.current ? measureTitleRef.current.getBoundingClientRect().height : 0;
-    const cap = PAGE_CONTENT_H_PX * 0.97;
-    const firstCap = (PAGE_CONTENT_H_PX - titleH - 6) * 0.97;
+    // 0.93: leave real slack below each page's columns so that even when the
+    // printer imposes its own small margins, a page never spills onto a
+    // second sheet (which shows up as doubled page counts in Safari).
+    const cap = PAGE_CONTENT_H_PX * 0.93;
+    const firstCap = (PAGE_CONTENT_H_PX - titleH - 6) * 0.93;
     setPages(paginate(heights, firstCap, cap));
   }, [items, title, subtitle]);
 
