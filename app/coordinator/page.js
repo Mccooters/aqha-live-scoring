@@ -234,6 +234,7 @@ export default function Coordinator() {
   const [eventId, setEventId] = useState(null);
   const [classes, setClasses] = useState([]);
   const [selectedClassIds, setSelectedClassIds] = useState(new Set());
+  const [classMenu, setClassMenu] = useState(null); // class id whose "⋯" menu is open
 
   const [scoreInput, setScoreInput] = useState("");
   const [scoreInput2, setScoreInput2] = useState("");
@@ -730,6 +731,31 @@ export default function Coordinator() {
     const error = upsertErr || existing.error || delErr;
     if (error) console.error("High points push failed:", error);
     return { ok: !error, error };
+  };
+
+  // Share the gate marshal link (schema-v44): a per-event code that unlocks
+  // gate controls only — advance the TBC draw and scratch/restore — with no
+  // staff access at all. Generated once and reused; regenerating would cut
+  // off anyone holding the old link.
+  const gateAccess = async () => {
+    if (!currentEvent) return;
+    let codeVal = currentEvent.gate_code;
+    if (!codeVal) {
+      codeVal = String(Math.floor(100000 + Math.random() * 900000));
+      const { error } = await supabase.from("events").update({ gate_code: codeVal }).eq("id", currentEvent.id);
+      if (error) {
+        window.alert(/gate_code/i.test(error.message ?? "")
+          ? 'Gate access needs a database update — run "schema-v44-gate-access.sql" in the Supabase SQL Editor first.'
+          : error.message);
+        return;
+      }
+      await loadEvents();
+    }
+    const url = `${window.location.origin}/event/${currentEvent.id}/gate?code=${codeVal}`;
+    window.prompt(
+      "Send this link to the gate marshal. It opens the gate view for this event only — advance the draw and scratch at the gate. It is NOT a staff login.",
+      url
+    );
   };
 
   // One-tap default order: re-sequence every class (hidden ones included, so
@@ -1732,6 +1758,12 @@ export default function Coordinator() {
                 🐎 Day entry
               </button>
             )}
+            {!isClinic && (
+              <button className="btn-ghost" onClick={gateAccess} disabled={!eventId}
+                title="Share a link that gives the gate marshal gate controls only — no staff access">
+                🚪 Gate access
+              </button>
+            )}
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
               title="Put every class into class-number order, day by day">
@@ -2018,7 +2050,7 @@ export default function Coordinator() {
                     </div>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end", position: "relative" }}>
                   {cls.status === "upcoming" && !isClinic && (
                     <>
                       <button className="btn-ghost" onClick={() => moveClass(cls, -1)} aria-label="Move earlier">▲</button>
@@ -2029,39 +2061,39 @@ export default function Coordinator() {
                     </>
                   )}
                   {isLive && !isClinic && <button className="btn-ghost" onClick={() => completeClassManual(cls)} disabled={busy}>Complete</button>}
-                  {isChampionship(cls) && cls.status !== "completed" && !isClinic && (
-                    <button className="btn-ghost" style={{ fontSize: 11, borderColor: "var(--brass)", color: "var(--brass)" }}
-                      onClick={() => refreshChampionship(cls)} disabled={busy}
-                      title="Rebuild this championship's draw from its qualifying classes' results">
-                      ↻ Qualifiers
-                    </button>
-                  )}
-                  {cls.status === "completed" && cls.hp_category && !isClinic && (
-                    <button className="btn-ghost" style={{ fontSize: 11, borderColor: "var(--green)", color: "var(--green)" }}
-                      onClick={async () => {
-                        const res = await pushToHighPoints(cls);
-                        if (res && !res.ok) window.alert("High points could not be updated — check your internet connection and try again.");
-                        else if (res && res.ok) window.alert("High points updated.");
-                      }} title="Push results to the High Points leaderboard">
-                      Push HP
-                    </button>
-                  )}
-                  {!isClinic && (
-                    <button className="btn-ghost" style={cls.pattern_url ? { borderColor: "var(--brass)", color: "var(--brass)" } : {}} onClick={() => openModal("pattern", { classId: cls.id })}>
-                      {cls.pattern_url ? "✓ Pattern" : "Pattern"}
-                    </button>
-                  )}
-                  <button className="btn-ghost" onClick={() => openModal("editClass", { cls })}>Edit</button>
                   <button className="btn-ghost" onClick={() => openModal("entry", { classId: cls.id })}>
                     {isClinic ? "+ Participant" : "+ Entry"}
                   </button>
-                  {cls.status === "upcoming" && (
+                  <button className="btn-ghost" aria-label="More actions" style={{ fontWeight: 800, minWidth: 38 }}
+                    onClick={() => setClassMenu(classMenu === cls.id ? null : cls.id)}>
+                    ⋯
+                  </button>
+                  <span className={`badge ${cls.status}`}>{cls.status}</span>
+                  {classMenu === cls.id && (
                     <>
-                      <button className="btn-ghost" onClick={() => hideClass(cls)} title="Remove from the public schedule but keep it — reactivate any time">Hide</button>
-                      <button className="btn-ghost danger" onClick={() => deleteClass(cls)}>Delete</button>
+                      <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setClassMenu(null)} />
+                      <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 50, marginTop: 4, background: "#fff", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "0 10px 28px rgba(42,30,18,.2)", padding: 6, display: "grid", gap: 2, minWidth: 190 }}>
+                        {[
+                          { label: "Edit class", show: true, onClick: () => openModal("editClass", { cls }) },
+                          { label: cls.pattern_url ? "✓ Pattern" : "Set pattern", show: !isClinic, onClick: () => openModal("pattern", { classId: cls.id }) },
+                          { label: "↻ Refresh qualifiers", show: isChampionship(cls) && cls.status !== "completed" && !isClinic, onClick: () => refreshChampionship(cls) },
+                          { label: "Push to High Points", show: cls.status === "completed" && !!cls.hp_category && !isClinic, onClick: async () => {
+                            const res = await pushToHighPoints(cls);
+                            if (res && !res.ok) window.alert("High points could not be updated — check your internet connection and try again.");
+                            else if (res && res.ok) window.alert("High points updated.");
+                          } },
+                          { label: "Hide from schedule", show: cls.status === "upcoming", onClick: () => hideClass(cls) },
+                          { label: "Delete class", show: cls.status === "upcoming", danger: true, onClick: () => deleteClass(cls) },
+                        ].filter((a) => a.show).map((a) => (
+                          <button key={a.label}
+                            style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "9px 10px", borderRadius: 8, fontSize: 13.5, fontWeight: 600, color: a.danger ? "var(--clay)" : "var(--leather)", fontFamily: "inherit" }}
+                            onClick={() => { setClassMenu(null); a.onClick(); }}>
+                            {a.label}
+                          </button>
+                        ))}
+                      </div>
                     </>
                   )}
-                  <span className={`badge ${cls.status}`}>{cls.status}</span>
                 </div>
               </div>
               <table>
