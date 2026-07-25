@@ -155,7 +155,10 @@ export default function EventPage() {
   // Only treat a class as "live" on the public view when the event itself is
   // live — otherwise a class left in the live state after an event is ended or
   // reverted would keep showing the live banner over the final/closed view.
-  const liveClass = event?.status === "live" ? classes.find((c) => c.status === "live") : null;
+  // A class with status "live" IS in the arena, whatever the event's own
+  // status says — the gate marshal can advance classes while the event sits
+  // on "closed", and spectators must not be told nothing is running.
+  const liveClass = classes.find((c) => c.status === "live") ?? null;
   const liveClassIndex = liveClass ? classes.findIndex((c) => c.id === liveClass.id) : -1;
   const nextClass = liveClass
     ? classes.slice(liveClassIndex + 1).find((c) => c.status === "upcoming")
@@ -384,6 +387,27 @@ export default function EventPage() {
                 <div style={{ height: "100%", width: `${(scored / Math.max(active.length, 1)) * 100}%`, background: "var(--brass)", transition: "width .5s ease" }} />
               </div>
             )}
+            <NextClassPreview cls={nextClass} />
+          </section>
+        ) : liveClass ? (
+          // Live class with no one left to go (e.g. a TBC class where every
+          // horse has been through, waiting for the gate to finish it) — the
+          // class is still in the arena; never claim nothing is running.
+          <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
+              <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
+                <LiveClassLabel cls={liveClass} />
+              </span>
+            </div>
+            <div className="display" style={{ fontWeight: 700, fontSize: "clamp(18px,4vw,24px)", lineHeight: 1.15 }}>
+              All horses have been through
+            </div>
+            <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 3 }}>
+              {liveClass.scoring_mode === "tbc" || liveClass.scoring_mode === "tbc_class"
+                ? "Results will be posted once received from the judge."
+                : "Results are being finalised."}
+            </div>
             <NextClassPreview cls={nextClass} />
           </section>
         ) : event.status === "completed" ? (
