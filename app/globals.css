@@ -34,7 +34,11 @@ input:focus, button:focus-visible { outline: 2px solid var(--brass); outline-off
 .badge { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: 3px 10px; border-radius: 20px; color: #fff; }
 .badge.live { background: var(--clay); }
 .badge.completed { background: var(--green); }
-.badge.upcoming, .badge.open { background: #2D7A52; }
+/* Upcoming reads as "not yet": a quiet outlined pill, clearly different from
+   the solid green COMPLETED. (Event-status "open" keeps green — entries open
+   is a go-signal, and it never sits beside a completed badge.) */
+.badge.upcoming { background: #F3EEE4; color: #6E6254; border: 1px solid #D8D0C3; }
+.badge.open { background: #2D7A52; }
 .badge.pre_open { background: #7A6E8A; }
 .badge.closed { background: #9A6A1A; }
 .badge.archived { background: #9A9A9A; }
