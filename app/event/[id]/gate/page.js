@@ -86,14 +86,14 @@ export default function GatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const act = async (action, entryId) => {
+  const act = async (action, entryId, classId) => {
     setBusy(true);
     setError("");
     try {
       const res = await fetch("/api/gate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event_id: id, code, action, entry_id: entryId }),
+        body: JSON.stringify({ event_id: id, code, action, entry_id: entryId, class_id: classId }),
       });
       const data = await res.json();
       if (!data.ok) setError(data.error ?? "That didn't work — try again.");
@@ -186,6 +186,19 @@ export default function GatePage() {
               <div style={{ marginTop: 12 }}>
                 {liveClass.entries.map((e) => entryRow(e, liveClass))}
               </div>
+              {/* On paperwork (TBC) days classes never auto-complete from
+                  scoring — and a championship fed by TBC classes can sit here
+                  with an empty draw. This moves the show to the next class. */}
+              <button className="btn"
+                style={{ width: "100%", marginTop: 12, fontSize: 15, padding: 12, background: current ? "transparent" : "var(--leather)", color: current ? "var(--leather)" : "#fff", border: current ? "1px solid var(--line)" : "none" }}
+                disabled={busy}
+                onClick={() => {
+                  if (window.confirm(`Finish Class ${liveClass.num} · ${liveClass.name} and start the next class?\n\nResults from the judge's paperwork are entered by the coordinator later.`)) {
+                    act("advance_class", null, liveClass.id);
+                  }
+                }}>
+                ✓ Class finished — start next class
+              </button>
             </div>
           </section>
         ) : (
