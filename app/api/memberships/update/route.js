@@ -29,15 +29,18 @@ function cleanRegs(list) {
   return rows.length ? rows : null;
 }
 
+// How many people the membership covers including the applicant; null =
+// unknown, which callers must treat as UNLIMITED — never as 1, or a save
+// would silently discard the family list.
 async function includedPeople(db, member) {
   if (member.included_people != null) return member.included_people;
-  if (!member.membership_type_id) return 1;
+  if (!member.membership_type_id) return null;
   const { data: type } = await db
     .from("membership_types")
     .select("included_people")
     .eq("id", member.membership_type_id)
     .maybeSingle();
-  return type?.included_people ?? 1;
+  return type?.included_people ?? null;
 }
 
 export async function POST(req) {
@@ -120,8 +123,15 @@ export async function POST(req) {
           association_registrations: cleanRegs(p?.association_registrations) ?? null,
           sort_order: idx + 1,
         }))
-        .filter((p) => p.name)
-        .slice(0, Math.max(0, covered - 1)); // applicant is not a people row
+        .filter((p) => p.name);
+      // Never silently drop people: if the type doesn't cover them all,
+      // refuse with a clear message (covered == null means no known cap).
+      if (covered != null && rows.length > Math.max(0, covered - 1)) {
+        return NextResponse.json(
+          { error: `This membership covers ${covered} ${covered === 1 ? "person" : "people"} including ${member.member_name}, but ${rows.length + 1} are listed. Remove ${rows.length - Math.max(0, covered - 1)} or pick a bigger membership type.` },
+          { status: 400 }
+        );
+      }
 
       await db.from("club_member_people").delete().eq("member_id", member_id);
       if (rows.length) {

@@ -29,8 +29,7 @@ function ChampionshipFields({ form, setForm, classes, currentClassId }) {
 
   // Pre-tick the suggestion the first time the section appears — never after
   // staff have touched the list (undefined = untouched).
-  useEffect(() => {
-    if (!isChampName || form.champ_feeder_ids !== undefined) return;
+  const applySuggestion = () => {
     const current = currentClassId ? classes.find((c) => c.id === currentClassId) : null;
     const champLike = { id: currentClassId, name: form.name, day, sort_order: current?.sort_order ?? Infinity };
     setForm((f) => ({
@@ -39,14 +38,34 @@ function ChampionshipFields({ form, setForm, classes, currentClassId }) {
       // Supreme takes the WINNERS of the grand championships by default.
       champ_take: looksLikeSupreme(form.name) ? "top1" : (f.champ_take ?? "top2"),
     }));
+  };
+
+  // Auto pre-tick only when the field has never been touched (undefined —
+  // i.e. a brand-new class). Editing an existing class starts from what's
+  // saved ([] when none), so a deliberately-cleared championship never
+  // resurrects on a later unrelated edit.
+  useEffect(() => {
+    if (isChampName && form.champ_feeder_ids === undefined) applySuggestion();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isChampName]);
-
-  if (!isChampName && selected.length === 0) return null;
 
   const candidates = classes
     .filter((c) => c.id !== currentClassId && (c.day ?? 1) === day)
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+  // Changing the day must never leave invisible selections from the old day —
+  // prune anything that's no longer in the candidate list.
+  useEffect(() => {
+    if (!Array.isArray(form.champ_feeder_ids)) return;
+    const valid = new Set(candidates.map((c) => c.id));
+    const pruned = form.champ_feeder_ids.filter((id) => valid.has(id));
+    if (pruned.length !== form.champ_feeder_ids.length) {
+      setForm((f) => ({ ...f, champ_feeder_ids: pruned }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day]);
+
+  if (!isChampName && selected.length === 0) return null;
   const toggle = (id) => setForm((f) => {
     const cur = new Set(Array.isArray(f.champ_feeder_ids) ? f.champ_feeder_ids : []);
     if (cur.has(id)) cur.delete(id); else cur.add(id);
@@ -67,6 +86,9 @@ function ChampionshipFields({ form, setForm, classes, currentClassId }) {
         <option value="top2">1st &amp; 2nd place-getters from each class</option>
         <option value="top1">Winners (1st) only</option>
       </select>
+      <button type="button" className="btn-ghost" style={{ fontSize: 12.5, marginTop: 8 }} onClick={applySuggestion}>
+        ✨ Use suggested classes for this section
+      </button>
       <div style={{ maxHeight: 180, overflowY: "auto", marginTop: 8, border: "1px solid var(--line)", borderRadius: 8, background: "#fff", padding: "6px 10px" }}>
         {candidates.length === 0 && <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "4px 0" }}>No other classes on this day yet.</p>}
         {candidates.map((c) => (
@@ -234,6 +256,7 @@ export default function Coordinator() {
   const [eventId, setEventId] = useState(null);
   const [classes, setClasses] = useState([]);
   const [selectedClassIds, setSelectedClassIds] = useState(new Set());
+  const [classMenu, setClassMenu] = useState(null); // class id whose "⋯" menu is open
 
   const [scoreInput, setScoreInput] = useState("");
   const [scoreInput2, setScoreInput2] = useState("");
@@ -732,6 +755,40 @@ export default function Coordinator() {
     return { ok: !error, error };
   };
 
+  // Share the gate marshal link (schema-v44): a per-event code that unlocks
+  // gate controls only — advance the TBC draw and scratch/restore — with no
+  // staff access at all. Generated once and reused; regenerating would cut
+  // off anyone holding the old link.
+  const gateAccess = async () => {
+    if (!currentEvent) return;
+    const migrationHint = 'Gate access needs a database update — run "schema-v44-gate-access.sql" in the Supabase SQL Editor first.';
+    const { data: existing, error: readErr } = await supabase
+      .from("gate_codes").select("code").eq("event_id", currentEvent.id).maybeSingle();
+    if (readErr) {
+      window.alert(/gate_codes|does not exist|schema cache/i.test(readErr.message ?? "") ? migrationHint : readErr.message);
+      return;
+    }
+    let codeVal = existing?.code ?? null;
+    if (!codeVal) {
+      // Long random token (crypto-strength) — the link is the key, and it
+      // can't be guessed the way a short PIN could.
+      const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      codeVal = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+      const { error } = await supabase.from("gate_codes").insert({ event_id: currentEvent.id, code: codeVal });
+      if (error) {
+        window.alert(/gate_codes|does not exist|schema cache/i.test(error.message ?? "") ? migrationHint : error.message);
+        return;
+      }
+    }
+    const url = `${window.location.origin}/event/${currentEvent.id}/gate?code=${codeVal}`;
+    window.prompt(
+      "Send this link to the gate marshal. It opens the gate view for this event only — advance the draw and scratch at the gate. It is NOT a staff login.",
+      url
+    );
+  };
+
   // One-tap default order: re-sequence every class (hidden ones included, so
   // they reactivate into the right spot) into day order then class-number
   // order. The ▲▼ buttons still override individual positions afterwards.
@@ -756,14 +813,21 @@ export default function Coordinator() {
   };
 
   const moveClass = async (cls, dir) => {
+    if (busy) return;
     const upcoming = classes.filter((c) => c.status === "upcoming" && !c.hidden);
     const pos = upcoming.findIndex((c) => c.id === cls.id);
     const other = upcoming[pos + dir];
     if (!other) return;
-    await Promise.all([
+    // Check both writes — a half-completed swap on flaky arena Wi-Fi leaves
+    // two classes tied on sort_order, which makes the arrows look dead.
+    const [a, b] = await Promise.all([
       supabase.from("classes").update({ sort_order: other.sort_order }).eq("id", cls.id),
       supabase.from("classes").update({ sort_order: cls.sort_order }).eq("id", other.id),
     ]);
+    if (a.error || b.error) {
+      window.alert("That move could not be fully saved — check your connection. If the arrows stop responding for these classes, tap \"↕ Sort by number\" to repair the order.");
+      await loadClasses();
+    }
   };
 
   const setEventStatus = async (newStatus) => {
@@ -1047,7 +1111,10 @@ export default function Coordinator() {
     }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
-      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : undefined, champ_take: c.champ_take ?? "top2" };
+      // champ_feeder_ids: [] (not undefined) when nothing is saved, so a class
+      // staff deliberately made normal is never silently re-suggested back into
+      // a championship on a later edit — the "Use suggested" button is explicit.
+      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : [], champ_take: c.champ_take ?? "top2" };
     }
     if (type === "editEvent" && extra.event) {
       const ev = extra.event;
@@ -1324,6 +1391,12 @@ export default function Coordinator() {
     const { error } = await supabase.from("entries").update(updateData).eq("id", modal.entry.id);
     if (error) { setFormError(error.message); return; }
     closeModal();
+    // Paperwork-mode results (TBC classes) are typed in AFTER the class
+    // completes — feed any championship this class qualifies into, so its
+    // draw tops up as the judge's results are entered.
+    if (entryClass?.status === "completed") {
+      await fillChampionshipsFedBy(entryClass.id);
+    }
   };
 
   const submitEditClass = async () => {
@@ -1732,6 +1805,12 @@ export default function Coordinator() {
                 🐎 Day entry
               </button>
             )}
+            {!isClinic && (
+              <button className="btn-ghost" onClick={gateAccess} disabled={!eventId}
+                title="Share a link that gives the gate marshal gate controls only — no staff access">
+                🚪 Gate access
+              </button>
+            )}
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
               title="Put every class into class-number order, day by day">
@@ -2018,7 +2097,7 @@ export default function Coordinator() {
                     </div>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end", position: "relative" }}>
                   {cls.status === "upcoming" && !isClinic && (
                     <>
                       <button className="btn-ghost" onClick={() => moveClass(cls, -1)} aria-label="Move earlier">▲</button>
@@ -2029,39 +2108,39 @@ export default function Coordinator() {
                     </>
                   )}
                   {isLive && !isClinic && <button className="btn-ghost" onClick={() => completeClassManual(cls)} disabled={busy}>Complete</button>}
-                  {isChampionship(cls) && cls.status !== "completed" && !isClinic && (
-                    <button className="btn-ghost" style={{ fontSize: 11, borderColor: "var(--brass)", color: "var(--brass)" }}
-                      onClick={() => refreshChampionship(cls)} disabled={busy}
-                      title="Rebuild this championship's draw from its qualifying classes' results">
-                      ↻ Qualifiers
-                    </button>
-                  )}
-                  {cls.status === "completed" && cls.hp_category && !isClinic && (
-                    <button className="btn-ghost" style={{ fontSize: 11, borderColor: "var(--green)", color: "var(--green)" }}
-                      onClick={async () => {
-                        const res = await pushToHighPoints(cls);
-                        if (res && !res.ok) window.alert("High points could not be updated — check your internet connection and try again.");
-                        else if (res && res.ok) window.alert("High points updated.");
-                      }} title="Push results to the High Points leaderboard">
-                      Push HP
-                    </button>
-                  )}
-                  {!isClinic && (
-                    <button className="btn-ghost" style={cls.pattern_url ? { borderColor: "var(--brass)", color: "var(--brass)" } : {}} onClick={() => openModal("pattern", { classId: cls.id })}>
-                      {cls.pattern_url ? "✓ Pattern" : "Pattern"}
-                    </button>
-                  )}
-                  <button className="btn-ghost" onClick={() => openModal("editClass", { cls })}>Edit</button>
                   <button className="btn-ghost" onClick={() => openModal("entry", { classId: cls.id })}>
                     {isClinic ? "+ Participant" : "+ Entry"}
                   </button>
-                  {cls.status === "upcoming" && (
+                  <button className="btn-ghost" aria-label="More actions" style={{ fontWeight: 800, minWidth: 38 }}
+                    onClick={() => setClassMenu(classMenu === cls.id ? null : cls.id)}>
+                    ⋯
+                  </button>
+                  <span className={`badge ${cls.status}`}>{cls.status}</span>
+                  {classMenu === cls.id && (
                     <>
-                      <button className="btn-ghost" onClick={() => hideClass(cls)} title="Remove from the public schedule but keep it — reactivate any time">Hide</button>
-                      <button className="btn-ghost danger" onClick={() => deleteClass(cls)}>Delete</button>
+                      <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setClassMenu(null)} />
+                      <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 50, marginTop: 4, background: "#fff", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "0 10px 28px rgba(42,30,18,.2)", padding: 6, display: "grid", gap: 2, minWidth: 190 }}>
+                        {[
+                          { label: "Edit class", show: true, onClick: () => openModal("editClass", { cls }) },
+                          { label: cls.pattern_url ? "✓ Pattern" : "Set pattern", show: !isClinic, onClick: () => openModal("pattern", { classId: cls.id }) },
+                          { label: "↻ Refresh qualifiers", show: isChampionship(cls) && cls.status !== "completed" && !isClinic, onClick: () => refreshChampionship(cls) },
+                          { label: "Push to High Points", show: cls.status === "completed" && !!cls.hp_category && !isClinic, onClick: async () => {
+                            const res = await pushToHighPoints(cls);
+                            if (res && !res.ok) window.alert("High points could not be updated — check your internet connection and try again.");
+                            else if (res && res.ok) window.alert("High points updated.");
+                          } },
+                          { label: "Hide from schedule", show: cls.status === "upcoming", onClick: () => hideClass(cls) },
+                          { label: "Delete class", show: cls.status === "upcoming", danger: true, onClick: () => deleteClass(cls) },
+                        ].filter((a) => a.show).map((a) => (
+                          <button key={a.label}
+                            style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "9px 10px", borderRadius: 8, fontSize: 13.5, fontWeight: 600, color: a.danger ? "var(--clay)" : "var(--leather)", fontFamily: "inherit" }}
+                            onClick={() => { setClassMenu(null); a.onClick(); }}>
+                            {a.label}
+                          </button>
+                        ))}
+                      </div>
                     </>
                   )}
-                  <span className={`badge ${cls.status}`}>{cls.status}</span>
                 </div>
               </div>
               <table>
@@ -2410,7 +2489,14 @@ export default function Coordinator() {
                   <label className="modal-label">Back number *</label>
                   <input className="field" type="number" min="1" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""}
                     onChange={setField("back")}
-                    onBlur={(e) => lookupHorse(e.target.value, { force: true })}
+                    onBlur={(e) => {
+                      // Overwrite horse/exhibitor only when the number actually
+                      // changed — re-tapping the field must never clobber an
+                      // exhibitor the staff already typed (lessee ≠ owner).
+                      const v = e.target.value;
+                      lookupHorse(v, { force: v !== form.lookedUpBack });
+                      setForm((f) => ({ ...f, lookedUpBack: v }));
+                    }}
                     disabled={!!form.newNumber}
                     placeholder="e.g. 301" autoFocus />
                   {!form.newNumber && horseSuggestion === false && <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>Not in registry — fill in manually below</p>}

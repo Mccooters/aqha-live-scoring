@@ -223,7 +223,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v43)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v44)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -233,6 +233,15 @@ PR with a clear plain-English description.
   the entry form checks via `app/api/registrations/fees-status`),
   event_type: `show` | `clinic`, entries_open (legacy boolean, superseded by
   status, kept for backwards compatibility but unused).
+- `gate_codes` — event_id (pk, cascade delete), code (schema-v44). Per-event
+  gate-marshal access: the dashboard's "🚪 Gate access" button generates a
+  long crypto-random token (NEVER stored on the publicly readable `events`
+  table — this table has no anon access at all; staff + service role only)
+  and shares `/event/[id]/gate?code=…`. The gate page verifies via
+  `app/api/gate` action "check", then offers gate controls ONLY — mark the
+  current TBC-draw horse called, scratch/restore — via `app/api/gate`
+  (service role; entry must belong to the event; completed classes are
+  refused). Not a staff login.
 - `classes` — event_id, num, name, judge, judge2 (optional second judge),
   status: upcoming|live|completed, sort_order, pattern_url, day (multi-day
   shows, default 1), scoring_mode (see Scoring modes below), capacity

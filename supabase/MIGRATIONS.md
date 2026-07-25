@@ -145,6 +145,10 @@ hasn't been run.
         qualifying classes, and the championship draw fills itself with the
         1st & 2nd place-getters when the last one completes. Without it,
         saving a championship's qualifying classes shows a run-this message.
+- [ ] **v44** — `schema-v44-gate-access.sql`
+      → powers the **Gate access** link: the gate marshal gets gate controls
+        only (advance the TBC draw, scratch/restore) with no staff login.
+        Without it the Gate access button shows a run-this message.
 
 Tick these off once you've run them.
 
@@ -197,6 +201,7 @@ Tick these off once you've run them.
 | `schema-v41-family-member-details.sql` | Each family member's own AQHA number, phone and other associations |
 | `schema-v42-member-club-registrations.sql` | Members + family members list multiple club registrations (AQHA/PHAA/AAA/…), not just AQHA |
 | `schema-v43-championship-classes.sql` | Champ & Reserve / Grand Champion classes auto-fill from their feeder classes' place-getters |
+| `schema-v44-gate-access.sql` | Gate marshal link: gate controls only (advance TBC draw, scratch), no staff login |
 
 ## For whoever updates the code next
 
