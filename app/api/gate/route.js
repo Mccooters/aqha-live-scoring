@@ -13,7 +13,7 @@ import { adminClient } from "../_lib/registrations";
 // read out of the database by spectators or guessed by brute force.
 export async function POST(req) {
   try {
-    const { event_id, code, action, entry_id } = await req.json();
+    const { event_id, code, action, entry_id, class_id } = await req.json();
     if (!event_id || !code || !action) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
@@ -37,6 +37,42 @@ export async function POST(req) {
 
     // The gate page uses this to verify the code before showing controls.
     if (action === "check") return NextResponse.json({ ok: true });
+
+    // Finish the current live class and start the next one in running order.
+    // Needed on all-TBC days: results come from paperwork later, so classes
+    // (especially championships with an empty draw) never auto-complete from
+    // scoring — the marshal moves the show along. Only the LIVE class can be
+    // finished from the gate, so this can't touch results or skip arbitrarily.
+    if (action === "advance_class") {
+      if (!class_id) return NextResponse.json({ error: "class_id required" }, { status: 400 });
+      const { data: cls } = await db
+        .from("classes")
+        .select("id, event_id, status, sort_order")
+        .eq("id", class_id)
+        .maybeSingle();
+      if (!cls || cls.event_id !== event_id) {
+        return NextResponse.json({ error: "Class not found" }, { status: 404 });
+      }
+      if (cls.status !== "live") {
+        return NextResponse.json({ error: "Only the class currently in the ring can be finished from the gate." }, { status: 400 });
+      }
+      const { error: doneErr } = await db.from("classes").update({ status: "completed" }).eq("id", class_id);
+      if (doneErr) return NextResponse.json({ error: doneErr.message }, { status: 500 });
+      // Start the next upcoming class after this one in running order
+      // (hidden classes skipped; filtered in JS so pre-v38 databases work).
+      const { data: rest } = await db
+        .from("classes")
+        .select("id, num, name, sort_order, status, hidden")
+        .eq("event_id", event_id)
+        .order("sort_order");
+      const nextUp = (rest ?? []).find((c) =>
+        c.status === "upcoming" && !c.hidden && (c.sort_order ?? 0) > (cls.sort_order ?? 0));
+      if (nextUp) {
+        const { error: startErr } = await db.from("classes").update({ status: "live" }).eq("id", nextUp.id);
+        if (startErr) return NextResponse.json({ error: startErr.message }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, next: nextUp ? `Class ${nextUp.num} · ${nextUp.name}` : null });
+    }
 
     if (!entry_id) return NextResponse.json({ error: "entry_id required" }, { status: 400 });
     // The entry must belong to a class of THIS event — the code never
