@@ -80,7 +80,7 @@ export async function POST(req) {
     // the gate can't touch results that have already been decided.
     const { data: entry } = await db
       .from("entries")
-      .select("id, called, scratched, classes!inner(event_id, scoring_mode, status)")
+      .select("id, class_id, called, scratched, score, classes!inner(event_id, scoring_mode, status)")
       .eq("id", entry_id)
       .maybeSingle();
     if (!entry || entry.classes?.event_id !== event_id) {
@@ -99,6 +99,32 @@ export async function POST(req) {
     } else if (action === "scratch" || action === "restore") {
       const { error } = await db.from("entries").update({ scratched: action === "scratch" }).eq("id", entry_id);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else if (action === "move_earlier" || action === "move_later") {
+      // Last-second gate changes: swap this horse with its neighbour in the
+      // PENDING draw only — horses already through (called/scored) and
+      // scratches keep their spots.
+      const dir = action === "move_earlier" ? -1 : 1;
+      const mode = entry.classes?.scoring_mode ?? "score";
+      const { data: all } = await db
+        .from("entries")
+        .select("id, draw_order, called, scratched, score")
+        .eq("class_id", entry.class_id);
+      const pending = (all ?? [])
+        .filter((x) => !x.scratched && (mode === "tbc" ? !x.called : x.score == null))
+        .sort((a, b) => (a.draw_order ?? 0) - (b.draw_order ?? 0));
+      const idx = pending.findIndex((x) => x.id === entry_id);
+      if (idx === -1) {
+        return NextResponse.json({ error: "That horse has already been through — its spot can't move." }, { status: 400 });
+      }
+      const other = pending[idx + dir];
+      if (!other) return NextResponse.json({ ok: true }); // already first/last
+      const [r1, r2] = await Promise.all([
+        db.from("entries").update({ draw_order: other.draw_order }).eq("id", entry_id),
+        db.from("entries").update({ draw_order: pending[idx].draw_order }).eq("id", other.id),
+      ]);
+      if (r1.error || r2.error) {
+        return NextResponse.json({ error: (r1.error ?? r2.error).message }, { status: 500 });
+      }
     } else {
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
     }

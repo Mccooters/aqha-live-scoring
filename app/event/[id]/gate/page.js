@@ -137,18 +137,31 @@ export default function GatePage() {
     ? liveClass.entries.filter((e) => !e.called && !e.scratched).length
     : 0;
 
-  const entryRow = (e, cls) => (
-    <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--line)", opacity: e.scratched ? 0.55 : 1 }}>
-      <span style={{ fontSize: 14.5, fontWeight: 600, textDecoration: e.scratched ? "line-through" : "none" }}>
-        #{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span>
-      </span>
-      {e.scratched ? (
-        <button className="btn-ghost" style={{ fontSize: 12 }} disabled={busy} onClick={() => act("restore", e.id)}>Restore</button>
-      ) : (e.score == null && !(cls.scoring_mode === "tbc" && e.called)) ? (
-        <button className="btn-ghost" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }} disabled={busy} onClick={() => act("scratch", e.id)}>Scratch</button>
-      ) : null}
-    </div>
-  );
+  const entryRow = (e, cls) => {
+    // Still to go through the ring — these can be reordered for last-second
+    // gate changes (horses already through, and scratches, keep their spots).
+    const movable = !e.scratched && (cls.scoring_mode === "tbc" ? !e.called : e.score == null);
+    return (
+      <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--line)", opacity: e.scratched ? 0.55 : 1 }}>
+        <span style={{ fontSize: 14.5, fontWeight: 600, textDecoration: e.scratched ? "line-through" : "none" }}>
+          #{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span>
+        </span>
+        <span style={{ display: "inline-flex", gap: 5, flexShrink: 0 }}>
+          {movable && (
+            <>
+              <button className="btn-ghost" aria-label="Move earlier" style={{ fontSize: 12, padding: "4px 9px" }} disabled={busy} onClick={() => act("move_earlier", e.id)}>▲</button>
+              <button className="btn-ghost" aria-label="Move later" style={{ fontSize: 12, padding: "4px 9px" }} disabled={busy} onClick={() => act("move_later", e.id)}>▼</button>
+            </>
+          )}
+          {e.scratched ? (
+            <button className="btn-ghost" style={{ fontSize: 12 }} disabled={busy} onClick={() => act("restore", e.id)}>Restore</button>
+          ) : (e.score == null && !(cls.scoring_mode === "tbc" && e.called)) ? (
+            <button className="btn-ghost" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }} disabled={busy} onClick={() => act("scratch", e.id)}>Scratch</button>
+          ) : null}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <>
