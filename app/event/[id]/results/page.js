@@ -101,8 +101,10 @@ export default function ResultsPrintPage() {
             if (row.type === "break") return <div key={row.key} className="program-break">{row.label}</div>;
             const cls = row.cls;
             const results = resultEntries(cls);
-            // Championship classes (schema-v43): 1st/2nd read as Champion/Reserve.
+            // Championship classes (schema-v43): 1st/2nd read as Champion/Reserve
+            // (a Supreme class's winner reads Supreme).
             const isChamp = Array.isArray(cls.champ_feeder_ids) && cls.champ_feeder_ids.length > 0;
+            const champTitle = /supreme/i.test(cls.name ?? "") ? "Supreme" : "Champion";
             return (
               <div key={row.key} className="program-row">
                 <div className="class-heading">
@@ -113,7 +115,7 @@ export default function ResultsPrintPage() {
                   <ol className="result-list">
                     {results.map((entry, idx) => (
                       <li key={entry.id}>
-                        <span className="result-place">{isChamp && idx === 0 ? "Champion:" : isChamp && idx === 1 ? "Reserve:" : `${idx + 1}.`}</span>
+                        <span className="result-place">{isChamp && idx === 0 ? `${champTitle}:` : isChamp && idx === 1 ? "Reserve:" : `${idx + 1}.`}</span>
                         <span>#{fmtBack(entry.back_number)} {entry.horse} - {entry.exhibitor}</span>
                         <span className="result-score">{scoreText(entry, cls)}</span>
                       </li>
