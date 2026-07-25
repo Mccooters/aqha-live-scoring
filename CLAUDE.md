@@ -223,7 +223,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v44)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v45)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -251,7 +251,9 @@ PR with a clear plain-English description.
   empty classes instead of deleting them, and staff reactivate them from a
   collapsed "Hidden classes" section on the dashboard), champ_feeder_ids +
   champ_take (schema-v43 — championship classes; see Championship classes
-  below).
+  below), result_sheets (schema-v45 — jsonb [{url, label}] photos of each
+  judge's paper result sheet, uploaded from the class ⋯ menu into the
+  patterns bucket under results/…, linked on the public Results page).
 - `entries` — class_id, back_number, horse, exhibitor, draw_order, score,
   score2 (second judge's independent score), scratched bool, called bool
   (TBC draw mode — see below). "Current" entry of a live class = first entry

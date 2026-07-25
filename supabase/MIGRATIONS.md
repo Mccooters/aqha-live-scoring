@@ -149,6 +149,10 @@ hasn't been run.
       → powers the **Gate access** link: the gate marshal gets gate controls
         only (advance the TBC draw, scratch/restore) with no staff login.
         Without it the Gate access button shows a run-this message.
+- [ ] **v45** — `schema-v45-result-sheets.sql`
+      → lets staff attach **photos of each judge's paper result sheets** to a
+        class (shown on the public Results page). Without it uploading shows
+        a run-this message.
 
 Tick these off once you've run them.
 
@@ -202,6 +206,7 @@ Tick these off once you've run them.
 | `schema-v42-member-club-registrations.sql` | Members + family members list multiple club registrations (AQHA/PHAA/AAA/…), not just AQHA |
 | `schema-v43-championship-classes.sql` | Champ & Reserve / Grand Champion classes auto-fill from their feeder classes' place-getters |
 | `schema-v44-gate-access.sql` | Gate marshal link: gate controls only (advance TBC draw, scratch), no staff login |
+| `schema-v45-result-sheets.sql` | Photos of each judge's paper result sheets attached per class (public Results page) |
 
 ## For whoever updates the code next
 
