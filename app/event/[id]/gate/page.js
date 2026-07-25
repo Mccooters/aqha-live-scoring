@@ -112,11 +112,11 @@ export default function GatePage() {
       <main className="wrap" style={{ maxWidth: 440 }}>
         <h1 className="display" style={{ fontWeight: 700, fontSize: 22 }}>Gate — {event.name}</h1>
         <p style={{ fontSize: 13.5, color: "var(--quiet)" }}>
-          Enter the gate code from the coordinator (or open the link they shared).
+          Open the link the coordinator shared — or paste its gate code here.
         </p>
         <div style={{ display: "flex", gap: 8 }}>
-          <input className="field" inputMode="numeric" style={{ flex: 1, fontSize: 18, letterSpacing: ".2em" }}
-            value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. 123456" />
+          <input className="field" style={{ flex: 1, fontSize: 16 }}
+            value={code} onChange={(e) => setCode(e.target.value)} placeholder="Paste the gate code" />
           <button className="btn" style={{ background: "var(--leather)" }} disabled={checking || !code.trim()}
             onClick={() => verify(code.trim())}>
             {checking ? "Checking…" : "Open gate view"}

@@ -232,13 +232,16 @@ PR with a clear plain-English description.
   waived when an earlier paid registration's `registrations.fees_cents` > 0;
   the entry form checks via `app/api/registrations/fees-status`),
   event_type: `show` | `clinic`, entries_open (legacy boolean, superseded by
-  status, kept for backwards compatibility but unused), gate_code
-  (schema-v44 — per-event code for the gate marshal link
-  `/event/[id]/gate?code=…`: the page verifies via `app/api/gate` action
-  "check", then offers gate controls ONLY — mark the current TBC-draw horse
-  called, scratch/restore — all writes through `app/api/gate` (service role,
-  entry checked to belong to the event). Not a staff login. The dashboard's
-  "🚪 Gate access" button generates/shows the link).
+  status, kept for backwards compatibility but unused).
+- `gate_codes` — event_id (pk, cascade delete), code (schema-v44). Per-event
+  gate-marshal access: the dashboard's "🚪 Gate access" button generates a
+  long crypto-random token (NEVER stored on the publicly readable `events`
+  table — this table has no anon access at all; staff + service role only)
+  and shares `/event/[id]/gate?code=…`. The gate page verifies via
+  `app/api/gate` action "check", then offers gate controls ONLY — mark the
+  current TBC-draw horse called, scratch/restore — via `app/api/gate`
+  (service role; entry must belong to the event; completed classes are
+  refused). Not a staff login.
 - `classes` — event_id, num, name, judge, judge2 (optional second judge),
   status: upcoming|live|completed, sort_order, pattern_url, day (multi-day
   shows, default 1), scoring_mode (see Scoring modes below), capacity

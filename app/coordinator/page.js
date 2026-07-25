@@ -739,17 +739,26 @@ export default function Coordinator() {
   // off anyone holding the old link.
   const gateAccess = async () => {
     if (!currentEvent) return;
-    let codeVal = currentEvent.gate_code;
+    const migrationHint = 'Gate access needs a database update — run "schema-v44-gate-access.sql" in the Supabase SQL Editor first.';
+    const { data: existing, error: readErr } = await supabase
+      .from("gate_codes").select("code").eq("event_id", currentEvent.id).maybeSingle();
+    if (readErr) {
+      window.alert(/gate_codes|does not exist|schema cache/i.test(readErr.message ?? "") ? migrationHint : readErr.message);
+      return;
+    }
+    let codeVal = existing?.code ?? null;
     if (!codeVal) {
-      codeVal = String(Math.floor(100000 + Math.random() * 900000));
-      const { error } = await supabase.from("events").update({ gate_code: codeVal }).eq("id", currentEvent.id);
+      // Long random token (crypto-strength) — the link is the key, and it
+      // can't be guessed the way a short PIN could.
+      const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      codeVal = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+      const { error } = await supabase.from("gate_codes").insert({ event_id: currentEvent.id, code: codeVal });
       if (error) {
-        window.alert(/gate_code/i.test(error.message ?? "")
-          ? 'Gate access needs a database update — run "schema-v44-gate-access.sql" in the Supabase SQL Editor first.'
-          : error.message);
+        window.alert(/gate_codes|does not exist|schema cache/i.test(error.message ?? "") ? migrationHint : error.message);
         return;
       }
-      await loadEvents();
     }
     const url = `${window.location.origin}/event/${currentEvent.id}/gate?code=${codeVal}`;
     window.prompt(
