@@ -1037,6 +1037,9 @@ export default function Coordinator() {
         score2: e.score2 != null ? String(e.score2) : "",
       };
     }
+    if (type === "dayEntry") {
+      initialForm = { dayClassIds: [] };
+    }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
       initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : undefined, champ_take: c.champ_take ?? "top2" };
@@ -1227,6 +1230,71 @@ export default function Coordinator() {
     if (error) { setFormError(error.message); return; }
     await loadClasses();
     closeModal();
+  };
+
+  // Day entry: one horse into many classes at once — for taking entries at
+  // the gate with payment on the Square terminal. Mirrors the online form's
+  // conveniences: registry lookup by back number, and (insert-only, like
+  // approveRegistration) a brand-new number straight into the registry.
+  const submitDayEntry = async () => {
+    const classIds = form.dayClassIds ?? [];
+    if (!form.horse?.trim() || !form.exhibitor?.trim()) { setFormError("Horse and exhibitor are required"); return; }
+    if (!form.newNumber && (!form.back || !(parseInt(form.back, 10) >= 1))) { setFormError("Enter the back number, or tick 'assign a new number'"); return; }
+    if (!classIds.length) { setFormError("Tick at least one class"); return; }
+    setBusy(true);
+    try {
+      let backNumber = parseInt(form.back, 10);
+      if (form.newNumber) {
+        const { data: top, error: topErr } = await supabase
+          .from("horses").select("back_number").order("back_number", { ascending: false }).limit(1);
+        if (topErr) { setFormError(topErr.message); return; }
+        backNumber = (top?.[0]?.back_number ?? 0) + 1;
+        // The unique index on horses.back_number arbitrates races — walk up on conflict.
+        let registered = false;
+        for (let i = 0; i < 5 && !registered; i++) {
+          const { error: insErr } = await supabase
+            .from("horses").insert({ back_number: backNumber, name: form.horse.trim(), owner: form.exhibitor.trim() });
+          if (!insErr) registered = true;
+          else if (/duplicate|unique/i.test(insErr.message ?? "")) backNumber += 1;
+          else { setFormError(insErr.message); return; }
+        }
+        if (!registered) { setFormError("Couldn't reserve a new back number — try again."); return; }
+      }
+      const failures = [];
+      let added = 0;
+      for (const classId of classIds) {
+        const cls = classes.find((c) => c.id === classId);
+        if (!cls) continue;
+        if (cls.entries.some((e) => e.back_number === backNumber && !e.scratched)) {
+          failures.push(`Class ${cls.num}: #${fmtBack(backNumber)} is already entered`);
+          continue;
+        }
+        const maxDraw = Math.max(0, ...cls.entries.map((e) => e.draw_order ?? 0));
+        const { error } = await supabase.from("entries").insert({
+          class_id: classId,
+          back_number: backNumber,
+          horse: form.horse.trim(),
+          exhibitor: form.exhibitor.trim(),
+          draw_order: maxDraw + 1,
+        });
+        if (error) failures.push(`Class ${cls.num}: ${error.message}`);
+        else added += 1;
+      }
+      await loadClasses();
+      if (failures.length) { setFormError(failures.join("\n")); return; }
+      closeModal();
+      const feeCents = (currentEvent?.entry_fee_cents ?? 0) * added;
+      const extras = [
+        (currentEvent?.ground_fee_cents || currentEvent?.admin_fee_cents) ? "ground/admin fees if this is their first entry today" : null,
+        "a day membership if they're not a member",
+      ].filter(Boolean).join(", plus ");
+      window.alert(
+        `#${fmtBack(backNumber)} ${form.horse.trim()} added to ${added} class${added === 1 ? "" : "es"}.` +
+        (feeCents > 0 ? `\n\nCollect $${(feeCents / 100).toFixed(2)} in class fees on the terminal (plus ${extras}).` : "")
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const submitEditEntry = async () => {
@@ -1652,6 +1720,13 @@ export default function Coordinator() {
             <Link href="/coordinator/numbers" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
               New numbers
             </Link>
+            {!isClinic && (
+              <button className="btn-ghost" style={{ borderColor: "var(--brass)", color: "var(--brass)", fontWeight: 700 }}
+                onClick={() => openModal("dayEntry")} disabled={!eventId || classes.length === 0}
+                title="Take an entry at the gate: one horse into many classes, payment on the Square terminal">
+                🐎 Day entry
+              </button>
+            )}
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
               title="Put every class into class-number order, day by day">
@@ -2309,6 +2384,67 @@ export default function Coordinator() {
                 </div>
               </>
             )}
+
+            {modal.type === "dayEntry" && (() => {
+              const eligible = classes
+                .filter((c) => c.status !== "completed" && !c.hidden && !isChampionship(c))
+                .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+              const selected = form.dayClassIds ?? [];
+              const toggleDayClass = (id) => setForm((f) => {
+                const cur = new Set(f.dayClassIds ?? []);
+                if (cur.has(id)) cur.delete(id); else cur.add(id);
+                return { ...f, dayClassIds: [...cur] };
+              });
+              const feeCents = currentEvent?.entry_fee_cents ?? 0;
+              return (
+                <>
+                  <h2 className="display modal-title">Day entry — one horse, many classes</h2>
+                  <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
+                    For entries taken at the gate: fill in the horse once, tick every class they&apos;re entering, and collect payment on the Square terminal.
+                  </p>
+                  <label className="modal-label">Back number *</label>
+                  <input className="field" type="number" min="1" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""}
+                    onChange={setField("back")}
+                    onBlur={(e) => lookupHorse(e.target.value, { force: true })}
+                    disabled={!!form.newNumber}
+                    placeholder="e.g. 301" autoFocus />
+                  {!form.newNumber && horseSuggestion === false && <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>Not in registry — fill in manually below</p>}
+                  {!form.newNumber && horseSuggestion && <p style={{ fontSize: 12, color: "var(--green)", margin: "4px 0 0" }}>Found in registry: {horseSuggestion.name}{horseSuggestion.owner ? ` · ${horseSuggestion.owner}` : ""}{registryClubs(horseSuggestion) ? ` · ${registryClubs(horseSuggestion)}` : ""}</p>}
+                  <label style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "8px 0 0", cursor: "pointer", fontSize: 13 }}>
+                    <input type="checkbox" checked={!!form.newNumber} style={{ marginTop: 2 }}
+                      onChange={(e) => setForm((f) => ({ ...f, newNumber: e.target.checked, back: e.target.checked ? "" : f.back }))} />
+                    <span>This horse doesn&apos;t have a back number yet — assign the next available number (added to the registry permanently)</span>
+                  </label>
+                  <label className="modal-label">Horse name *</label>
+                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.horse ?? ""} onChange={setField("horse")} placeholder="e.g. Machine Made Lady" />
+                  <label className="modal-label">Exhibitor *</label>
+                  <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.exhibitor ?? ""} onChange={setField("exhibitor")} placeholder="e.g. P. Santos" />
+                  <label className="modal-label">Classes ({selected.length} ticked)</label>
+                  <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, background: "#fff", padding: "6px 10px" }}>
+                    {eligible.length === 0 && <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "4px 0" }}>No classes available for entry.</p>}
+                    {eligible.map((c) => (
+                      <label key={c.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 0", cursor: "pointer", fontSize: 13.5 }}>
+                        <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleDayClass(c.id)} />
+                        <span>{c.num}. {c.name}{c.status === "live" ? " (live now)" : ""}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {feeCents > 0 && (
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "var(--leather)", margin: "8px 0 0" }}>
+                      Class fees to collect: ${((feeCents * selected.length) / 100).toFixed(2)}
+                      <span style={{ fontWeight: 400, color: "var(--quiet)" }}> — plus any ground/admin fees and day membership, as applicable.</span>
+                    </p>
+                  )}
+                  {formError && <p className="modal-error" style={{ whiteSpace: "pre-line" }}>{formError}</p>}
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitDayEntry} disabled={busy}>
+                      {busy ? "Adding…" : `Add to ${selected.length || "…"} class${selected.length === 1 ? "" : "es"}`}
+                    </button>
+                    <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                  </div>
+                </>
+              );
+            })()}
 
             {modal.type === "pattern" && (
               <>
