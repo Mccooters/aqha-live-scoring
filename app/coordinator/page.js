@@ -727,6 +727,29 @@ export default function Coordinator() {
     return { ok: !error, error };
   };
 
+  // One-tap default order: re-sequence every class (hidden ones included, so
+  // they reactivate into the right spot) into day order then class-number
+  // order. The ▲▼ buttons still override individual positions afterwards.
+  const sortByClassNumber = async () => {
+    const sorted = [...classes].sort((a, b) =>
+      (a.day ?? 1) - (b.day ?? 1) || (a.num ?? 0) - (b.num ?? 0) || (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    const updates = sorted
+      .map((c, i) => ({ id: c.id, sort_order: i + 1, changed: (c.sort_order ?? 0) !== i + 1 }))
+      .filter((u) => u.changed);
+    if (!updates.length) { window.alert("The classes are already in class-number order."); return; }
+    if (!window.confirm(`Put all ${sorted.length} classes into class-number order (day by day)?\n\nAny manual running-order changes are overridden — you can still move individual classes afterwards with the ▲▼ buttons.`)) return;
+    setBusy(true);
+    try {
+      for (const u of updates) {
+        const { error } = await supabase.from("classes").update({ sort_order: u.sort_order }).eq("id", u.id);
+        if (error) { window.alert("Could not finish re-ordering: " + error.message); break; }
+      }
+      await loadClasses();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const moveClass = async (cls, dir) => {
     const upcoming = classes.filter((c) => c.status === "upcoming" && !c.hidden);
     const pos = upcoming.findIndex((c) => c.id === cls.id);
@@ -1155,6 +1178,18 @@ export default function Coordinator() {
     if (feederIds.length) {
       insertData.champ_feeder_ids = feederIds;
       insertData.champ_take = form.champ_take === "top1" ? "top1" : "top2";
+    }
+    // Slot the new class into class-number order instead of appending at the
+    // end — a re-added Class 86 lands back between 85 and 87, not below 200.
+    // (▲▼ and "Sort by number" can still override afterwards.)
+    const ordered = [...classes].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    const slotAfter = ordered.find((c) =>
+      ((c.day ?? 1) > insertData.day) || ((c.day ?? 1) === insertData.day && (c.num ?? 0) > insertData.num));
+    if (slotAfter) {
+      insertData.sort_order = slotAfter.sort_order;
+      const bump = ordered.filter((c) => (c.sort_order ?? 0) >= (slotAfter.sort_order ?? 0));
+      await Promise.all(bump.map((c) =>
+        supabase.from("classes").update({ sort_order: (c.sort_order ?? 0) + 1 }).eq("id", c.id)));
     }
     const { error } = await supabase.from("classes").insert(insertData);
     if (error) {
@@ -1618,6 +1653,10 @@ export default function Coordinator() {
               New numbers
             </Link>
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
+            <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
+              title="Put every class into class-number order, day by day">
+              ↕ Sort by number
+            </button>
             <button className="btn-ghost" onClick={exportClasses} disabled={exportingClasses || !eventId || classes.length === 0}>
               {exportingClasses ? "Exporting…" : "⇩ Export classes"}
             </button>
