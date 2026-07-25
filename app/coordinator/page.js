@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { categoryKey, programDisplayRows } from "../../lib/classCategories";
+import { isChampionship, looksLikeChampionship, championshipQualifiers, suggestFeederIds } from "../../lib/championship";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 
@@ -17,6 +18,62 @@ const HP_CATEGORIES = [
   "Amateur", "Novice Amateur", "Select", "Beginner", "EWD", "Youth", "Leadline",
 ];
 const HP_HORSE_CATS = new Set(["Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse"]);
+
+// Feeder-class picker shown in the class form when the name looks like a
+// championship ("Champ & Reserve…", "GRAND CHAMPION") or feeders are already
+// saved. The app pre-ticks its best guess for the section; staff confirm.
+function ChampionshipFields({ form, setForm, classes, currentClassId }) {
+  const isChampName = looksLikeChampionship(form.name);
+  const selected = Array.isArray(form.champ_feeder_ids) ? form.champ_feeder_ids : [];
+  const day = parseInt(form.day ?? "1", 10) || 1;
+
+  // Pre-tick the suggestion the first time the section appears — never after
+  // staff have touched the list (undefined = untouched).
+  useEffect(() => {
+    if (!isChampName || form.champ_feeder_ids !== undefined) return;
+    const current = currentClassId ? classes.find((c) => c.id === currentClassId) : null;
+    const champLike = { id: currentClassId, name: form.name, day, sort_order: current?.sort_order ?? Infinity };
+    setForm((f) => ({ ...f, champ_feeder_ids: suggestFeederIds(champLike, classes) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isChampName]);
+
+  if (!isChampName && selected.length === 0) return null;
+
+  const candidates = classes
+    .filter((c) => c.id !== currentClassId && (c.day ?? 1) === day)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  const toggle = (id) => setForm((f) => {
+    const cur = new Set(Array.isArray(f.champ_feeder_ids) ? f.champ_feeder_ids : []);
+    if (cur.has(id)) cur.delete(id); else cur.add(id);
+    return { ...f, champ_feeder_ids: [...cur] };
+  });
+
+  return (
+    <div style={{ border: "1px solid var(--brass)", borderRadius: 10, padding: "10px 12px", marginTop: 12, background: "#FDFBF5" }}>
+      <div style={{ fontWeight: 800, fontSize: 13, color: "var(--leather)" }}>🏆 Championship class</div>
+      <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 8px" }}>
+        No one enters this class directly — its draw fills automatically with the place-getters from
+        the ticked classes once they&apos;re all completed. The suggested classes are pre-ticked; adjust
+        as needed. Untick everything to treat this as a normal class.
+      </p>
+      <label className="modal-label">Who qualifies from each class</label>
+      <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.champ_take ?? "top2"}
+        onChange={(e) => setForm((f) => ({ ...f, champ_take: e.target.value }))}>
+        <option value="top2">1st &amp; 2nd place-getters from each class</option>
+        <option value="top1">Winners (1st) only</option>
+      </select>
+      <div style={{ maxHeight: 180, overflowY: "auto", marginTop: 8, border: "1px solid var(--line)", borderRadius: 8, background: "#fff", padding: "6px 10px" }}>
+        {candidates.length === 0 && <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "4px 0" }}>No other classes on this day yet.</p>}
+        {candidates.map((c) => (
+          <label key={c.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "3px 0", cursor: "pointer", fontSize: 13.5 }}>
+            <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggle(c.id)} />
+            <span>{c.num}. {c.name}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const PROGRAM_CATEGORIES = [
   "Quarter Horse Halter", "Paint Halter", "Paint Bred Halter", "Appaloosa Halter",
@@ -442,6 +499,7 @@ export default function Coordinator() {
         );
         if (!ok) return;
         await pushToHighPoints(liveClass);
+        await fillChampionshipsFedBy(liveClass.id);
       }
       const ok = await saveOrWarn(
         supabase.from("classes").update({ status: "live" }).eq("id", cls.id),
@@ -473,6 +531,7 @@ export default function Coordinator() {
       );
     }
     await pushToHighPoints(cls);
+    await fillChampionshipsFedBy(cls.id);
     // Auto-advance only while the event is live, and to the next class AFTER
     // this one in running order (not the earliest upcoming, which could jump
     // backwards over classes you've deliberately skipped).
@@ -500,6 +559,69 @@ export default function Coordinator() {
     if (busy) return;
     setBusy(true);
     try { await completeClass(cls); } finally { setBusy(false); }
+  };
+
+  // ---- Championship auto-fill (schema-v43) ----
+  // Builds a championship class's draw from its feeders' place-getters.
+  // Only runs once every feeder is completed. Never touches scored or
+  // scratched entries; replace=true (the Refresh button) also removes
+  // unscored horses that no longer qualify after a result correction.
+  const fillChampionshipDraw = async (champCls, allClasses, { replace = false } = {}) => {
+    const byId = Object.fromEntries(allClasses.map((c) => [c.id, c]));
+    const feeders = (champCls.champ_feeder_ids ?? []).map((id) => byId[id]).filter(Boolean);
+    if (!feeders.length) return { done: false };
+    if (!feeders.every((f) => f.status === "completed")) return { waiting: true };
+    const qualifiers = championshipQualifiers(champCls, byId);
+    const qualBacks = new Set(qualifiers.map((q) => q.back_number));
+    let existing = champCls.entries ?? [];
+    if (replace) {
+      const removable = existing.filter((e) => e.score == null && e.score2 == null && !e.scratched && !qualBacks.has(e.back_number));
+      if (removable.length) {
+        const { error } = await supabase.from("entries").delete().in("id", removable.map((e) => e.id));
+        if (error) { window.alert("Could not update the championship draw: " + error.message); return { done: false }; }
+        const removedIds = new Set(removable.map((e) => e.id));
+        existing = existing.filter((e) => !removedIds.has(e.id));
+      }
+    }
+    const existingBacks = new Set(existing.map((e) => e.back_number));
+    let maxDraw = Math.max(0, ...existing.map((e) => e.draw_order ?? 0));
+    const toInsert = qualifiers
+      .filter((q) => !existingBacks.has(q.back_number))
+      .map((q) => ({ class_id: champCls.id, back_number: q.back_number, horse: q.horse, exhibitor: q.exhibitor, draw_order: ++maxDraw }));
+    if (toInsert.length) {
+      const { error } = await supabase.from("entries").insert(toInsert);
+      if (error) { window.alert("Could not fill the championship draw: " + error.message); return { done: false }; }
+    }
+    return { done: true, added: toInsert.length };
+  };
+
+  // Runs whenever a class completes: fills any championship it feeds, using
+  // freshly-loaded data (its scores were written moments ago).
+  const fillChampionshipsFedBy = async (completedClassId) => {
+    try {
+      const { data: fresh } = await supabase
+        .from("classes").select("*, entries(*)").eq("event_id", eventId).order("sort_order");
+      const champs = (fresh ?? []).filter((c) =>
+        Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.includes(completedClassId) && c.status !== "completed");
+      for (const champ of champs) {
+        const res = await fillChampionshipDraw(champ, fresh ?? []);
+        if (res.done && res.added > 0) {
+          triggerPush(`${champ.name} — draw ready`, `${res.added} qualifier${res.added === 1 ? "" : "s"} added from the completed classes.`, "results");
+        }
+      }
+    } catch (err) {
+      console.error("Championship auto-fill failed:", err);
+    }
+  };
+
+  const refreshChampionship = async (cls) => {
+    const feederNums = (cls.champ_feeder_ids ?? [])
+      .map((id) => classes.find((c) => c.id === id)?.num)
+      .filter((n) => n != null);
+    if (!window.confirm(`Rebuild the draw for Class ${cls.num} · ${cls.name} from its qualifying classes (${feederNums.join(", ") || "none"})?\n\nAdds missing qualifiers and removes unscored horses that no longer qualify. Scored or scratched entries are kept.`)) return;
+    const res = await fillChampionshipDraw(cls, classes, { replace: true });
+    if (res.waiting) window.alert("Not all qualifying classes are completed yet — the draw fills automatically the moment the last one finishes.");
+    await loadClasses();
   };
 
   const pushToHighPoints = async (cls) => {
@@ -658,6 +780,7 @@ export default function Coordinator() {
     if (liveClass) {
       await supabase.from("classes").update({ status: "completed" }).eq("id", liveClass.id);
       await pushToHighPoints(liveClass);
+      await fillChampionshipsFedBy(liveClass.id);
     }
     await setEventStatus("completed");
     await loadClasses();
@@ -893,7 +1016,7 @@ export default function Coordinator() {
     }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
-      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "" };
+      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : undefined, champ_take: c.champ_take ?? "top2" };
     }
     if (type === "editEvent" && extra.event) {
       const ev = extra.event;
@@ -1028,9 +1151,16 @@ export default function Coordinator() {
     if (form.program_category?.trim()) insertData.program_category = form.program_category.trim();
     if (form.program_break_before?.trim()) insertData.program_break_before = form.program_break_before.trim();
     if (form.program_break_after?.trim()) insertData.program_break_after = form.program_break_after.trim();
+    const feederIds = Array.isArray(form.champ_feeder_ids) ? form.champ_feeder_ids.filter(Boolean) : [];
+    if (feederIds.length) {
+      insertData.champ_feeder_ids = feederIds;
+      insertData.champ_take = form.champ_take === "top1" ? "top1" : "top2";
+    }
     const { error } = await supabase.from("classes").insert(insertData);
     if (error) {
-      const msg = error.message?.includes("program_break_before") || error.message?.includes("program_break_after")
+      const msg = error.message?.includes("champ_feeder_ids") || error.message?.includes("champ_take")
+        ? 'Championship classes need a database update. Please run "schema-v43-championship-classes.sql" in your Supabase SQL Editor first.'
+        : error.message?.includes("program_break_before") || error.message?.includes("program_break_after")
         ? 'Database migration needed. Please run "schema-v20-program-breaks.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("program_category") ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("day") ? 'Database migration needed. Please run "schema-v2-horses.sql" in your Supabase SQL Editor first.' : error.message;
@@ -1101,9 +1231,16 @@ export default function Coordinator() {
       updateData.program_break_after = form.program_break_after?.trim() || null;
     }
     if (modal.cls.day !== undefined) updateData.day = parseInt(form.day ?? "1", 10) || 1;
+    const editFeederIds = Array.isArray(form.champ_feeder_ids) ? form.champ_feeder_ids.filter(Boolean) : [];
+    if (Object.prototype.hasOwnProperty.call(modal.cls ?? {}, "champ_feeder_ids") || editFeederIds.length) {
+      updateData.champ_feeder_ids = editFeederIds.length ? editFeederIds : null;
+      updateData.champ_take = form.champ_take === "top1" ? "top1" : "top2";
+    }
     const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
     if (error) {
-      setFormError(error.message?.includes("program_break_before") || error.message?.includes("program_break_after")
+      setFormError(error.message?.includes("champ_feeder_ids") || error.message?.includes("champ_take")
+        ? 'Championship classes need a database update. Please run "schema-v43-championship-classes.sql" in your Supabase SQL Editor first.'
+        : error.message?.includes("program_break_before") || error.message?.includes("program_break_after")
         ? 'Database migration needed. Please run "schema-v20-program-breaks.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("program_category") ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
         : error.message);
@@ -1747,6 +1884,13 @@ export default function Coordinator() {
                       HP: {cls.hp_category}
                     </div>
                   )}
+                  {isChampionship(cls) && (
+                    <div style={{ fontSize: 11, color: "#7A5C10", marginTop: 2, fontWeight: 700 }}>
+                      🏆 Championship — fills with {cls.champ_take === "top1" ? "the winner" : "1st & 2nd"} from classes {
+                        cls.champ_feeder_ids.map((id) => classes.find((c) => c.id === id)?.num).filter((n) => n != null).join(", ") || "—"
+                      }
+                    </div>
+                  )}
                   {cls.capacity != null && (
                     <div style={{ fontSize: 12, marginTop: 2 }}>
                       <span style={{ background: isFull ? "var(--clay)" : confirmedSpots >= cls.capacity * 0.8 ? "#A05000" : "var(--green)", color: "#fff", borderRadius: 8, padding: "1px 8px", fontWeight: 700 }}>
@@ -1766,6 +1910,13 @@ export default function Coordinator() {
                     </>
                   )}
                   {isLive && !isClinic && <button className="btn-ghost" onClick={() => completeClassManual(cls)} disabled={busy}>Complete</button>}
+                  {isChampionship(cls) && cls.status !== "completed" && !isClinic && (
+                    <button className="btn-ghost" style={{ fontSize: 11, borderColor: "var(--brass)", color: "var(--brass)" }}
+                      onClick={() => refreshChampionship(cls)} disabled={busy}
+                      title="Rebuild this championship's draw from its qualifying classes' results">
+                      ↻ Qualifiers
+                    </button>
+                  )}
                   {cls.status === "completed" && cls.hp_category && !isClinic && (
                     <button className="btn-ghost" style={{ fontSize: 11, borderColor: "var(--green)", color: "var(--green)" }}
                       onClick={async () => {
@@ -2082,6 +2233,7 @@ export default function Coordinator() {
                     Set to limit online registrations for this spot type (e.g. 20 rider spots, 30 fence sitting spots).
                   </p>
                 )}
+                {!isClinic && <ChampionshipFields form={form} setForm={setForm} classes={classes} currentClassId={null} />}
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitClass}>
@@ -2441,6 +2593,7 @@ export default function Coordinator() {
                 <label className="modal-label">Spot capacity (leave blank for unlimited)</label>
                 <input className="field" type="number" min="1" style={{ width: 120, fontSize: 16 }}
                   value={form.capacity ?? ""} onChange={setField("capacity")} placeholder="e.g. 20" />
+                {!isClinic && <ChampionshipFields form={form} setForm={setForm} classes={classes} currentClassId={modal.cls?.id ?? null} />}
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEditClass}>Save changes</button>

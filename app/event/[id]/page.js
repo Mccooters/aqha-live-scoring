@@ -465,6 +465,8 @@ export default function EventPage() {
             const isTbcDraw = mode === "tbc";
             const isPlacingMode = mode === "placing" || mode === "class_only" || mode === "tbc_class";
             const twoJudges = !!cls.judge2;
+            // Championship classes (schema-v43): 1st/2nd read as Champion/Reserve.
+            const isChamp = Array.isArray(cls.champ_feeder_ids) && cls.champ_feeder_ids.length > 0;
             const placed = cls.entries
               .filter((e) => e.score != null && !e.scratched)
               .sort((a, b) => {
@@ -525,7 +527,9 @@ export default function EventPage() {
                     )}
                     {placed.map((e, i) => (
                       <tr key={e.id} style={i === 0 ? { background: "#FBF4E4" } : {}}>
-                        <td className="display" style={{ fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
+                        <td className="display" style={{ fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)", ...(isChamp && i < 2 ? { fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em" } : {}) }}>
+                          {isChamp && i === 0 ? "Champion" : isChamp && i === 1 ? "Reserve" : i + 1}
+                        </td>
                         <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                         <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
                         <td className="display" style={{ textAlign: "right", fontWeight: 700 }}>
