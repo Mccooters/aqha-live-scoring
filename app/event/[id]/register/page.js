@@ -424,7 +424,9 @@ export default function RegisterPage() {
           .order("sort_order"),
       ]);
       setEvent(ev);
-      setClasses((cls ?? []).filter((c) => !c.hidden)); // hidden classes (schema-v38) can't be entered online
+      // Hidden classes (schema-v38) and championship classes (schema-v43,
+      // qualification-only) can't be entered online.
+      setClasses((cls ?? []).filter((c) => !c.hidden && !(Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length)));
       // Is club membership required to enter? (Coordinator switch; public read.)
       const { data: reqSetting } = await supabase
         .from("site_settings")

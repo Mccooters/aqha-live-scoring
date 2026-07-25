@@ -140,6 +140,11 @@ hasn't been run.
       → lets each member and family member list **multiple clubs** (AQHA, PHAA
         Paint, AAA, etc.) with their number, instead of a single AQHA field.
         Without it the club list shows but isn't saved.
+- [ ] **v43** — `schema-v43-championship-classes.sql`
+      → powers **Champ & Reserve / Grand Champion** classes: staff link the
+        qualifying classes, and the championship draw fills itself with the
+        1st & 2nd place-getters when the last one completes. Without it,
+        saving a championship's qualifying classes shows a run-this message.
 
 Tick these off once you've run them.
 
@@ -191,6 +196,7 @@ Tick these off once you've run them.
 | `schema-v40-family-member-emails.sql` | Each person on a family membership can have their own email (enter events under it) |
 | `schema-v41-family-member-details.sql` | Each family member's own AQHA number, phone and other associations |
 | `schema-v42-member-club-registrations.sql` | Members + family members list multiple club registrations (AQHA/PHAA/AAA/…), not just AQHA |
+| `schema-v43-championship-classes.sql` | Champ & Reserve / Grand Champion classes auto-fill from their feeder classes' place-getters |
 
 ## For whoever updates the code next
 

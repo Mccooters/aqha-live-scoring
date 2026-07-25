@@ -223,7 +223,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v42)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v43)
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
@@ -240,7 +240,9 @@ PR with a clear plain-English description.
   when true the class is kept but removed from the public event page, schedule,
   program, results and online entry; the "Close entries" flow offers to hide
   empty classes instead of deleting them, and staff reactivate them from a
-  collapsed "Hidden classes" section on the dashboard).
+  collapsed "Hidden classes" section on the dashboard), champ_feeder_ids +
+  champ_take (schema-v43 — championship classes; see Championship classes
+  below).
 - `entries` — class_id, back_number, horse, exhibitor, draw_order, score,
   score2 (second judge's independent score), scratched bool, called bool
   (TBC draw mode — see below). "Current" entry of a live class = first entry
@@ -374,6 +376,32 @@ entries) or `live` (start the show) without reverting.
 other mode checks `score == null`. This logic is duplicated (intentionally,
 no shared package) across `app/coordinator/page.js` and
 `app/event/[id]/page.js` — keep both in sync when changing it.
+
+## Championship classes (schema-v43)
+
+Champ & Reserve / Grand Champion classes (`classes.champ_feeder_ids` — a
+jsonb list of feeder class ids; non-empty = championship. `champ_take`:
+`top2` default | `top1`). Logic lives in `lib/championship.js`; the
+coordinator page auto-fills. Rules:
+
+- **Setup**: the class form shows a feeder picker whenever the class name
+  matches /champ/i, pre-ticked from `suggestFeederIds()` (walks back through
+  the same day's program to the previous championship; a /grand/i class
+  collects the championship classes instead). Staff confirm/adjust.
+- **Auto-fill**: `fillChampionshipsFedBy(classId)` runs at every class
+  completion site (start-next-class, Complete button, End event). Once ALL
+  feeders are completed, qualifiers (1st & 2nd per feeder — both judges'
+  placings count on two-judge classes, union; `top1` = winners only) are
+  inserted into the championship's draw, deduped by back number. Manual
+  adds are never touched; the "↻ Qualifiers" button re-syncs (also removing
+  unscored no-longer-qualified horses) after result corrections.
+- **Qualification-only**: championship classes are excluded from the online
+  entry form and rejected server-side in `registrations/create`.
+- Public event + results pages label a championship's 1st/2nd as
+  **Champion / Reserve**.
+- Grand Champion eligibility (Champion+Reserve vs Champions only) is the
+  per-class `champ_take` toggle — the committee hadn't confirmed which at
+  build time; default `top2`.
 
 ## Clinics (`events.event_type = "clinic"`)
 

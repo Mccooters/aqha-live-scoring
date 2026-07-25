@@ -197,6 +197,14 @@ export async function POST(req) {
           { status: 400 }
         );
       }
+      // Championship classes (schema-v43) are qualification-only — their
+      // draw is built from the feeder classes' place-getters, never bought.
+      if (Array.isArray(cls.champ_feeder_ids) && cls.champ_feeder_ids.length) {
+        return NextResponse.json(
+          { error: `${classLabel(cls)} is a championship class — entry is by qualification only (place in its qualifying classes).` },
+          { status: 400 }
+        );
+      }
       if (cls.status !== "upcoming") {
         return NextResponse.json(
           { error: `${classLabel(cls)} has already ${cls.status === "live" ? "started" : "run"} and can't take online entries.` },
