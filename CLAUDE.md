@@ -385,9 +385,12 @@ jsonb list of feeder class ids; non-empty = championship. `champ_take`:
 coordinator page auto-fills. Rules:
 
 - **Setup**: the class form shows a feeder picker whenever the class name
-  matches /champ/i, pre-ticked from `suggestFeederIds()` (walks back through
-  the same day's program to the previous championship; a /grand/i class
-  collects the championship classes instead). Staff confirm/adjust.
+  matches /champ|supreme/i, pre-ticked from `suggestFeederIds()` (walks back
+  through the same day's program to the previous championship; a /grand/i
+  class collects the championship classes instead; a /supreme/i class
+  collects the GRAND CHAMPION classes and defaults champ_take to `top1` —
+  the grand champions compete for Supreme, winners only, and its 1st is
+  labelled "Supreme" publicly). Staff confirm/adjust.
 - **Auto-fill**: `fillChampionshipsFedBy(classId)` runs at every class
   completion site (start-next-class, Complete button, End event). Once ALL
   feeders are completed, qualifiers (1st & 2nd per feeder — both judges'

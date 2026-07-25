@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { categoryKey, programDisplayRows } from "../../lib/classCategories";
-import { isChampionship, looksLikeChampionship, championshipQualifiers, suggestFeederIds } from "../../lib/championship";
+import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQualifiers, suggestFeederIds } from "../../lib/championship";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 
@@ -33,7 +33,12 @@ function ChampionshipFields({ form, setForm, classes, currentClassId }) {
     if (!isChampName || form.champ_feeder_ids !== undefined) return;
     const current = currentClassId ? classes.find((c) => c.id === currentClassId) : null;
     const champLike = { id: currentClassId, name: form.name, day, sort_order: current?.sort_order ?? Infinity };
-    setForm((f) => ({ ...f, champ_feeder_ids: suggestFeederIds(champLike, classes) }));
+    setForm((f) => ({
+      ...f,
+      champ_feeder_ids: suggestFeederIds(champLike, classes),
+      // Supreme takes the WINNERS of the grand championships by default.
+      champ_take: looksLikeSupreme(form.name) ? "top1" : (f.champ_take ?? "top2"),
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isChampName]);
 
