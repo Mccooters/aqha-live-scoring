@@ -237,7 +237,7 @@ export default function ProgramPrintPage() {
           <h1 className="program-title">{title}</h1>
           <div className="program-subtitle">{subtitle}</div>
         </div>
-        <div className="program-col" ref={measureColRef}>
+        <div className="program-col" ref={measureColRef} style={{ width: "calc((190mm - 12mm) / 3)" }}>
           {items.map((item, i) => (
             <div className="prog-item" key={item.key}><ItemView item={item} /></div>
           ))}
@@ -256,7 +256,7 @@ export default function ProgramPrintPage() {
             <div className="program-page-body">
               {cols.map((colItems, ci) => (
                 <div className="program-col" key={ci}>
-                  {colItems.map((idx) => (
+                  {colItems.filter((idx) => items[idx]).map((idx) => (
                     <div className="prog-item" key={items[idx].key}><ItemView item={items[idx]} /></div>
                   ))}
                 </div>

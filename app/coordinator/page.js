@@ -29,8 +29,7 @@ function ChampionshipFields({ form, setForm, classes, currentClassId }) {
 
   // Pre-tick the suggestion the first time the section appears — never after
   // staff have touched the list (undefined = untouched).
-  useEffect(() => {
-    if (!isChampName || form.champ_feeder_ids !== undefined) return;
+  const applySuggestion = () => {
     const current = currentClassId ? classes.find((c) => c.id === currentClassId) : null;
     const champLike = { id: currentClassId, name: form.name, day, sort_order: current?.sort_order ?? Infinity };
     setForm((f) => ({
@@ -39,14 +38,34 @@ function ChampionshipFields({ form, setForm, classes, currentClassId }) {
       // Supreme takes the WINNERS of the grand championships by default.
       champ_take: looksLikeSupreme(form.name) ? "top1" : (f.champ_take ?? "top2"),
     }));
+  };
+
+  // Auto pre-tick only when the field has never been touched (undefined —
+  // i.e. a brand-new class). Editing an existing class starts from what's
+  // saved ([] when none), so a deliberately-cleared championship never
+  // resurrects on a later unrelated edit.
+  useEffect(() => {
+    if (isChampName && form.champ_feeder_ids === undefined) applySuggestion();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isChampName]);
-
-  if (!isChampName && selected.length === 0) return null;
 
   const candidates = classes
     .filter((c) => c.id !== currentClassId && (c.day ?? 1) === day)
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+  // Changing the day must never leave invisible selections from the old day —
+  // prune anything that's no longer in the candidate list.
+  useEffect(() => {
+    if (!Array.isArray(form.champ_feeder_ids)) return;
+    const valid = new Set(candidates.map((c) => c.id));
+    const pruned = form.champ_feeder_ids.filter((id) => valid.has(id));
+    if (pruned.length !== form.champ_feeder_ids.length) {
+      setForm((f) => ({ ...f, champ_feeder_ids: pruned }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day]);
+
+  if (!isChampName && selected.length === 0) return null;
   const toggle = (id) => setForm((f) => {
     const cur = new Set(Array.isArray(f.champ_feeder_ids) ? f.champ_feeder_ids : []);
     if (cur.has(id)) cur.delete(id); else cur.add(id);
@@ -67,6 +86,9 @@ function ChampionshipFields({ form, setForm, classes, currentClassId }) {
         <option value="top2">1st &amp; 2nd place-getters from each class</option>
         <option value="top1">Winners (1st) only</option>
       </select>
+      <button type="button" className="btn-ghost" style={{ fontSize: 12.5, marginTop: 8 }} onClick={applySuggestion}>
+        ✨ Use suggested classes for this section
+      </button>
       <div style={{ maxHeight: 180, overflowY: "auto", marginTop: 8, border: "1px solid var(--line)", borderRadius: 8, background: "#fff", padding: "6px 10px" }}>
         {candidates.length === 0 && <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "4px 0" }}>No other classes on this day yet.</p>}
         {candidates.map((c) => (
@@ -791,14 +813,21 @@ export default function Coordinator() {
   };
 
   const moveClass = async (cls, dir) => {
+    if (busy) return;
     const upcoming = classes.filter((c) => c.status === "upcoming" && !c.hidden);
     const pos = upcoming.findIndex((c) => c.id === cls.id);
     const other = upcoming[pos + dir];
     if (!other) return;
-    await Promise.all([
+    // Check both writes — a half-completed swap on flaky arena Wi-Fi leaves
+    // two classes tied on sort_order, which makes the arrows look dead.
+    const [a, b] = await Promise.all([
       supabase.from("classes").update({ sort_order: other.sort_order }).eq("id", cls.id),
       supabase.from("classes").update({ sort_order: cls.sort_order }).eq("id", other.id),
     ]);
+    if (a.error || b.error) {
+      window.alert("That move could not be fully saved — check your connection. If the arrows stop responding for these classes, tap \"↕ Sort by number\" to repair the order.");
+      await loadClasses();
+    }
   };
 
   const setEventStatus = async (newStatus) => {
@@ -1082,7 +1111,10 @@ export default function Coordinator() {
     }
     if (type === "editClass" && extra.cls) {
       const c = extra.cls;
-      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : undefined, champ_take: c.champ_take ?? "top2" };
+      // champ_feeder_ids: [] (not undefined) when nothing is saved, so a class
+      // staff deliberately made normal is never silently re-suggested back into
+      // a championship on a later edit — the "Use suggested" button is explicit.
+      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : [], champ_take: c.champ_take ?? "top2" };
     }
     if (type === "editEvent" && extra.event) {
       const ev = extra.event;
@@ -1359,6 +1391,12 @@ export default function Coordinator() {
     const { error } = await supabase.from("entries").update(updateData).eq("id", modal.entry.id);
     if (error) { setFormError(error.message); return; }
     closeModal();
+    // Paperwork-mode results (TBC classes) are typed in AFTER the class
+    // completes — feed any championship this class qualifies into, so its
+    // draw tops up as the judge's results are entered.
+    if (entryClass?.status === "completed") {
+      await fillChampionshipsFedBy(entryClass.id);
+    }
   };
 
   const submitEditClass = async () => {
@@ -2451,7 +2489,14 @@ export default function Coordinator() {
                   <label className="modal-label">Back number *</label>
                   <input className="field" type="number" min="1" style={{ width: "100%", fontSize: 16 }} value={form.back ?? ""}
                     onChange={setField("back")}
-                    onBlur={(e) => lookupHorse(e.target.value, { force: true })}
+                    onBlur={(e) => {
+                      // Overwrite horse/exhibitor only when the number actually
+                      // changed — re-tapping the field must never clobber an
+                      // exhibitor the staff already typed (lessee ≠ owner).
+                      const v = e.target.value;
+                      lookupHorse(v, { force: v !== form.lookedUpBack });
+                      setForm((f) => ({ ...f, lookedUpBack: v }));
+                    }}
                     disabled={!!form.newNumber}
                     placeholder="e.g. 301" autoFocus />
                   {!form.newNumber && horseSuggestion === false && <p style={{ fontSize: 12, color: "var(--quiet)", margin: "4px 0 0" }}>Not in registry — fill in manually below</p>}
