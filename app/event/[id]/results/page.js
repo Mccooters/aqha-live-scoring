@@ -124,6 +124,15 @@ export default function ResultsPrintPage() {
                 ) : (
                   <div className="pending-line">Results pending</div>
                 )}
+                {Array.isArray(cls.result_sheets) && cls.result_sheets.length > 0 && (
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "3px 0 4px", fontSize: "9px" }}>
+                    {cls.result_sheets.map((s, i) => (
+                      <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{ color: "#7A5C10", fontWeight: 700, textDecoration: "none" }}>
+                        📄 {s.label}{cls.result_sheets.filter((x) => x.label === s.label).length > 1 ? ` (${cls.result_sheets.slice(0, i + 1).filter((x) => x.label === s.label).length})` : ""}&apos;s sheet
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

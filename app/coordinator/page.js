@@ -642,6 +642,54 @@ export default function Coordinator() {
     }
   };
 
+  // ---- judges' result sheet photos (schema-v45) ----
+  // Photographed paper results, stored in the public "patterns" bucket under
+  // results/… and listed on the class as { url, label } entries.
+  const uploadResultSheet = async () => {
+    const cls = classes.find((c) => c.id === modal.classId);
+    const file = form.sheetFile;
+    if (!cls) return;
+    if (!file) { setFormError("Choose a photo (or PDF) first."); return; }
+    const label = form.sheetJudge || cls.judge || "Judge 1";
+    setBusy(true);
+    try {
+      const path = `results/${eventId}/${cls.id}-${label.replace(/[^a-z0-9]/gi, "-")}-${Date.now()}-${file.name.replace(/[^a-z0-9.]/gi, "-")}`;
+      const { error: upErr } = await supabase.storage.from("patterns").upload(path, file, { upsert: true });
+      if (upErr) {
+        const msg = upErr.message?.toLowerCase() ?? "";
+        setFormError(msg.includes("not found") || msg.includes("bucket")
+          ? 'Storage not configured. Create a "patterns" bucket in Supabase Storage (Dashboard → Storage → New bucket, name: patterns, Public: on).'
+          : upErr.message);
+        return;
+      }
+      const { data: urlData } = supabase.storage.from("patterns").getPublicUrl(path);
+      const next = [...(Array.isArray(cls.result_sheets) ? cls.result_sheets : []), { url: urlData.publicUrl, label }];
+      const { error } = await supabase.from("classes").update({ result_sheets: next }).eq("id", cls.id);
+      if (error) {
+        setFormError(/result_sheets/i.test(error.message ?? "")
+          ? 'Result sheets need a database update — run "schema-v45-result-sheets.sql" in the Supabase SQL Editor first.'
+          : error.message);
+        return;
+      }
+      setFormError("");
+      setForm((f) => ({ ...f, sheetFile: null, sheetFileKey: (f.sheetFileKey ?? 0) + 1 }));
+      await loadClasses();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeResultSheet = async (cls, idx) => {
+    const sheets = Array.isArray(cls.result_sheets) ? cls.result_sheets : [];
+    const sheet = sheets[idx];
+    if (!sheet) return;
+    if (!window.confirm(`Remove this ${sheet.label} sheet photo from Class ${cls.num}?`)) return;
+    const next = sheets.filter((_, i) => i !== idx);
+    const { error } = await supabase.from("classes").update({ result_sheets: next.length ? next : null }).eq("id", cls.id);
+    if (error) { window.alert(error.message); return; }
+    await loadClasses();
+  };
+
   const refreshChampionship = async (cls) => {
     const feederNums = (cls.champ_feeder_ids ?? [])
       .map((id) => classes.find((c) => c.id === id)?.num)
@@ -2142,6 +2190,7 @@ export default function Coordinator() {
                         {[
                           { label: "Edit class", show: true, onClick: () => openModal("editClass", { cls }) },
                           { label: cls.pattern_url ? "✓ Pattern" : "Set pattern", show: !isClinic, onClick: () => openModal("pattern", { classId: cls.id }) },
+                          { label: `Result sheets${Array.isArray(cls.result_sheets) && cls.result_sheets.length ? ` (${cls.result_sheets.length})` : ""}`, show: !isClinic, onClick: () => openModal("resultSheets", { classId: cls.id }) },
                           { label: "↻ Refresh qualifiers", show: isChampionship(cls) && cls.status !== "completed" && !isClinic, onClick: () => refreshChampionship(cls) },
                           { label: "Push to High Points", show: cls.status === "completed" && !!cls.hp_category && !isClinic, onClick: async () => {
                             const res = await pushToHighPoints(cls);
@@ -2551,6 +2600,48 @@ export default function Coordinator() {
                       {busy ? "Adding…" : `Add to ${selected.length || "…"} class${selected.length === 1 ? "" : "es"}`}
                     </button>
                     <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                  </div>
+                </>
+              );
+            })()}
+
+            {modal.type === "resultSheets" && (() => {
+              const cls = classes.find((c) => c.id === modal.classId);
+              if (!cls) return null;
+              const sheets = Array.isArray(cls.result_sheets) ? cls.result_sheets : [];
+              const judgeOptions = [...new Set([cls.judge || "Judge 1", ...(cls.judge2 ? [cls.judge2] : [])])];
+              return (
+                <>
+                  <h2 className="display modal-title">Result sheets — Class {cls.num}</h2>
+                  <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
+                    Photograph each judge&apos;s paper results and attach them here. They appear as links on the public Results page next to the typed results. Multiple pages per judge are fine.
+                  </p>
+                  {sheets.length > 0 && (
+                    <div style={{ border: "1px solid var(--line)", borderRadius: 8, background: "#fff", padding: "6px 10px", marginBottom: 10 }}>
+                      {sheets.map((s, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "5px 0", borderBottom: "1px solid var(--line)" }}>
+                          <a href={s.url} target="_blank" rel="noreferrer" style={{ color: "var(--brass)", fontSize: 13.5, fontWeight: 700 }}>
+                            📄 {s.label} — sheet {i + 1}
+                          </a>
+                          <button className="btn-ghost danger" style={{ fontSize: 11, padding: "3px 9px" }} onClick={() => removeResultSheet(cls, i)}>Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <label className="modal-label">Judge</label>
+                  <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.sheetJudge ?? judgeOptions[0]} onChange={setField("sheetJudge")}>
+                    {judgeOptions.map((j) => <option key={j} value={j}>{j}</option>)}
+                  </select>
+                  <label className="modal-label">Photo of the sheet (or PDF)</label>
+                  <input key={form.sheetFileKey ?? 0} className="field" type="file" accept="image/*,application/pdf" capture="environment"
+                    style={{ width: "100%", fontSize: 14 }}
+                    onChange={(e) => setForm((f) => ({ ...f, sheetFile: e.target.files?.[0] ?? null }))} />
+                  {formError && <p className="modal-error">{formError}</p>}
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={uploadResultSheet} disabled={busy}>
+                      {busy ? "Uploading…" : "Upload sheet"}
+                    </button>
+                    <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Done</button>
                   </div>
                 </>
               );
