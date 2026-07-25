@@ -131,6 +131,11 @@ export default function GatePage() {
   const upcoming = classes.filter((c) => c.status === "upcoming");
   const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode ?? "score") : null;
   const isTbc = (liveClass?.scoring_mode ?? "score") === "tbc";
+  // How many are still to go through — with one horse left, the button must
+  // not promise a "next horse" that doesn't exist.
+  const stillToGo = isTbc && liveClass
+    ? liveClass.entries.filter((e) => !e.called && !e.scratched).length
+    : 0;
 
   const entryRow = (e, cls) => (
     <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--line)", opacity: e.scratched ? 0.55 : 1 }}>
@@ -172,7 +177,7 @@ export default function GatePage() {
                   {isTbc ? (
                     <button className="btn" style={{ width: "100%", fontSize: 17, padding: 14, background: "var(--leather)" }}
                       disabled={busy} onClick={() => act("called", current.id)}>
-                      {busy ? "Saving…" : "✓ Gone in — next horse"}
+                      {busy ? "Saving…" : stillToGo <= 1 ? "✓ Gone in — that's everyone" : "✓ Gone in — next horse"}
                     </button>
                   ) : (
                     <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: 0 }}>
