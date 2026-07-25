@@ -239,7 +239,8 @@ PR with a clear plain-English description.
   table — this table has no anon access at all; staff + service role only)
   and shares `/event/[id]/gate?code=…`. The gate page verifies via
   `app/api/gate` action "check", then offers gate controls ONLY — mark the
-  current TBC-draw horse called, scratch/restore — via `app/api/gate`
+  current TBC-draw horse called, scratch/restore, reorder the pending draw,
+  finish the live class & start the next — via `app/api/gate`
   (service role; entry must belong to the event; completed classes are
   refused). Not a staff login.
 - `classes` — event_id, num, name, judge, judge2 (optional second judge),
