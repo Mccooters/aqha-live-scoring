@@ -75,16 +75,39 @@ export async function POST(req) {
     };
     const memberRegs = cleanRegs(fields?.association_registrations);
     if (memberRegs !== undefined) update.association_registrations = memberRegs;
+
+    // Change of membership type (e.g. upgrading Single → Family after the
+    // fact). Updates the type snapshot and the people allowance; the money
+    // fields are never touched — staff collect any fee difference like a
+    // manual payment.
+    let newCovered = null;
+    if (fields?.membership_type_id && fields.membership_type_id !== member.membership_type_id) {
+      const { data: type, error: tErr } = await db
+        .from("membership_types")
+        .select("*")
+        .eq("id", fields.membership_type_id)
+        .maybeSingle();
+      if (tErr) throw new Error(tErr.message);
+      if (!type) return NextResponse.json({ error: "That membership type no longer exists — refresh and try again." }, { status: 400 });
+      update.membership_type_id = type.id;
+      update.membership_type_name = type.name;
+      if (type.included_people != null) {
+        update.included_people = type.included_people;
+        newCovered = type.included_people;
+      }
+    }
+
     let { error: upErr } = await db.from("club_members").update(update).eq("id", member_id);
-    if (upErr && /association_registrations/i.test(`${upErr.message ?? ""} ${upErr.details ?? ""}`)) {
-      const { association_registrations: _r, ...bare } = update; // schema-v42 not run yet
+    if (upErr && /association_registrations|included_people/i.test(`${upErr.message ?? ""} ${upErr.details ?? ""}`)) {
+      // schema-v42 (association_registrations) or v25 (included_people) not run yet
+      const { association_registrations: _r, included_people: _i, ...bare } = update;
       ({ error: upErr } = await db.from("club_members").update(bare).eq("id", member_id));
     }
     if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
     // Replace the people list when provided (the whole family is re-sent).
     if (Array.isArray(people)) {
-      const covered = await includedPeople(db, member);
+      const covered = newCovered ?? await includedPeople(db, member);
       const rows = people
         .map((p, idx) => ({
           member_id,
