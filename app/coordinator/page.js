@@ -668,15 +668,19 @@ export default function Coordinator() {
     // class is "live" (the DB update hasn't round-tripped yet) — count it as
     // completed so the class that just finished isn't skipped.
     const categoryClasses = classes.filter(
-      (c) => c.hp_category === category && (c.status === "completed" || c.id === cls.id)
+      (c) => c.hp_category === category && !c.hidden && (c.status === "completed" || c.id === cls.id)
     );
     const pointsMap = {};
 
     for (const c of categoryClasses) {
       // Fetch fresh — when called from saveScore the last score isn't in React state yet.
       const { data: fresh } = await supabase.from("entries").select("*").eq("class_id", c.id);
-      const entries = (fresh ?? []).filter((e) => e.score != null && !e.scratched);
-      if (!entries.length) continue;
+      const active = (fresh ?? []).filter((e) => !e.scratched);
+      const entries = active.filter((e) => e.score != null);
+      // A class can hold judge-2-only results (paperwork typed in for judge 2
+      // first, or the judges disagreed) — don't skip it just because judge 1
+      // has nothing yet.
+      if (!entries.length && !(c.judge2 && active.some((e) => e.score2 != null))) continue;
 
       const isPlacing = ["placing", "class_only", "tbc_class"].includes(c.scoring_mode);
       const applyJudge = (sorted, getScore) => {
@@ -695,7 +699,8 @@ export default function Coordinator() {
         (e) => e.score
       );
       if (c.judge2) {
-        const j2 = entries.filter((e) => e.score2 != null);
+        // From ALL active entries — judge 2 may have placed a horse judge 1 didn't.
+        const j2 = active.filter((e) => e.score2 != null);
         applyJudge(
           [...j2].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2),
           (e) => e.score2
@@ -1608,6 +1613,7 @@ export default function Coordinator() {
       // Results sheet — one row per entry (two score columns for two-judge classes)
       const resRows = [["Class #", "Class Name", "Judge 1", "Judge 2", "Pl (J1)", "Back #", "Horse", "Exhibitor", "Score (J1)", "Score (J2)", "Entries in Class", "Registrations"]];
       classes.forEach((cls) => {
+        if (cls.hidden) return; // hidden classes are out of results by design
         const ce = (entries ?? []).filter((e) => e.class_id === cls.id);
         const competing = ce.filter((e) => !e.scratched).length;
         const mode = cls.scoring_mode ?? "score";
@@ -1622,6 +1628,16 @@ export default function Coordinator() {
           const regs = (horseMap[e.back_number]?.horse_registrations ?? []).map((r) => `${r.club}${r.registration_number ? " " + r.registration_number : ""}`).join(", ");
           resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", i + 1, e.back_number, e.horse, e.exhibitor, e.score, cls.judge2 ? (e.score2 ?? "") : "", competing, regs]);
         });
+        // A horse placed/scored by judge 2 but not judge 1 is still a result —
+        // append it with a blank J1 placing rather than dropping it entirely.
+        if (cls.judge2) {
+          ce.filter((e) => e.score == null && e.score2 != null && !e.scratched)
+            .sort((a, b) => (isPlacing ? a.score2 - b.score2 : b.score2 - a.score2))
+            .forEach((e) => {
+              const regs = (horseMap[e.back_number]?.horse_registrations ?? []).map((r) => `${r.club}${r.registration_number ? " " + r.registration_number : ""}`).join(", ");
+              resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", "", e.back_number, e.horse, e.exhibitor, "", e.score2, competing, regs]);
+            });
+        }
         scratched.forEach((e) => resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", "SCR", e.back_number, e.horse, e.exhibitor, "", "", competing, ""]));
       });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resRows), "Results");
@@ -1645,20 +1661,24 @@ export default function Coordinator() {
       };
 
       classes.forEach((cls) => {
+        if (cls.hidden) return; // hidden classes are out of results by design
         const ce = (entries ?? []).filter((e) => e.class_id === cls.id);
         const competing = ce.filter((e) => !e.scratched).length;
         const mode = cls.scoring_mode ?? "score";
         const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc_class";
-        const scored = ce.filter((e) => e.score != null && !e.scratched);
+        const active = ce.filter((e) => !e.scratched);
+        const scored = active.filter((e) => e.score != null);
 
         if (cls.judge2) {
-          // Two judges — each judge's results generate independent point rows
+          // Two judges — each judge's results generate independent point rows.
+          // Judge 2's list comes from ALL active entries: a horse judge 1
+          // didn't place can still hold a judge-2 placing and earn points.
           const j1Sorted = [...scored].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score);
           pushPtRows(cls.num, cls.name, cls.judge || "Judge 1", j1Sorted,
             (e) => isPlacing ? e.score : j1Sorted.findIndex((x) => x.id === e.id) + 1,
             (e) => e.score, competing);
 
-          const j2Scored = scored.filter((e) => e.score2 != null);
+          const j2Scored = active.filter((e) => e.score2 != null);
           const j2Sorted = [...j2Scored].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2);
           pushPtRows(cls.num, cls.name, cls.judge2, j2Sorted,
             (e) => isPlacing ? e.score2 : j2Sorted.findIndex((x) => x.id === e.id) + 1,

@@ -42,13 +42,22 @@ export default function ImportEntries({ eventId, classes, onDone }) {
       if (raw.length < 2) { setError("Spreadsheet appears to be empty."); return; }
 
       const headers = raw[0].map(mapHeader);
+      const hasClassCol = headers.includes("class_name");
       const parsed = [];
       const warns = [];
+      let carriedClass = null; // merged class-name cells only fill the first row
 
       raw.slice(1).forEach((row, i) => {
         const obj = {};
         headers.forEach((field, j) => { if (field) obj[field] = String(row[j] ?? "").trim(); });
         if (!obj.back_number && !obj.horse) return;
+        // Merged or "ditto" class cells: a blank class on a data row means
+        // "same class as the row above" — never silently the first class.
+        if (hasClassCol) {
+          if (obj.class_name) carriedClass = obj.class_name;
+          else if (carriedClass) obj.class_name = carriedClass;
+          else { warns.push(`Row ${i + 2}: no class name (and none above to carry down) — skipped`); return; }
+        }
         if (!obj.back_number) { warns.push(`Row ${i + 2}: missing back number — skipped`); return; }
         if (!obj.horse) { warns.push(`Row ${i + 2}: missing horse name — skipped`); return; }
         if (!obj.exhibitor) { warns.push(`Row ${i + 2}: missing exhibitor — skipped`); return; }
@@ -83,6 +92,11 @@ export default function ImportEntries({ eventId, classes, onDone }) {
         byClass[key].push(r);
       });
 
+      // Track across the whole import so two new classes never share a number.
+      let maxNum = Math.max(0, ...classes.map((c) => c.num));
+      let maxOrder = Math.max(0, ...classes.map((c) => c.sort_order));
+      const commitWarns = [];
+
       for (const [className, classRows] of Object.entries(byClass)) {
         let cls;
         if (className === "__none__") {
@@ -93,21 +107,41 @@ export default function ImportEntries({ eventId, classes, onDone }) {
           }
           cls = classes[0];
         } else {
-          cls = classes.find((c) => c.name.toLowerCase() === className.toLowerCase());
+          // Match by name, or — for a "Class No" style sheet — by class number.
+          const numVal = /^\d+$/.test(className.trim()) ? parseInt(className, 10) : null;
+          cls = classes.find((c) => c.name.toLowerCase() === className.toLowerCase())
+            ?? (numVal != null ? classes.find((c) => c.num === numVal) : null);
+          if (!cls && numVal != null) {
+            // A bare number that matches no class must never auto-create a
+            // class literally named "5" — the entries would look imported but
+            // sit in a junk class while the real Class 5 stayed empty.
+            commitWarns.push(`Class number ${numVal} doesn't exist — ${classRows.length} entr${classRows.length === 1 ? "y" : "ies"} skipped. Add the class first, then re-import.`);
+            continue;
+          }
           if (!cls) {
-            const maxNum = Math.max(0, ...classes.map((c) => c.num));
-            const maxOrder = Math.max(0, ...classes.map((c) => c.sort_order));
+            maxNum += 1;
+            maxOrder += 1;
             const { data: newCls, error: clsErr } = await supabase
               .from("classes")
-              .insert({ event_id: eventId, num: maxNum + 1, name: className, sort_order: maxOrder + 1 })
+              .insert({ event_id: eventId, num: maxNum, name: className, sort_order: maxOrder })
               .select().single();
             if (clsErr) throw clsErr;
             cls = { ...newCls, entries: [] };
           }
         }
 
+        // Re-importing the same file must not double the draw: a back number
+        // already entered in this class is skipped, not inserted again.
+        const existingBacks = new Set((cls.entries ?? []).map((e) => e.back_number));
+        const freshRows = classRows.filter((r) => !existingBacks.has(r.back_number));
+        const dupCount = classRows.length - freshRows.length;
+        if (dupCount > 0) {
+          commitWarns.push(`${cls.name}: ${dupCount} entr${dupCount === 1 ? "y was" : "ies were"} already in the class — skipped.`);
+        }
+        if (!freshRows.length) continue;
+
         const existingMax = Math.max(0, ...(cls.entries ?? []).map((e) => e.draw_order));
-        const insertRows = classRows.map((r, i) => ({
+        const insertRows = freshRows.map((r, i) => ({
           class_id: cls.id,
           back_number: r.back_number,
           horse: r.horse,
@@ -119,6 +153,7 @@ export default function ImportEntries({ eventId, classes, onDone }) {
         if (insErr) throw insErr;
       }
 
+      if (commitWarns.length) window.alert("Import finished with notes:\n\n" + commitWarns.join("\n"));
       setDone(true);
     } catch (err) {
       setError(err.message ?? "Import failed. Please try again.");

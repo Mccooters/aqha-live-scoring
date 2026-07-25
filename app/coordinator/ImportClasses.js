@@ -161,6 +161,7 @@ export default function ImportClasses({ eventId, onDone }) {
           program_break_after: rowBreakAfter || null,
           hasBreakAfterCol,
           scoring_mode: mode ?? "score",
+          hasModeCol,
           hp_category: obj.hp_category || null,
           day: day || 1,
           hasDayCol,
@@ -205,7 +206,11 @@ export default function ImportClasses({ eventId, onDone }) {
         const match = numNameMatch || identityMatch || nameMatch;
         if (match) {
           // Update judges and other fields on the existing class
-          const patch = { scoring_mode: r.scoring_mode, sort_order: r.sort_order };
+          // Only overwrite the scoring mode when the sheet actually had a
+          // Type column — a judges-only re-upload must never reset
+          // Placing/TBC classes back to Score.
+          const patch = { sort_order: r.sort_order };
+          if (r.hasModeCol) patch.scoring_mode = r.scoring_mode;
           if (r.hasJudgeCol) patch.judge = r.judge;
           if (r.hasJudge2Col) patch.judge2 = r.judge2 || null;
           if (r.hasCategoryCol) patch.program_category = normaliseCategoryLabel(r.program_category) || null;
