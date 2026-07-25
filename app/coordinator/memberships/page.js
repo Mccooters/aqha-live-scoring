@@ -229,8 +229,9 @@ export default function MembershipsPage() {
   // their own email). Goes through the staff update route (service-role).
   const openEditMember = (m) => {
     setFormError("");
-    setModal({ type: "editMember", memberId: m.id, coveredPeople: m.included_people ?? null });
+    setModal({ type: "editMember", memberId: m.id, coveredPeople: m.included_people ?? null, originalTypeId: m.membership_type_id ?? null });
     setForm({
+      membership_type_id: m.membership_type_id ?? "",
       member_name: m.member_name ?? "",
       email: m.email ?? "",
       phone: m.phone ?? "",
@@ -269,6 +270,7 @@ export default function MembershipsPage() {
       body: JSON.stringify({
         member_id: modal.memberId,
         fields: {
+          membership_type_id: form.membership_type_id || null,
           member_name: form.member_name, email: form.email, phone: form.phone, address: form.address,
           aqha_member_number: form.aqha_member_number, other_memberships: form.other_memberships,
           emergency_contact_name: form.emergency_contact_name, emergency_contact_phone: form.emergency_contact_phone,
@@ -804,10 +806,29 @@ export default function MembershipsPage() {
 
             {modal.type === "editMember" && (() => {
               const people = form.people ?? [];
-              const maxExtra = modal.coveredPeople ? Math.max(0, modal.coveredPeople - 1) : null;
+              // The people allowance follows the SELECTED type, so upgrading
+              // Single → Family immediately opens the extra person slots.
+              const selectedType = types.find((t) => t.id === form.membership_type_id) ?? null;
+              const covered = selectedType?.included_people ?? modal.coveredPeople ?? null;
+              const maxExtra = covered ? Math.max(0, covered - 1) : null;
+              const typeChanged = (form.membership_type_id || null) !== (modal.originalTypeId || null);
               return (
                 <>
                   <h2 className="display modal-title">Edit member details</h2>
+                  <label className="modal-label">Membership type</label>
+                  <select className="field" style={{ width: "100%", fontSize: 16 }} value={form.membership_type_id ?? ""} onChange={setField("membership_type_id")}>
+                    {!modal.originalTypeId && <option value="">— No type recorded —</option>}
+                    {types.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({(t.fee_cents ?? 0) > 0 ? fmtMoney(t.fee_cents) : "Free"}{t.included_people > 1 ? ` · covers ${t.included_people} people` : ""})
+                      </option>
+                    ))}
+                  </select>
+                  {typeChanged && (
+                    <p style={{ fontSize: 12, color: "var(--clay)", fontWeight: 700, margin: "4px 0 0" }}>
+                      Changing the type updates what this membership covers (e.g. Family = more people). It does NOT charge or refund anything — collect any fee difference separately.
+                    </p>
+                  )}
                   <label className="modal-label">Full name *</label>
                   <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.member_name ?? ""} onChange={setField("member_name")} autoFocus />
                   <label className="modal-label">Email * (their sign-in / member identity)</label>
