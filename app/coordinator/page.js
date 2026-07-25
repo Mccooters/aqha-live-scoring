@@ -1766,38 +1766,11 @@ export default function Coordinator() {
               })()}
             </>}
           </p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {eventId && (
-              <>
-                <Link href={`/event/${eventId}/program`} target="_blank"
-                  style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 700 }}>
-                  Print program
-                </Link>
-                <Link href={`/event/${eventId}/results`} target="_blank"
-                  style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 700 }}>
-                  Print results
-                </Link>
-                <a href={`/api/events/${eventId}/patterns`}
-                  style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 700 }}>
-                  Patterns PDF
-                </a>
-                <button className="btn-ghost" onClick={() => openModal("bulkPatterns")} disabled={!eventId}>
-                  Manage patterns PDF
-                </button>
-              </>
-            )}
-            <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>
-              Edit event
-            </button>
-            <Link href="/coordinator/registrations" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
-              Registrations
-            </Link>
-            <Link href="/coordinator/memberships" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
-              Memberships
-            </Link>
-            <Link href="/coordinator/numbers" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
-              New numbers
-            </Link>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: "100%" }}>
+            {/* The toolbar is grouped so the dozen-plus controls read as three
+                jobs, not a wall of buttons. A full-width label forces each
+                group onto its own row. */}
+            <span style={{ flexBasis: "100%", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)" }}>Show day</span>
             {!isClinic && (
               <button className="btn-ghost" style={{ borderColor: "var(--brass)", color: "var(--brass)", fontWeight: 700 }}
                 onClick={() => openModal("dayEntry")} disabled={!eventId || classes.length === 0}
@@ -1811,16 +1784,6 @@ export default function Coordinator() {
                 🚪 Gate access
               </button>
             )}
-            <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
-            <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
-              title="Put every class into class-number order, day by day">
-              ↕ Sort by number
-            </button>
-            <button className="btn-ghost" onClick={exportClasses} disabled={exportingClasses || !eventId || classes.length === 0}>
-              {exportingClasses ? "Exporting…" : "⇩ Export classes"}
-            </button>
-            <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
-            <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
             <button className="btn-ghost" onClick={testPush} disabled={!eventId}>Test push</button>
             {classes.some((c) => c.hp_category && c.status === "completed") && (
               <button className="btn-ghost" style={{ borderColor: "#2D7A52", color: "#2D7A52" }}
@@ -1828,6 +1791,42 @@ export default function Coordinator() {
                 {pushingAllHp ? "Pushing HP…" : "↑ Push all HP"}
               </button>
             )}
+
+            <span style={{ flexBasis: "100%", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)", marginTop: 4 }}>People &amp; money</span>
+            <Link href="/coordinator/registrations" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
+              Registrations
+            </Link>
+            <Link href="/coordinator/memberships" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
+              Memberships
+            </Link>
+            <Link href="/coordinator/numbers" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
+              New numbers
+            </Link>
+
+            <span style={{ flexBasis: "100%", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)", marginTop: 4 }}>Setup &amp; data</span>
+            <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>
+              Edit event
+            </button>
+            {eventId && (
+              <button className="btn-ghost" onClick={() => openModal("bulkPatterns")}>
+                Manage patterns PDF
+              </button>
+            )}
+            <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
+            <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
+            <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
+              title="Put every class into class-number order, day by day">
+              ↕ Sort by number
+            </button>
+            <button className="btn-ghost" onClick={exportClasses} disabled={exportingClasses || !eventId || classes.length === 0}>
+              {exportingClasses ? "Exporting…" : "⇩ Export classes"}
+            </button>
+            <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
+            <Link href="/coordinator/health" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>
+              ⚙ Health
+            </Link>
+
+            {eventId && <span style={{ flexBasis: "100%", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)", marginTop: 4 }}>Event status</span>}
             {eventId && (() => {
               const s = currentEvent?.status;
               return (
