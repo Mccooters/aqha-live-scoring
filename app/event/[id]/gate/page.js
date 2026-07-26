@@ -219,7 +219,7 @@ export default function GatePage() {
                   {isTbc ? (
                     <button className="btn" style={{ width: "100%", fontSize: 17, padding: 14, background: "var(--leather)" }}
                       disabled={busy} onClick={() => act("called", current.id)}>
-                      {busy ? "Saving…" : stillToGo <= 1 ? "✓ Gone in — that's everyone" : "✓ Gone in — next horse"}
+                      {busy ? "Saving…" : stillToGo <= 1 ? "✓ Finished run — that's everyone" : "✓ Finished run — next horse"}
                     </button>
                   ) : (
                     <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: 0 }}>
