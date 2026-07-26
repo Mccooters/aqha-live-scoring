@@ -2091,7 +2091,16 @@ export default function Coordinator() {
           </div>
         )}
 
-        {programDisplayRows(classes.filter((c) => !c.hidden)).map((row) => {
+        {(() => {
+          const shownClasses = classes.filter((c) => !c.hidden);
+          // Tuck completed classes into a collapsed section while the show is
+          // running — same as the public event view. Everything shows in full
+          // once the event is over.
+          const showRunning = currentEvent && !["completed", "archived", "cancelled"].includes(currentEvent.status);
+          const completedList = shownClasses.filter((c) => c.status === "completed");
+          const tuckCompleted = !isClinic && showRunning && completedList.length > 0;
+          const mainList = tuckCompleted ? shownClasses.filter((c) => c.status !== "completed") : shownClasses;
+          const renderClassRow = (row) => {
           if (row.type === "break") {
             return (
               <div key={row.key} style={{ margin: "24px 0 8px", color: "var(--leather)", background: "#FFF7D6", border: "1px solid #E6C76B", borderRadius: 8, padding: "7px 12px", fontWeight: 800, fontSize: 12, letterSpacing: ".12em", textTransform: "uppercase" }}>
@@ -2276,7 +2285,23 @@ export default function Coordinator() {
               </table>
             </section>
           );
-        })}
+          };
+          return (
+            <>
+              {tuckCompleted && (
+                <details className="card" style={{ padding: "12px 16px" }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--quiet)", fontSize: 14 }}>
+                    Completed classes ({completedList.length}) — tap to view / enter results
+                  </summary>
+                  <div style={{ marginTop: 10 }}>
+                    {programDisplayRows(completedList).map(renderClassRow)}
+                  </div>
+                </details>
+              )}
+              {programDisplayRows(mainList).map(renderClassRow)}
+            </>
+          );
+        })()}
 
         {classes.some((c) => c.hidden) && (
           <details className="card" style={{ padding: "12px 16px", marginBottom: 8 }}>
