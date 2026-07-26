@@ -141,7 +141,12 @@ export default function GatePage() {
   const livePending = liveClass
     ? liveClass.entries.filter((x) => !x.scratched && (isTbc ? !x.called : x.score == null))
     : [];
-  const liveIds = { currentId: livePending[0]?.id ?? null, nextId: livePending[1]?.id ?? null };
+  // class_only / tbc_class: the WHOLE class is in the ring together — no
+  // one-at-a-time order, so every active horse highlights green.
+  const wholeClassIn = !!liveClass && ["class_only", "tbc_class"].includes(liveClass.scoring_mode);
+  const liveIds = wholeClassIn
+    ? { allIn: true }
+    : { currentId: livePending[0]?.id ?? null, nextId: livePending[1]?.id ?? null };
 
   const entryRow = (e, cls, ids = {}) => {
     // Still to go through the ring — these can be reordered for last-second
@@ -149,8 +154,9 @@ export default function GatePage() {
     const isTbcCls = cls.scoring_mode === "tbc";
     const movable = !e.scratched && (isTbcCls ? !e.called : e.score == null);
     const done = !e.scratched && (isTbcCls ? e.called : e.score != null);
-    const isCurrent = e.id === ids.currentId;
-    const isNext = e.id === ids.nextId;
+    const isCurrent = ids.allIn ? movable : e.id === ids.currentId;
+    const isNext = !ids.allIn && e.id === ids.nextId;
+    const showChips = !ids.allIn;
     return (
       <div key={e.id} style={{
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
@@ -161,8 +167,8 @@ export default function GatePage() {
         borderRadius: isCurrent || isNext ? 8 : 0,
       }}>
         <span style={{ fontSize: 14.5, fontWeight: 600, textDecoration: e.scratched ? "line-through" : "none" }}>
-          {isCurrent && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".08em", color: "#fff", background: "#2D7A52", borderRadius: 6, padding: "2px 6px", marginRight: 6, verticalAlign: "middle" }}>IN RING</span>}
-          {isNext && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".08em", color: "#fff", background: "#C77B21", borderRadius: 6, padding: "2px 6px", marginRight: 6, verticalAlign: "middle" }}>NEXT</span>}
+          {showChips && isCurrent && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".08em", color: "#fff", background: "#2D7A52", borderRadius: 6, padding: "2px 6px", marginRight: 6, verticalAlign: "middle" }}>IN RING</span>}
+          {showChips && isNext && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".08em", color: "#fff", background: "#C77B21", borderRadius: 6, padding: "2px 6px", marginRight: 6, verticalAlign: "middle" }}>NEXT</span>}
           #{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span>
         </span>
         <span style={{ display: "inline-flex", gap: 5, flexShrink: 0 }}>
@@ -200,7 +206,11 @@ export default function GatePage() {
               <div className="display" style={{ fontWeight: 700, fontSize: 18, margin: "2px 0 8px" }}>
                 Class {liveClass.num} · {liveClass.name}
               </div>
-              {current ? (
+              {wholeClassIn ? (
+                <p style={{ fontSize: 13.5, color: "var(--quiet)", margin: "0 0 4px" }}>
+                  The whole class is in the ring together — scratch below if needed. Results are entered by the coordinator afterwards.
+                </p>
+              ) : current ? (
                 <>
                   <div className="display" style={{ fontWeight: 800, fontSize: 26, color: "var(--leather)" }}>
                     #{fmtBack(current.back_number)} {current.horse}
