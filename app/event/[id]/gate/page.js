@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
+import { normaliseBreakLabel, withoutHiddenClasses } from "../../../../lib/classCategories";
 
 // Gate marshal view (schema-v44). Opened via the link the coordinator shares
 // (…/gate?code=123456). Shows the live class and the draw, with just the
@@ -35,7 +36,9 @@ export default function GatePage() {
     ]);
     if (ev) setEvent(ev);
     if (cls) {
-      const visible = cls.filter((c) => !c.hidden);
+      // Hidden classes stay off the gate view; breaks attached to them carry
+      // onto the next visible class so the marshal still sees them coming.
+      const visible = withoutHiddenClasses(cls);
       visible.forEach((c) => c.entries.sort((a, b) => (a.draw_order ?? 0) - (b.draw_order ?? 0)));
       setClasses(visible);
     }
@@ -188,6 +191,19 @@ export default function GatePage() {
     );
   };
 
+  // Program breaks (lunch, gear change, finish…) shown between class cards so
+  // the marshal knows what's coming.
+  const breakBar = (label, key) => (
+    <div key={key} style={{
+      margin: "0 0 14px", padding: "9px 14px", borderRadius: 10,
+      background: "#FFF7D6", border: "1px solid #E6C76B",
+      color: "var(--leather)", fontWeight: 800, fontSize: 12.5,
+      letterSpacing: ".1em", textTransform: "uppercase",
+    }}>
+      ⏸ {label}
+    </div>
+  );
+
   return (
     <>
       <header className="header">
@@ -254,17 +270,29 @@ export default function GatePage() {
           </section>
         )}
 
+        {liveClass && normaliseBreakLabel(liveClass.program_break_after)
+          ? breakBar(normaliseBreakLabel(liveClass.program_break_after), "after-live")
+          : null}
+
         {upcoming.slice(0, 5).map((cls) => (
-          <section className="card" key={cls.id}>
-            <div style={{ padding: "12px 16px" }}>
-              <div className="display" style={{ fontWeight: 700, fontSize: 15 }}>Class {cls.num} · {cls.name}</div>
-              <div style={{ marginTop: 6 }}>
-                {cls.entries.length === 0
-                  ? <p style={{ color: "var(--quiet)", fontSize: 13, margin: 0 }}>No entries yet.</p>
-                  : cls.entries.map((e) => entryRow(e, cls))}
+          <div key={cls.id}>
+            {normaliseBreakLabel(cls.program_break_before)
+              ? breakBar(normaliseBreakLabel(cls.program_break_before), `before-${cls.id}`)
+              : null}
+            <section className="card">
+              <div style={{ padding: "12px 16px" }}>
+                <div className="display" style={{ fontWeight: 700, fontSize: 15 }}>Class {cls.num} · {cls.name}</div>
+                <div style={{ marginTop: 6 }}>
+                  {cls.entries.length === 0
+                    ? <p style={{ color: "var(--quiet)", fontSize: 13, margin: 0 }}>No entries yet.</p>
+                    : cls.entries.map((e) => entryRow(e, cls))}
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+            {normaliseBreakLabel(cls.program_break_after)
+              ? breakBar(normaliseBreakLabel(cls.program_break_after), `after-${cls.id}`)
+              : null}
+          </div>
         ))}
       </main>
     </>
