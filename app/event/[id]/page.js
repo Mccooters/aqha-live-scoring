@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
-import { normaliseCategoryLabel, programDisplayRows } from "../../../lib/classCategories";
+import { normaliseBreakLabel, normaliseCategoryLabel, programDisplayRows, withoutHiddenClasses } from "../../../lib/classCategories";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -35,9 +35,9 @@ function LiveClassLabel({ cls }) {
   );
 }
 
-function NextClassPreview({ cls }) {
-  if (!cls) return null;
-  const category = classCategoryText(cls);
+function NextClassPreview({ cls, breaks = [] }) {
+  if (!cls && !breaks.length) return null;
+  const category = cls ? classCategoryText(cls) : "";
   return (
     <div style={{
       marginTop: 14,
@@ -46,12 +46,21 @@ function NextClassPreview({ cls }) {
       borderRadius: 10,
       background: "rgba(255,255,255,.06)",
     }}>
-      <div style={{ fontSize: 10.5, letterSpacing: ".16em", textTransform: "uppercase", color: "#9c8a6e", fontWeight: 700, marginBottom: 3 }}>
-        Next up{category ? ` · ${category}` : ""}
-      </div>
-      <div style={{ fontSize: 13.5, color: "#F5EFE4", fontWeight: 700 }}>
-        Class {cls.num} — {cls.name}
-      </div>
+      {breaks.map((label, i) => (
+        <div key={i} style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "#F5D87B", marginBottom: cls || i < breaks.length - 1 ? 6 : 0 }}>
+          ⏸ {label}
+        </div>
+      ))}
+      {cls && (
+        <>
+          <div style={{ fontSize: 10.5, letterSpacing: ".16em", textTransform: "uppercase", color: "#9c8a6e", fontWeight: 700, marginBottom: 3 }}>
+            {breaks.length ? "Then" : "Next up"}{category ? ` · ${category}` : ""}
+          </div>
+          <div style={{ fontSize: 13.5, color: "#F5EFE4", fontWeight: 700 }}>
+            Class {cls.num} — {cls.name}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -90,8 +99,9 @@ export default function EventPage() {
     ]);
     if (ev) setEvent(ev);
     if (cls) {
-      // Hidden classes (schema-v38) never appear to the public.
-      const visible = cls.filter((c) => !c.hidden);
+      // Hidden classes (schema-v38) never appear to the public — but any
+      // program break attached to one is carried onto the next visible class.
+      const visible = withoutHiddenClasses(cls);
       visible.forEach((c) => c.entries.sort((a, b) => a.draw_order - b.draw_order));
       setClasses(visible);
     }
@@ -165,8 +175,31 @@ export default function EventPage() {
       ?? classes.find((c) => c.status === "upcoming" && c.id !== liveClass.id)
       ?? null
     : null;
+  // Program breaks sitting between the class in the ring and the next class —
+  // the banner should say "break first", not jump straight to the next class.
+  const breaksBeforeNext = [];
+  if (liveClass) {
+    const afterLive = normaliseBreakLabel(liveClass.program_break_after);
+    if (afterLive) breaksBeforeNext.push(afterLive);
+    const nextIdx = nextClass ? classes.findIndex((c) => c.id === nextClass.id) : -1;
+    if (nextIdx > liveClassIndex) {
+      for (let i = liveClassIndex + 1; i <= nextIdx; i++) {
+        const between = normaliseBreakLabel(classes[i].program_break_before);
+        if (between) breaksBeforeNext.push(between);
+        if (i < nextIdx) {
+          const after = normaliseBreakLabel(classes[i].program_break_after);
+          if (after) breaksBeforeNext.push(after);
+        }
+      }
+    }
+  }
   const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
   const active = liveClass ? liveClass.entries.filter((e) => !e.scratched) : [];
+  // The horse on deck (second in the pending draw) for one-at-a-time classes.
+  const livePending = liveClass
+    ? liveClass.entries.filter((e) => !e.scratched && (liveClass.scoring_mode === "tbc" ? !e.called : e.score == null))
+    : [];
+  const nextEntry = current ? livePending[1] ?? null : null;
   const drawPos = current ? active.findIndex((e) => e.id === current.id) + 1 : 0;
   const scored = active.filter((e) => liveClass?.scoring_mode === "tbc" ? e.called : e.score != null).length;
 
@@ -296,6 +329,9 @@ export default function EventPage() {
             const scratchedRows = cls.entries.filter((e) => e.scratched);
             const isLive = cls.status === "live";
             const isClassOnly = mode === "class_only";
+            // NOW/NEXT only make sense when horses go in one at a time — in
+            // class_only and tbc_class modes the whole class is in together.
+            const oneByOne = isLive && !isClassOnly && mode !== "tbc_class";
             return (
               <section key={cls.id} className="card event-class-card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
                 <div className="card-head" style={isLive ? { background: "#FBF4E4" } : {}}>
@@ -364,9 +400,11 @@ export default function EventPage() {
                       </tr>
                     ))}
                     {pending.map((e, i) => (
-                      <tr key={e.id} style={{ opacity: isLive && !isClassOnly && !isTbcDraw && i > 0 ? 0.7 : 1 }}>
-                        <td style={isLive && !isClassOnly && i === 0 ? { color: "var(--clay)", fontSize: 11, fontWeight: 700 } : { color: "var(--quiet)" }}>
-                          {isLive && !isClassOnly && i === 0 ? "NOW" : placed.length + calledRows.length + i + 1}
+                      <tr key={e.id} style={{ opacity: oneByOne && !isTbcDraw && i > 1 ? 0.7 : 1 }}>
+                        <td style={oneByOne && i === 0 ? { color: "var(--clay)", fontSize: 11, fontWeight: 700 }
+                          : oneByOne && i === 1 ? { color: "#C77B21", fontSize: 11, fontWeight: 700 }
+                          : { color: "var(--quiet)" }}>
+                          {oneByOne && i === 0 ? "NOW" : oneByOne && i === 1 ? "NEXT" : placed.length + calledRows.length + i + 1}
                         </td>
                         <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                         <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
@@ -473,7 +511,7 @@ export default function EventPage() {
             <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 4 }}>
               Results will be posted once the judge's paperwork is received.
             </div>
-            <NextClassPreview cls={nextClass} />
+            <NextClassPreview cls={nextClass} breaks={breaksBeforeNext} />
           </section>
         ) : liveClass && liveClass.scoring_mode === "class_only" ? (
           <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
@@ -489,7 +527,7 @@ export default function EventPage() {
             {liveClass.judge && (
               <div style={{ fontSize: 14, color: "#CBBFA9", marginTop: 4 }}>Judge: {liveClass.judge}</div>
             )}
-            <NextClassPreview cls={nextClass} />
+            <NextClassPreview cls={nextClass} breaks={breaksBeforeNext} />
           </section>
         ) : liveClass && current ? (
           <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>
@@ -520,12 +558,19 @@ export default function EventPage() {
                 </div>
               )}
             </div>
+            {nextEntry && (
+              <div style={{ fontSize: 13.5, color: "#CBBFA9", marginTop: 10 }}>
+                <span style={{ fontSize: 10.5, letterSpacing: ".16em", textTransform: "uppercase", color: "#E8A857", fontWeight: 700, marginRight: 8 }}>Next in</span>
+                <span style={{ color: "#F5EFE4", fontWeight: 700 }}>#{fmtBack(nextEntry.back_number)} {nextEntry.horse}</span>
+                {nextEntry.exhibitor ? ` — ${nextEntry.exhibitor}` : ""}
+              </div>
+            )}
             {liveClass.scoring_mode !== "placing" && (
               <div style={{ height: 5, background: "rgba(255,255,255,.12)", borderRadius: 3, marginTop: 14, overflow: "hidden" }}>
                 <div style={{ height: "100%", width: `${(scored / Math.max(active.length, 1)) * 100}%`, background: "var(--brass)", transition: "width .5s ease" }} />
               </div>
             )}
-            <NextClassPreview cls={nextClass} />
+            <NextClassPreview cls={nextClass} breaks={breaksBeforeNext} />
           </section>
         ) : liveClass ? (
           // Live class with no one left to go (e.g. a TBC class where every
@@ -546,7 +591,7 @@ export default function EventPage() {
                 ? "Results will be posted once received from the judge."
                 : "Results are being finalised."}
             </div>
-            <NextClassPreview cls={nextClass} />
+            <NextClassPreview cls={nextClass} breaks={breaksBeforeNext} />
           </section>
         ) : event.status === "completed" ? (
           <section className="card" style={{ background: "var(--sand)", border: "1px solid var(--line)", padding: "20px 22px" }}>

@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
-import { programDisplayRows } from "../../../../lib/classCategories";
+import { programDisplayRows, withoutHiddenClasses } from "../../../../lib/classCategories";
 
 export default function SchedulePage() {
   const { id } = useParams();
@@ -21,7 +21,7 @@ export default function SchedulePage() {
         .order("sort_order"),
     ]);
     if (ev) setEvent(ev);
-    if (cls) setClasses(cls.filter((c) => !c.hidden)); // hidden classes (schema-v38) stay off the public schedule
+    if (cls) setClasses(withoutHiddenClasses(cls)); // hidden classes (schema-v38) stay off the public schedule; their program breaks carry over
   }, [id]);
 
   useEffect(() => {
