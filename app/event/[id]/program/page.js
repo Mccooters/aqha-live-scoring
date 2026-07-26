@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
-import { programDisplayRows } from "../../../../lib/classCategories";
+import { programDisplayRows, withoutHiddenClasses } from "../../../../lib/classCategories";
 import { activeEntries, BEGINNER_RULES, dateRange, dayDate, drawIsPublished, fmtBack, HCQHA_RULES } from "../../../../lib/showPrint";
 
 // The program is laid out into explicit A4 pages, each with three columns that
@@ -166,7 +166,7 @@ export default function ProgramPrintPage() {
       supabase.from("classes").select("*, entries(*)").eq("event_id", id).order("day").order("sort_order"),
     ]);
     if (ev) setEvent(ev);
-    if (cls) setClasses(cls.filter((c) => !c.hidden).map((c) => ({ ...c, entries: activeEntries(c) }))); // hidden classes (schema-v38) stay off the printed program
+    if (cls) setClasses(withoutHiddenClasses(cls).map((c) => ({ ...c, entries: activeEntries(c) }))); // hidden classes (schema-v38) stay off the printed program; their program breaks carry over
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
