@@ -136,14 +136,33 @@ export default function GatePage() {
   const stillToGo = isTbc && liveClass
     ? liveClass.entries.filter((e) => !e.called && !e.scratched).length
     : 0;
+  // Highlight who's in the ring (green) and who's on deck (orange) in the
+  // live class's list; horses already through fade back.
+  const livePending = liveClass
+    ? liveClass.entries.filter((x) => !x.scratched && (isTbc ? !x.called : x.score == null))
+    : [];
+  const liveIds = { currentId: livePending[0]?.id ?? null, nextId: livePending[1]?.id ?? null };
 
-  const entryRow = (e, cls) => {
+  const entryRow = (e, cls, ids = {}) => {
     // Still to go through the ring — these can be reordered for last-second
     // gate changes (horses already through, and scratches, keep their spots).
-    const movable = !e.scratched && (cls.scoring_mode === "tbc" ? !e.called : e.score == null);
+    const isTbcCls = cls.scoring_mode === "tbc";
+    const movable = !e.scratched && (isTbcCls ? !e.called : e.score == null);
+    const done = !e.scratched && (isTbcCls ? e.called : e.score != null);
+    const isCurrent = e.id === ids.currentId;
+    const isNext = e.id === ids.nextId;
     return (
-      <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--line)", opacity: e.scratched ? 0.55 : 1 }}>
+      <div key={e.id} style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+        padding: "7px 8px", borderBottom: "1px solid var(--line)",
+        opacity: e.scratched ? 0.55 : done ? 0.4 : 1,
+        background: isCurrent ? "#EAF5EE" : isNext ? "#FFF3E0" : "transparent",
+        borderLeft: isCurrent ? "4px solid #2D7A52" : isNext ? "4px solid #C77B21" : "4px solid transparent",
+        borderRadius: isCurrent || isNext ? 8 : 0,
+      }}>
         <span style={{ fontSize: 14.5, fontWeight: 600, textDecoration: e.scratched ? "line-through" : "none" }}>
+          {isCurrent && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".08em", color: "#fff", background: "#2D7A52", borderRadius: 6, padding: "2px 6px", marginRight: 6, verticalAlign: "middle" }}>IN RING</span>}
+          {isNext && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".08em", color: "#fff", background: "#C77B21", borderRadius: 6, padding: "2px 6px", marginRight: 6, verticalAlign: "middle" }}>NEXT</span>}
           #{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span>
         </span>
         <span style={{ display: "inline-flex", gap: 5, flexShrink: 0 }}>
@@ -202,7 +221,7 @@ export default function GatePage() {
                 <p style={{ color: "var(--quiet)", margin: 0 }}>Everyone in this class has been through.</p>
               )}
               <div style={{ marginTop: 12 }}>
-                {liveClass.entries.map((e) => entryRow(e, liveClass))}
+                {liveClass.entries.map((e) => entryRow(e, liveClass, liveIds))}
               </div>
               {/* On paperwork (TBC) days classes never auto-complete from
                   scoring — and a championship fed by TBC classes can sit here
