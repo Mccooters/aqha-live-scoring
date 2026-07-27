@@ -2135,7 +2135,12 @@ export default function Coordinator() {
           const confirmedSpots = cls.entries.filter((e) => !e.scratched).length;
           const isFull = cls.capacity != null && confirmedSpots >= cls.capacity;
           return (
-            <section key={cls.id} className="card" style={isLive ? { borderColor: "var(--brass)" } : {}}>
+            <section key={cls.id} className="card" style={{
+              ...(isLive ? { borderColor: "var(--brass)" } : {}),
+              // .card clips overflow for its rounded corners, which cuts the
+              // "⋯" dropdown off on short cards — let it spill while open.
+              ...(classMenu === cls.id ? { overflow: "visible" } : {}),
+            }}>
               <div className="card-head" style={{ flexWrap: "nowrap", ...(isLive ? { background: "#FBF4E4" } : {}) }}>
                 {cls.status === "upcoming" && (
                   <input type="checkbox" checked={selectedClassIds.has(cls.id)} onChange={() => toggleClassSelect(cls.id)}
@@ -2289,7 +2294,7 @@ export default function Coordinator() {
           return (
             <>
               {tuckCompleted && (
-                <details className="card" style={{ padding: "12px 16px" }}>
+                <details className="card" style={{ padding: "12px 16px", overflow: "visible" }}>
                   <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--quiet)", fontSize: 14 }}>
                     Completed classes ({completedList.length}) — tap to view / enter results
                   </summary>
