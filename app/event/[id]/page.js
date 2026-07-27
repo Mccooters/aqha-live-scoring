@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { normaliseBreakLabel, normaliseCategoryLabel, programDisplayRows, withoutHiddenClasses } from "../../../lib/classCategories";
 import { scoreRank } from "../../../lib/showPrint";
+import { championshipTitles } from "../../../lib/championship";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -322,6 +323,9 @@ export default function EventPage() {
             // (a Supreme class's winner reads Supreme).
             const isChamp = Array.isArray(cls.champ_feeder_ids) && cls.champ_feeder_ids.length > 0;
             const champTitle = /supreme/i.test(cls.name ?? "") ? "Supreme" : "Champion";
+            // Titles are per judge: each judge's 1st is a Champion, their 2nd
+            // a Reserve — a two-judge class can have two Champions.
+            const titles = isChamp ? championshipTitles(cls) : null;
             const placed = cls.entries
               .filter((e) => e.score != null && !e.scratched)
               .sort((a, b) => {
@@ -390,11 +394,12 @@ export default function EventPage() {
                     )}
                     {placed.map((e, i) => (
                       <tr key={e.id} style={i === 0 ? { background: "#FBF4E4" } : {}}>
-                        <td className="display" style={{ fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)", ...(isChamp && i < 2 ? { fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em" } : {}) }}>
+                        <td className="display" style={{ fontWeight: 700, color: isChamp ? (titles.champions.has(e.id) ? "var(--brass)" : "var(--quiet)") : i === 0 ? "var(--brass)" : "var(--quiet)", ...(isChamp && (titles.champions.has(e.id) || titles.reserves.has(e.id)) ? { fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em" } : {}) }}>
                           {/* Championships award Champion & Reserve only — no
                               placings beyond those (a Supreme has no Reserve). */}
                           {isChamp
-                            ? (i === 0 ? champTitle : i === 1 && champTitle !== "Supreme" ? "Reserve" : "·")
+                            ? (titles.champions.has(e.id) ? champTitle
+                              : titles.reserves.has(e.id) && champTitle !== "Supreme" ? "Reserve" : "·")
                             : i + 1}
                         </td>
                         <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>

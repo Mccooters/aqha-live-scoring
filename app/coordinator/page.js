@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { categoryKey, programDisplayRows } from "../../lib/classCategories";
-import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQualifiers, suggestFeederIds } from "../../lib/championship";
+import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQualifiers, championshipTitles, suggestFeederIds } from "../../lib/championship";
 import { scoreRank } from "../../lib/showPrint";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
@@ -880,22 +880,19 @@ export default function Coordinator() {
         names.forEach((name) => { pointsMap[name] = (pointsMap[name] ?? 0) + pts; });
       };
 
-      // Championship classes (owner's rule): Champion = 1 pt, Reserve = 0.5.
-      // One award per class — the titles are single awards, not per judge.
-      // Supreme earns nothing.
+      // Championship classes (owner's rule): Champion = 1 pt, Reserve = 0.5,
+      // PER JUDGE — each judge's 1st is a Champion and their 2nd a Reserve,
+      // so a two-judge class awards two of each (a horse can collect both a
+      // Champion and a Reserve from different judges). Supreme earns nothing.
       if (isChampionship(c)) {
         if (/supreme/i.test(c.name ?? "")) continue;
-        const ranked = [...entries].sort((a, b) => {
-          const d = isPlacing
-            ? scoreRank(a.score, true) - scoreRank(b.score, true)
-            : scoreRank(b.score, false) - scoreRank(a.score, false);
-          if (d !== 0) return d;
-          return isPlacing
-            ? scoreRank(a.score2, true, 99) - scoreRank(b.score2, true, 99)
-            : scoreRank(b.score2, false, 0) - scoreRank(a.score2, false, 0);
+        ["score", ...(c.judge2 ? ["score2"] : [])].forEach((key) => {
+          const sorted = active
+            .filter((e) => e[key] != null && e[key] !== -1)
+            .sort((a, b) => (isPlacing ? a[key] - b[key] : b[key] - a[key]));
+          credit(sorted[0], 1);
+          credit(sorted[1], 0.5);
         });
-        credit(ranked[0], 1);
-        credit(ranked[1], 0.5);
         continue;
       }
 
@@ -2499,13 +2496,24 @@ export default function Coordinator() {
                 <tbody>
                   {placed.map((e, i) => (
                     <tr key={e.id}>
-                      {/* Championships award Champion & Reserve only — no
-                          placings beyond those two (a Supreme has no Reserve). */}
-                      <td className="display" style={{ width: 50, fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)", ...(isChampionship(cls) && i < 2 ? { fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" } : {}) }}>
-                        {isChampionship(cls)
-                          ? (i === 0 ? (/supreme/i.test(cls.name ?? "") ? "Supreme" : "Champ") : i === 1 && !/supreme/i.test(cls.name ?? "") ? "Reserve" : "·")
-                          : i + 1}
-                      </td>
+                      {/* Championships award Champion & Reserve only, PER
+                          JUDGE — a two-judge class can have two Champions.
+                          (A Supreme has no Reserve.) */}
+                      {(() => {
+                        const champ = isChampionship(cls);
+                        const titles = champ ? championshipTitles(cls) : null;
+                        const supreme = /supreme/i.test(cls.name ?? "");
+                        const label = champ
+                          ? (titles.champions.has(e.id) ? (supreme ? "Supreme" : "Champ")
+                            : titles.reserves.has(e.id) && !supreme ? "Reserve" : "·")
+                          : i + 1;
+                        const isTitle = champ && label !== "·";
+                        return (
+                          <td className="display" style={{ width: 50, fontWeight: 700, color: (champ ? titles.champions.has(e.id) : i === 0) ? "var(--brass)" : "var(--quiet)", ...(isTitle ? { fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" } : {}) }}>
+                            {label}
+                          </td>
+                        );
+                      })()}
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td className="display" style={{ textAlign: "right", fontWeight: 700, width: twoJudges ? 120 : 70 }}>
                         {(() => {
