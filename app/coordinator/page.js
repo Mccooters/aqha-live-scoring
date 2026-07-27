@@ -2332,7 +2332,13 @@ export default function Coordinator() {
                 <tbody>
                   {placed.map((e, i) => (
                     <tr key={e.id}>
-                      <td className="display" style={{ width: 50, fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
+                      {/* Championships award Champion & Reserve only — no
+                          placings beyond those two (a Supreme has no Reserve). */}
+                      <td className="display" style={{ width: 50, fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)", ...(isChampionship(cls) && i < 2 ? { fontSize: 10, textTransform: "uppercase", letterSpacing: ".04em" } : {}) }}>
+                        {isChampionship(cls)
+                          ? (i === 0 ? (/supreme/i.test(cls.name ?? "") ? "Supreme" : "Champ") : i === 1 && !/supreme/i.test(cls.name ?? "") ? "Reserve" : "·")
+                          : i + 1}
+                      </td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td className="display" style={{ textAlign: "right", fontWeight: 700, width: twoJudges ? 120 : 70 }}>
                         {mode === "placing"
