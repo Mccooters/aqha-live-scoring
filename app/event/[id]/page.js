@@ -606,36 +606,10 @@ export default function EventPage() {
             </div>
             <NextClassPreview cls={nextClass} breaks={breaksBeforeNext} />
           </section>
-        ) : event.status === "completed" ? (
-          <section className="card" style={{ background: "var(--sand)", border: "1px solid var(--line)", padding: "20px 22px" }}>
-            <div className="display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 14, color: "var(--leather)" }}>Final Results</div>
-            {classes.filter((cls) => cls.entries.some((e) => e.score != null && !e.scratched)).map((cls) => {
-              // In placing modes the stored "score" is the placing (1 = best),
-              // so the champion is the LOWEST number, not the highest.
-              const isPlacingMode = ["placing", "class_only", "tbc_class"].includes(cls.scoring_mode);
-              const champion = [...cls.entries].filter((e) => e.score != null && e.score !== -1 && !e.scratched)
-                .sort((a, b) => (isPlacingMode ? a.score - b.score : b.score - a.score))[0];
-              if (!champion) return null; // every result was a DQ
-              return (
-                <div key={cls.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", gap: 10 }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 13.5 }}>Class {cls.num} · {cls.name}</div>
-                    <div style={{ fontSize: 13, color: "var(--quiet)" }}>
-                      {Array.isArray(cls.champ_feeder_ids) && cls.champ_feeder_ids.length
-                        ? (/supreme/i.test(cls.name ?? "") ? "Supreme" : "Champion")
-                        : "1st"}: #{fmtBack(champion.back_number)} {champion.horse} · {champion.exhibitor}
-                    </div>
-                  </div>
-                  {!isPlacingMode && (
-                    <div className="display" style={{ fontWeight: 700, color: "var(--brass)", fontSize: 20, whiteSpace: "nowrap" }}>{champion.score}</div>
-                  )}
-                </div>
-              );
-            })}
-            {!classes.some((cls) => cls.entries.some((e) => e.score != null && !e.scratched)) && (
-              <p style={{ color: "var(--quiet)", margin: 0 }}>No scored results recorded.</p>
-            )}
-          </section>
+        ) : ["completed", "archived"].includes(event.status) ? (
+          // No banner once the show is over — the full scoreboards are right
+          // below, and the printable Results page is linked in the header.
+          null
         ) : (
           <section className="card" style={{ background: "var(--sand)", border: "none", padding: 22, textAlign: "center" }}>
             {event.status === "pre_open" ? (
