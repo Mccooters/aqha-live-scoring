@@ -870,18 +870,42 @@ export default function Coordinator() {
       if (!entries.length && !(c.judge2 && active.some((e) => e.score2 != null))) continue;
 
       const isPlacing = ["placing", "class_only", "tbc_class"].includes(c.scoring_mode);
+      // A dual-registered horse earns the same points once per breed —
+      // separate leaderboard entries. No registrations known = plain name.
+      const credit = (e, pts) => {
+        if (!e) return;
+        const names = isHorseCat
+          ? (breedsByBack[e.back_number] ?? [null]).map((l) => (l ? `${e.horse} (${l})` : e.horse))
+          : [e.exhibitor];
+        names.forEach((name) => { pointsMap[name] = (pointsMap[name] ?? 0) + pts; });
+      };
+
+      // Championship classes (owner's rule): Champion = 1 pt, Reserve = 0.5.
+      // One award per class — the titles are single awards, not per judge.
+      // Supreme earns nothing.
+      if (isChampionship(c)) {
+        if (/supreme/i.test(c.name ?? "")) continue;
+        const ranked = [...entries].sort((a, b) => {
+          const d = isPlacing
+            ? scoreRank(a.score, true) - scoreRank(b.score, true)
+            : scoreRank(b.score, false) - scoreRank(a.score, false);
+          if (d !== 0) return d;
+          return isPlacing
+            ? scoreRank(a.score2, true, 99) - scoreRank(b.score2, true, 99)
+            : scoreRank(b.score2, false, 0) - scoreRank(a.score2, false, 0);
+        });
+        credit(ranked[0], 1);
+        credit(ranked[1], 0.5);
+        continue;
+      }
+
       const applyJudge = (sorted, getScore) => {
         const n = sorted.length;
         sorted.forEach((e, i) => {
           const placing = isPlacing ? Math.round(getScore(e)) : i + 1;
           const pts = calcPoints(placing, n);
           if (!pts) return;
-          // A dual-registered horse earns the same points once per breed —
-          // separate leaderboard entries. No registrations known = plain name.
-          const names = isHorseCat
-            ? (breedsByBack[e.back_number] ?? [null]).map((l) => (l ? `${e.horse} (${l})` : e.horse))
-            : [e.exhibitor];
-          names.forEach((name) => { pointsMap[name] = (pointsMap[name] ?? 0) + pts; });
+          credit(e, pts);
         });
       };
 
