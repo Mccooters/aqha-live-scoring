@@ -598,8 +598,14 @@ export default function Coordinator() {
     const byId = Object.fromEntries(allClasses.map((c) => [c.id, c]));
     const feeders = (champCls.champ_feeder_ids ?? []).map((id) => byId[id]).filter(Boolean);
     if (!feeders.length) return { done: false };
-    if (!feeders.every((f) => f.status === "completed")) return { waiting: true };
-    const qualifiers = championshipQualifiers(champCls, byId);
+    // Hidden feeders (schema-v38 — e.g. an empty class hidden at "Close
+    // entries") never run: they don't hold the championship up and
+    // contribute no qualifiers.
+    const runnable = feeders.filter((f) => !f.hidden);
+    if (!runnable.length) return { done: false };
+    if (!runnable.every((f) => f.status === "completed")) return { waiting: true };
+    const visibleById = Object.fromEntries(allClasses.filter((c) => !c.hidden).map((c) => [c.id, c]));
+    const qualifiers = championshipQualifiers(champCls, visibleById);
     const qualBacks = new Set(qualifiers.map((q) => q.back_number));
     let existing = champCls.entries ?? [];
     if (replace) {
