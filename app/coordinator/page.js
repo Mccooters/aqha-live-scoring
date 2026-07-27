@@ -630,10 +630,15 @@ export default function Coordinator() {
       const { data: fresh } = await supabase
         .from("classes").select("*, entries(*)").eq("event_id", eventId).order("sort_order");
       const champs = (fresh ?? []).filter((c) =>
-        Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.includes(completedClassId) && c.status !== "completed");
+        Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.includes(completedClassId) &&
+        // A championship the gate already completed on an all-TBC day (empty
+        // draw, moved past to keep the show going) still fills when the
+        // feeders' paperwork results are typed in afterwards — but once its
+        // own results are entered, a completed championship is left alone.
+        (c.status !== "completed" || !(c.entries ?? []).some((e) => e.score != null || e.score2 != null)));
       for (const champ of champs) {
         const res = await fillChampionshipDraw(champ, fresh ?? []);
-        if (res.done && res.added > 0) {
+        if (res.done && res.added > 0 && currentEvent?.status === "live") {
           triggerPush(`${champ.name} — draw ready`, `${res.added} qualifier${res.added === 1 ? "" : "s"} added from the completed classes.`, "results");
         }
       }
@@ -2303,7 +2308,7 @@ export default function Coordinator() {
                           { label: "Edit class", show: true, onClick: () => openModal("editClass", { cls }) },
                           { label: cls.pattern_url ? "✓ Pattern" : "Set pattern", show: !isClinic, onClick: () => openModal("pattern", { classId: cls.id }) },
                           { label: `Result sheets${Array.isArray(cls.result_sheets) && cls.result_sheets.length ? ` (${cls.result_sheets.length})` : ""}`, show: !isClinic, onClick: () => openModal("resultSheets", { classId: cls.id }) },
-                          { label: "↻ Refresh qualifiers", show: isChampionship(cls) && cls.status !== "completed" && !isClinic, onClick: () => refreshChampionship(cls) },
+                          { label: "↻ Refresh qualifiers", show: isChampionship(cls) && !isClinic, onClick: () => refreshChampionship(cls) },
                           { label: "Push to High Points", show: cls.status === "completed" && !!cls.hp_category && !isClinic, onClick: async () => {
                             const res = await pushToHighPoints(cls);
                             if (res && !res.ok) window.alert("High points could not be updated — check your internet connection and try again.");
