@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
 import { programDisplayRows, withoutHiddenClasses } from "../../../../lib/classCategories";
+import { championshipTitles } from "../../../../lib/championship";
 import { activeEntries, dateRange, dayDate, fmtBack, resultEntries, scoreText } from "../../../../lib/showPrint";
 
 function PrintStyles() {
@@ -114,6 +115,8 @@ export default function ResultsPrintPage() {
             // (a Supreme class's winner reads Supreme).
             const isChamp = Array.isArray(cls.champ_feeder_ids) && cls.champ_feeder_ids.length > 0;
             const champTitle = /supreme/i.test(cls.name ?? "") ? "Supreme" : "Champion";
+            // Per-judge titles: a two-judge class can have two Champions.
+            const titles = isChamp ? championshipTitles(cls) : null;
             return (
               <div key={row.key} className="program-row">
                 <div className="class-heading">
@@ -124,7 +127,10 @@ export default function ResultsPrintPage() {
                   <ol className="result-list">
                     {results.map((entry, idx) => (
                       <li key={entry.id}>
-                        <span className="result-place">{isChamp ? (idx === 0 ? `${champTitle}:` : idx === 1 && champTitle !== "Supreme" ? "Reserve:" : "") : `${idx + 1}.`}</span>
+                        <span className="result-place">{isChamp
+                          ? (titles.champions.has(entry.id) ? `${champTitle}:`
+                            : titles.reserves.has(entry.id) && champTitle !== "Supreme" ? "Reserve:" : "")
+                          : `${idx + 1}.`}</span>
                         <span>#{fmtBack(entry.back_number)} {entry.horse} - {entry.exhibitor}</span>
                         <span className="result-score">{scoreText(entry, cls)}</span>
                       </li>

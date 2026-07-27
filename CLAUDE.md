@@ -423,9 +423,14 @@ coordinator page auto-fills. Rules:
 - Grand Champion eligibility (Champion+Reserve vs Champions only) is the
   per-class `champ_take` toggle — the committee hadn't confirmed which at
   build time; default `top2`.
-- **Club high points from championships** (owner's rule, July 2026):
-  Champion = 1 pt, Reserve = 0.5 pt, awarded ONCE per championship class
-  (titles are single awards, never per judge); Supreme earns nothing.
+- **Championship titles are PER JUDGE** (owner's rule, July 2026 — like all
+  judging, the judges are never combined): each judge's 1st is a Champion
+  and their 2nd a Reserve, so a two-judge class can have two Champions.
+  `championshipTitles()` in `lib/championship.js` computes the sets (a
+  horse that is one judge's Champion and the other's Reserve reads as
+  Champion); used by the public event page, results page and dashboard.
+  **Club high points**: Champion = 1 pt, Reserve = 0.5 pt per judge (a
+  horse can collect 1 + 0.5 across the two judges); Supreme earns nothing.
   Implemented in `pushToHighPoints` — ordinary classes keep the
   `calcPoints` per-judge scale.
 
