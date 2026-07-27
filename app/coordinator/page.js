@@ -677,6 +677,100 @@ export default function Coordinator() {
     }
   };
 
+  // ---- bulk result-sheet upload ----
+  // The secretary scans one sheet covering several classes and names the file
+  // like "Class 10-11-12 RS.pdf": the numbers say which classes it belongs to,
+  // the trailing initials say which judge (RS = Robyn Smith). One upload
+  // attaches the same scan to every listed class under the right judge.
+  const initialsOf = (name) =>
+    String(name ?? "").trim().split(/\s+/).map((w) => w[0] ?? "").join("").toUpperCase();
+
+  const parseBulkSheetName = (file) => {
+    const base = file.name.replace(/\.[^.]+$/, "");
+    const nums = [...new Set([...base.matchAll(/\d+/g)].map((m) => Number(m[0])))];
+    const codeMatch = base.trim().match(/([A-Za-z]+)\s*$/);
+    const code = codeMatch && codeMatch[1].toLowerCase() !== "class" ? codeMatch[1].toUpperCase() : "";
+    const matched = [];
+    const unknown = [];
+    nums.forEach((n) => {
+      const cls = classes.find((c) => Number(c.num) === n);
+      if (cls) matched.push(cls);
+      else unknown.push(n);
+    });
+    return { file, code, matched, unknown };
+  };
+
+  const bulkJudgeFor = (cls, code, fallback) => {
+    if (code && initialsOf(cls.judge) === code) return cls.judge;
+    if (code && initialsOf(cls.judge2) === code) return cls.judge2;
+    return fallback || code || cls.judge || "Judge";
+  };
+
+  const uploadBulkSheets = async () => {
+    const files = form.bulkFiles ?? [];
+    if (!files.length) { setFormError("Choose the scanned sheet files first."); return; }
+    setBusy(true);
+    try {
+      // Sheets accumulate here so two files landing on the same class (one
+      // per judge) don't overwrite each other; one DB write per class at the end.
+      const pending = new Map();
+      const sheetsOf = (cls) => pending.get(cls.id) ?? (Array.isArray(cls.result_sheets) ? [...cls.result_sheets] : []);
+      let uploaded = 0;
+      let attached = 0;
+      let alreadyThere = 0;
+      const skipped = [];
+      const unknownNums = new Set();
+      for (const p of files.map(parseBulkSheetName)) {
+        p.unknown.forEach((n) => unknownNums.add(n));
+        if (!p.matched.length) { skipped.push(p.file.name); continue; }
+        const clean = p.file.name.replace(/[^a-z0-9.]/gi, "-");
+        // Re-running the same files must not double up: skip classes that
+        // already have this file under this judge.
+        const targets = p.matched.filter((cls) => {
+          const label = bulkJudgeFor(cls, p.code, form.bulkJudge);
+          return !sheetsOf(cls).some((s) => s.label === label && s.url.endsWith(clean));
+        });
+        alreadyThere += p.matched.length - targets.length;
+        if (!targets.length) continue;
+        const path = `results/${eventId}/bulk-${Date.now()}-${clean}`;
+        const { error: upErr } = await supabase.storage.from("patterns").upload(path, p.file, { upsert: true });
+        if (upErr) {
+          const msg = upErr.message?.toLowerCase() ?? "";
+          setFormError(msg.includes("not found") || msg.includes("bucket")
+            ? 'Storage not configured. Create a "patterns" bucket in Supabase Storage (Dashboard → Storage → New bucket, name: patterns, Public: on).'
+            : `${p.file.name}: ${upErr.message}`);
+          return;
+        }
+        const { data: urlData } = supabase.storage.from("patterns").getPublicUrl(path);
+        for (const cls of targets) {
+          const label = bulkJudgeFor(cls, p.code, form.bulkJudge);
+          pending.set(cls.id, [...sheetsOf(cls), { url: urlData.publicUrl, label }]);
+          attached += 1;
+        }
+        uploaded += 1;
+      }
+      for (const [clsId, sheets] of pending) {
+        const { error } = await supabase.from("classes").update({ result_sheets: sheets }).eq("id", clsId);
+        if (error) {
+          setFormError(/result_sheets/i.test(error.message ?? "")
+            ? 'Result sheets need a database update — run "schema-v45-result-sheets.sql" in the Supabase SQL Editor first.'
+            : error.message);
+          return;
+        }
+      }
+      setFormError("");
+      await loadClasses();
+      const bits = [`${uploaded} file${uploaded === 1 ? "" : "s"} uploaded — attached to ${attached} class sheet slot${attached === 1 ? "" : "s"}.`];
+      if (alreadyThere) bits.push(`${alreadyThere} already attached earlier — skipped, no doubles.`);
+      if (unknownNums.size) bits.push(`Class numbers not in this event (skipped): ${[...unknownNums].sort((a, b) => a - b).join(", ")}.`);
+      if (skipped.length) bits.push(`No class numbers recognised in: ${skipped.join(", ")}.`);
+      window.alert(bits.join("\n"));
+      closeModal();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const removeResultSheet = async (cls, idx) => {
     const sheets = Array.isArray(cls.result_sheets) ? cls.result_sheets : [];
     const sheet = sheets[idx];
@@ -1888,6 +1982,12 @@ export default function Coordinator() {
               {exportingClasses ? "Exporting…" : "⇩ Export classes"}
             </button>
             <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
+            {!isClinic && (
+              <button className="btn-ghost" onClick={() => openModal("bulkSheets")} disabled={!eventId || classes.length === 0}
+                title="Upload scanned result sheets in bulk — file names like 'Class 10-11-12 RS' attach them to the right classes and judge">
+                ⇪ Bulk result sheets
+              </button>
+            )}
             <Link href="/coordinator/health" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>
               ⚙ Health
             </Link>
@@ -2626,6 +2726,60 @@ export default function Coordinator() {
                   <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                     <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitDayEntry} disabled={busy}>
                       {busy ? "Adding…" : `Add to ${selected.length || "…"} class${selected.length === 1 ? "" : "es"}`}
+                    </button>
+                    <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                  </div>
+                </>
+              );
+            })()}
+
+            {modal.type === "bulkSheets" && (() => {
+              const files = form.bulkFiles ?? [];
+              const parsed = files.map(parseBulkSheetName);
+              const eventJudges = [...new Set(classes.flatMap((c) => [c.judge, c.judge2]).filter(Boolean))];
+              const needsFallback = parsed.some((p) =>
+                p.matched.some((cls) => !(p.code && (initialsOf(cls.judge) === p.code || initialsOf(cls.judge2) === p.code))));
+              return (
+                <>
+                  <h2 className="display modal-title">Bulk result sheets</h2>
+                  <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
+                    Choose all the scanned sheets at once — the file name tells us where each one goes.
+                    E.g. <strong>&quot;Class 10-11-12 RS&quot;</strong> attaches to classes 10, 11 and 12 under
+                    the judge with initials <strong>RS</strong>. Check the preview, then press Upload.
+                  </p>
+                  <input className="field" type="file" multiple accept="image/*,application/pdf"
+                    style={{ width: "100%", fontSize: 14 }}
+                    onChange={(e) => setForm((f) => ({ ...f, bulkFiles: [...(e.target.files ?? [])] }))} />
+                  {parsed.length > 0 && (
+                    <div style={{ border: "1px solid var(--line)", borderRadius: 8, background: "#fff", padding: "4px 10px", margin: "10px 0", maxHeight: 280, overflowY: "auto" }}>
+                      {parsed.map((p, i) => (
+                        <div key={i} style={{ padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
+                          <div style={{ fontWeight: 700 }}>{p.file.name}</div>
+                          <div style={{ color: p.matched.length ? "var(--quiet)" : "var(--clay)" }}>
+                            {p.matched.length
+                              ? <>→ Class{p.matched.length === 1 ? "" : "es"} {p.matched.map((c) => c.num).join(", ")} · Judge: {[...new Set(p.matched.map((cls) => bulkJudgeFor(cls, p.code, form.bulkJudge)))].join(" / ")}</>
+                              : "No class numbers recognised — this file will be skipped."}
+                          </div>
+                          {p.unknown.length > 0 && (
+                            <div style={{ color: "var(--clay)", fontSize: 12 }}>Not in this event (skipped): {p.unknown.join(", ")}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {needsFallback && (
+                    <>
+                      <label className="modal-label">If a file&apos;s initials don&apos;t match a judge, file under</label>
+                      <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.bulkJudge ?? ""} onChange={setField("bulkJudge")}>
+                        <option value="">Use the initials from the file name</option>
+                        {eventJudges.map((j) => <option key={j} value={j}>{j}</option>)}
+                      </select>
+                    </>
+                  )}
+                  {formError && <p className="modal-error">{formError}</p>}
+                  <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                    <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={uploadBulkSheets} disabled={busy || !files.length}>
+                      {busy ? "Uploading…" : files.length ? `Upload ${files.length} file${files.length === 1 ? "" : "s"}` : "Upload"}
                     </button>
                     <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
                   </div>
