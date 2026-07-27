@@ -100,9 +100,14 @@ export default function EventPage() {
     ]);
     if (ev) setEvent(ev);
     if (cls) {
-      // Hidden classes (schema-v38) never appear to the public — but any
-      // program break attached to one is carried onto the next visible class.
-      const visible = withoutHiddenClasses(cls);
+      // Hidden classes (schema-v38) never appear to the public — and a class
+      // whose every entry is scratched is effectively not running, so it's
+      // treated the same. Any program break attached carries onto the next
+      // visible class either way. (Classes with no entries yet still show —
+      // that's the pre-show program.)
+      const marked = cls.map((c) =>
+        (c.entries?.length > 0 && c.entries.every((e) => e.scratched)) ? { ...c, hidden: true } : c);
+      const visible = withoutHiddenClasses(marked);
       visible.forEach((c) => c.entries.sort((a, b) => a.draw_order - b.draw_order));
       setClasses(visible);
     }
