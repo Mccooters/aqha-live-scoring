@@ -464,7 +464,11 @@ export default function Coordinator() {
     );
     if (!ok) return; // do not notify or complete the class on a failed write
     if (scratching) {
-      triggerPush(`Scratch: #${entry.back_number} ${entry.horse}`, "This entry has been scratched.", "scratch");
+      // Only ping spectators while the show is on — tidying results
+      // afterwards shouldn't buzz anyone's phone.
+      if (currentEvent?.status === "live") {
+        triggerPush(`Scratch: #${entry.back_number} ${entry.horse}`, "This entry has been scratched.", "scratch");
+      }
       if (liveClass) {
         const liveMode = liveClass.scoring_mode ?? "score";
         const remaining = liveMode === "tbc"
@@ -2438,6 +2442,9 @@ export default function Coordinator() {
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td colSpan={2} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <span style={{ display: "inline-flex", gap: 5 }}>
+                          {/* A horse marked "gone in" can still turn out a
+                              scratch when the paperwork arrives. */}
+                          <button className="btn-ghost danger" style={{ fontSize: 11 }} onClick={() => toggleScratch(e)}>Scratch</button>
                           <button className="btn-ghost" style={{ fontSize: 11 }} onClick={() => openModal("editEntry", { entry: e })}>Edit</button>
                           <button className="btn-ghost danger" style={{ fontSize: 11 }} onClick={() => deleteEntry(e)}>Delete</button>
                         </span>
