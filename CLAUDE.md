@@ -180,12 +180,18 @@ PR with a clear plain-English description.
   horses and riders, category tabs, CSV import matching the club's existing
   spreadsheet format (season detected from the title row), manual add/edit/
   delete for staff. Self-service "create this table" instructions shown if
-  the `high_points` table/migration hasn't been run yet. Since schema-v24
-  there is a separate set of leaderboards per breed/colour association —
-  AQHA (all pre-existing data), Paint, Appaloosa, plus any the staff add
-  (tab list in `site_settings` key `high_points_breeds`). Writes carry a
-  `breed`; the AQHA tab falls back to legacy no-breed queries if v24 hasn't
-  been run, other breeds show a run-the-migration message.
+  the `high_points` table/migration hasn't been run yet. There is ONE
+  leaderboard (owner's rule, July 2026 — the per-breed tabs from schema-v24
+  were removed): a horse registered with more than one association earns
+  points separately under each breed BY NAME — e.g. "Harry High Pants (QH)"
+  and "Harry High Pants (Paint)" are two leaderboard entries.
+  `pushToHighPoints` looks up `horse_registrations` by back number and
+  splits automatically (club → suffix map `BREED_SUFFIX` in
+  `app/coordinator/page.js`: AQHA→QH, PHAA/APHA→Paint, AAA/APHCA→Appaloosa,
+  unknown clubs keep their code; no registrations = plain name). Rows still
+  store `breed = 'AQHA'` (the v24 column stays as the storage default, with
+  the legacy no-breed fallback for pre-v24 databases); rows under other
+  breed values are no longer displayed.
 - `app/membership/page.js` — public "Become a member" form (schema-v23):
   pick a membership type, contact details, optional horse details for the
   committee to review, then Square checkout (skipped when the fee is $0).

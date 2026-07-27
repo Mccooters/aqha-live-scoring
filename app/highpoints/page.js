@@ -18,11 +18,11 @@ const KNOWN_CATEGORY_NAMES = new Set(CANONICAL_CATEGORIES.map(c => c.toLowerCase
 const HIGH_POINTS_NOTICE_KEY = "high_points_notice";
 const HIGH_POINTS_NOTICE_TEXT = "Current results are not up to date. TBC.";
 
-// Separate leaderboards per breed/colour association (schema-v24). Every
-// result belongs to one breed's leaderboard; existing data is AQHA. The tab
-// list lives in site_settings so staff can add more breeds from this page.
-const BREEDS_KEY = "high_points_breeds";
-const DEFAULT_BREEDS = ["AQHA", "Paint", "Appaloosa"];
+// ONE high-points leaderboard (owner's rule, July 2026). A horse registered
+// with more than one association appears once per breed by name — e.g.
+// "Harry High Pants (QH)" and "Harry High Pants (Paint)" — pushed that way
+// automatically from show results. Rows still store breed='AQHA' (the
+// schema-v24 column stays as the storage default).
 const rowBreed = (r) => r.breed ?? "AQHA"; // rows from before the migration are AQHA
 // Older databases (schema-v24 not run yet) have no breed column — this spots
 // that error so AQHA keeps working exactly as before the update.
@@ -134,8 +134,7 @@ export default function HighPoints() {
   const [records, setRecords] = useState([]);
   const [seasons, setSeasons] = useState([]);
   const [season, setSeason] = useState("");
-  const [breed, setBreed] = useState("AQHA");
-  const [configuredBreeds, setConfiguredBreeds] = useState(DEFAULT_BREEDS);
+  const breed = "AQHA"; // single leaderboard — all rows live under the storage default
   const [activeCategory, setActiveCategory] = useState("");
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -145,7 +144,7 @@ export default function HighPoints() {
   const [formError, setFormError] = useState("");
   const [importError, setImportError] = useState("");
   const [importing, setImporting] = useState(false);
-  const [importBreed, setImportBreed] = useState("AQHA");
+  const importBreed = "AQHA";
   const [noticeEnabled, setNoticeEnabled] = useState(false);
   const [noticeReady, setNoticeReady] = useState(false);
   const [noticeSaving, setNoticeSaving] = useState(false);
@@ -194,20 +193,8 @@ export default function HighPoints() {
     setNoticeEnabled(Boolean(data?.value?.enabled));
   }, []);
 
-  const loadBreeds = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("site_settings")
-      .select("value")
-      .eq("key", BREEDS_KEY)
-      .maybeSingle();
-    if (!error && Array.isArray(data?.value?.list) && data.value.list.length) {
-      setConfiguredBreeds(data.value.list);
-    }
-  }, []);
-
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadNotice(); }, [loadNotice]);
-  useEffect(() => { loadBreeds(); }, [loadBreeds]);
 
   const toggleNotice = async () => {
     const nextEnabled = !noticeEnabled;
@@ -235,36 +222,7 @@ export default function HighPoints() {
   const setField = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
   const closeModal = () => { setModal(null); setForm({}); setFormError(""); setImportError(""); };
 
-  // Add a new breed/colour association tab (e.g. Buckskin). Saved in
-  // site_settings so it appears for everyone, even before it has results.
-  const saveBreed = async () => {
-    const name = form.newBreed?.trim();
-    if (!name) { setFormError("Enter a breed or association name"); return; }
-    if (allBreeds.some(b => b.toLowerCase() === name.toLowerCase())) { setFormError("That breed already has a leaderboard"); return; }
-    const list = [...configuredBreeds, name];
-    const { error } = await supabase.from("site_settings").upsert({
-      key: BREEDS_KEY,
-      value: { list },
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "key" });
-    if (error) {
-      setFormError(error.message?.includes("site_settings")
-        ? 'Database migration needed. Please run "schema-v22-site-settings.sql" in your Supabase SQL Editor first.'
-        : error.message);
-      return;
-    }
-    setConfiguredBreeds(list);
-    setBreed(name);
-    setActiveCategory("");
-    closeModal();
-  };
-
   // ---- derived data ----
-  // Breed tabs: the configured list, plus any breed that has data anyway.
-  const allBreeds = [
-    ...configuredBreeds,
-    ...[...new Set(records.map(rowBreed))].filter(b => !configuredBreeds.includes(b)),
-  ];
   const seasonRows = records.filter(r => (!season || r.season === season) && rowBreed(r) === breed);
   // Always show all canonical categories; append any extra ones found in the data.
   const dataCategories = [...new Set(seasonRows.map(r => r.category))];
@@ -364,7 +322,7 @@ export default function HighPoints() {
   };
 
   const deleteEntry = async (entry) => {
-    if (!window.confirm(`Remove all ${season} ${breed} points for "${entry.name}" in ${effectiveCategory}?`)) return;
+    if (!window.confirm(`Remove all ${season} points for "${entry.name}" in ${effectiveCategory}?`)) return;
     const del = await supabase.from("high_points").delete()
       .eq("season", season).eq("category", effectiveCategory).eq("entity_name", entry.name)
       .eq("breed", breed);
@@ -440,7 +398,6 @@ export default function HighPoints() {
       }
       await load();
       setSeason(importedSeason);
-      setBreed(importBreed);
       setActiveCategory("");
       closeModal();
     } catch (err) {
@@ -511,7 +468,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                   {noticeSaving ? "Saving..." : noticeEnabled ? "Hide TBC notice" : "Show TBC notice"}
                 </button>
                 <button className="btn-ghost" style={{ borderColor: "var(--brass-soft)", color: "var(--brass-soft)", background: "transparent", padding: "6px 12px" }}
-                  onClick={() => { setImportBreed(breed); setModal({ type: "import" }); }}>
+                  onClick={() => setModal({ type: "import" })}>
                   ⇪ Import CSV
                 </button>
               </>
@@ -546,24 +503,6 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
           </p>
         )}
 
-        {/* Breed / association leaderboard selector */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
-          {allBreeds.map(b => (
-            <button key={b} onClick={() => { setBreed(b); setActiveCategory(""); }}
-              style={{ border: breed === b ? "2px solid var(--leather)" : "2px solid var(--line)", borderRadius: 10, padding: "7px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer",
-                background: breed === b ? "var(--leather)" : "#fff",
-                color: breed === b ? "#F2EADB" : "var(--quiet)" }}>
-              {b}
-            </button>
-          ))}
-          {session && (
-            <button className="btn-ghost" style={{ padding: "6px 12px", fontSize: 12 }}
-              onClick={() => { setForm({ newBreed: "" }); setModal({ type: "addBreed" }); }}>
-              + Breed
-            </button>
-          )}
-        </div>
-
         {/* Horse / Rider filter */}
         <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
           {[["all", "All categories"], ["horse", "Horse points"], ["rider", "Rider points"]].map(([v, label]) => (
@@ -585,7 +524,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
 
         {records.length > 0 && seasonRows.length === 0 && (
           <div className="card" style={{ padding: 24, textAlign: "center" }}>
-            <p className="display" style={{ fontSize: 18, margin: "0 0 8px", color: "var(--quiet)" }}>No {breed} results yet for the {season} season.</p>
+            <p className="display" style={{ fontSize: 18, margin: "0 0 8px", color: "var(--quiet)" }}>No results yet for the {season} season.</p>
             <p style={{ fontSize: 13.5, color: "var(--quiet)", margin: 0 }}>
               The season runs August to July. {session ? <>Use "⇪ Import CSV" or the + Add button to record the first results.</> : <>Check back once results have been entered.</>}
             </p>
@@ -612,7 +551,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                 <div>
                   <div className="display" style={{ fontWeight: 700, fontSize: 17 }}>{effectiveCategory}</div>
                   <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
-                    {breed} · {HORSE_CATEGORIES.has(effectiveCategory) ? "Horse" : "Rider"} points · 3+ entries: 1st=3, 2nd=2, 3rd=1 · 2 entries: 1st=2, 2nd=1 · 1 entry: 1pt · per judge
+                    {HORSE_CATEGORIES.has(effectiveCategory) ? "Horse" : "Rider"} points · 3+ entries: 1st=3, 2nd=2, 3rd=1 · 2 entries: 1st=2, 2nd=1 · 1 entry: 1pt · per judge
                   </div>
                 </div>
                 {session && <button className="btn-ghost" onClick={openAdd}>+ Add</button>}
@@ -675,7 +614,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
             {(modal.type === "add" || modal.type === "edit") && (
               <>
                 <h2 className="display modal-title">{modal.type === "add" ? "Add entry" : "Edit entry"}</h2>
-                <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>{breed} · {effectiveCategory} · {season}</p>
+                <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>{effectiveCategory} · {season}</p>
 
                 <label className="modal-label">{HORSE_CATEGORIES.has(effectiveCategory) ? "Horse name" : "Exhibitor name"} *</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }}
@@ -719,37 +658,10 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                   Upload your high points spreadsheet saved as CSV. The season year is read from the title row (e.g. "2025-2026 HCQHA High Points").
                   <strong style={{ color: "var(--ink)" }}> This will replace the chosen leaderboard&apos;s existing data for the shows in the file.</strong>
                 </p>
-                <label className="modal-label">Which leaderboard is this for?</label>
-                <select className="field" style={{ width: "100%", fontSize: 15, marginBottom: 10 }}
-                  value={importBreed} onChange={e => setImportBreed(e.target.value)}>
-                  {allBreeds.map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
                 <input type="file" accept=".csv" onChange={handleImportFile} style={{ marginBottom: 8 }} />
                 {importing && <p style={{ color: "var(--quiet)", fontSize: 13 }}>Importing…</p>}
                 {importError && <p className="modal-error">{importError}</p>}
                 <button className="btn-ghost" style={{ marginTop: 8 }} onClick={closeModal}>Cancel</button>
-              </>
-            )}
-
-            {modal.type === "addBreed" && (
-              <>
-                <h2 className="display modal-title">Add a breed leaderboard</h2>
-                <p style={{ marginTop: 0, fontSize: 13.5, color: "var(--quiet)" }}>
-                  Adds a separate set of high-points leaderboards for another breed or colour
-                  association (e.g. Buckskin, Palomino). A horse registered with more than one
-                  association can hold points on each of its breeds&apos; leaderboards.
-                </p>
-                <label className="modal-label">Breed / association name *</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }}
-                  value={form.newBreed ?? ""}
-                  onChange={setField("newBreed")}
-                  placeholder="e.g. Buckskin"
-                  autoFocus />
-                {formError && <p className="modal-error">{formError}</p>}
-                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={saveBreed}>Add leaderboard</button>
-                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
-                </div>
               </>
             )}
 

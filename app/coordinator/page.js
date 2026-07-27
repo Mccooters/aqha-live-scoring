@@ -140,6 +140,16 @@ function calcPoints(placing, competingEntries) {
   return Math.max(0, Math.min(competingEntries, 3) - placing + 1);
 }
 
+// One high-points leaderboard (owner's rule, July 2026): a horse registered
+// with more than one association earns points separately under each breed —
+// "Harry High Pants (QH)" and "Harry High Pants (Paint)" are two entries.
+const BREED_SUFFIX = { AQHA: "QH", PHAA: "Paint", APHA: "Paint", AAA: "Appaloosa", APHCA: "Appaloosa" };
+const breedLabel = (club) => {
+  const key = String(club ?? "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (!key) return null;
+  return BREED_SUFFIX[key] ?? String(club).trim();
+};
+
 const fmtBack = (n) => String(n).padStart(3, "0");
 const ordinal = (n) => { const s = ["th","st","nd","rd"]; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
 const cleanFilename = (value, fallback = "classes") =>
@@ -829,9 +839,29 @@ export default function Coordinator() {
     );
     const pointsMap = {};
 
+    // Fetch every class's entries fresh first (when called from saveScore the
+    // last score isn't in React state yet), then look up each horse's
+    // registrations so dual-registered horses earn under each breed name.
+    const freshByClass = new Map();
     for (const c of categoryClasses) {
-      // Fetch fresh — when called from saveScore the last score isn't in React state yet.
       const { data: fresh } = await supabase.from("entries").select("*").eq("class_id", c.id);
+      freshByClass.set(c.id, fresh ?? []);
+    }
+    const breedsByBack = {};
+    if (isHorseCat) {
+      const backs = [...new Set([...freshByClass.values()].flat().map((e) => e.back_number).filter((b) => b != null))];
+      if (backs.length) {
+        const { data: regHorses } = await supabase
+          .from("horses").select("back_number, horse_registrations(club)").in("back_number", backs);
+        (regHorses ?? []).forEach((h) => {
+          const labels = [...new Set((h.horse_registrations ?? []).map((r) => breedLabel(r.club)).filter(Boolean))];
+          if (labels.length) breedsByBack[h.back_number] = labels;
+        });
+      }
+    }
+
+    for (const c of categoryClasses) {
+      const fresh = freshByClass.get(c.id);
       const active = (fresh ?? []).filter((e) => !e.scratched);
       const entries = active.filter((e) => e.score != null && e.score !== -1); // DQ earns no points
       // A class can hold judge-2-only results (paperwork typed in for judge 2
@@ -846,8 +876,12 @@ export default function Coordinator() {
           const placing = isPlacing ? Math.round(getScore(e)) : i + 1;
           const pts = calcPoints(placing, n);
           if (!pts) return;
-          const name = isHorseCat ? e.horse : e.exhibitor;
-          pointsMap[name] = (pointsMap[name] ?? 0) + pts;
+          // A dual-registered horse earns the same points once per breed —
+          // separate leaderboard entries. No registrations known = plain name.
+          const names = isHorseCat
+            ? (breedsByBack[e.back_number] ?? [null]).map((l) => (l ? `${e.horse} (${l})` : e.horse))
+            : [e.exhibitor];
+          names.forEach((name) => { pointsMap[name] = (pointsMap[name] ?? 0) + pts; });
         });
       };
 
@@ -865,10 +899,10 @@ export default function Coordinator() {
       }
     }
 
-    // Scores pushed from a show go to the AQHA leaderboard — other breeds'
-    // leaderboards (Paint, Appaloosa, ...) are maintained on the High Points
-    // page and must not be touched here. On a database without the breed
-    // column yet (schema-v24 not run), fall back to the no-breed behaviour.
+    // There is one high-points leaderboard (rows keep breed='AQHA' as the
+    // storage default; dual-registered horses are split by name suffix
+    // instead). On a database without the breed column (schema-v24 not run),
+    // fall back to the no-breed behaviour.
     //
     // Order matters for safety: write the fresh points FIRST (upsert on the
     // unique key), THEN remove only the rows that dropped out. The old code
