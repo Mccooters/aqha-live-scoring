@@ -115,7 +115,7 @@ export default function ResultsPrintPage() {
                   <ol className="result-list">
                     {results.map((entry, idx) => (
                       <li key={entry.id}>
-                        <span className="result-place">{isChamp && idx === 0 ? `${champTitle}:` : isChamp && idx === 1 ? "Reserve:" : `${idx + 1}.`}</span>
+                        <span className="result-place">{isChamp ? (idx === 0 ? `${champTitle}:` : idx === 1 && champTitle !== "Supreme" ? "Reserve:" : "") : `${idx + 1}.`}</span>
                         <span>#{fmtBack(entry.back_number)} {entry.horse} - {entry.exhibitor}</span>
                         <span className="result-score">{scoreText(entry, cls)}</span>
                       </li>

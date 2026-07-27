@@ -380,7 +380,11 @@ export default function EventPage() {
                     {placed.map((e, i) => (
                       <tr key={e.id} style={i === 0 ? { background: "#FBF4E4" } : {}}>
                         <td className="display" style={{ fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)", ...(isChamp && i < 2 ? { fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em" } : {}) }}>
-                          {isChamp && i === 0 ? champTitle : isChamp && i === 1 ? "Reserve" : i + 1}
+                          {/* Championships award Champion & Reserve only — no
+                              placings beyond those (a Supreme has no Reserve). */}
+                          {isChamp
+                            ? (i === 0 ? champTitle : i === 1 && champTitle !== "Supreme" ? "Reserve" : "·")
+                            : i + 1}
                         </td>
                         <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                         <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
@@ -606,7 +610,11 @@ export default function EventPage() {
                 <div key={cls.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", gap: 10 }}>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 13.5 }}>Class {cls.num} · {cls.name}</div>
-                    <div style={{ fontSize: 13, color: "var(--quiet)" }}>1st: #{fmtBack(champion.back_number)} {champion.horse} · {champion.exhibitor}</div>
+                    <div style={{ fontSize: 13, color: "var(--quiet)" }}>
+                      {Array.isArray(cls.champ_feeder_ids) && cls.champ_feeder_ids.length
+                        ? (/supreme/i.test(cls.name ?? "") ? "Supreme" : "Champion")
+                        : "1st"}: #{fmtBack(champion.back_number)} {champion.horse} · {champion.exhibitor}
+                    </div>
                   </div>
                   {!isPlacingMode && (
                     <div className="display" style={{ fontWeight: 700, color: "var(--brass)", fontSize: 20, whiteSpace: "nowrap" }}>{champion.score}</div>
