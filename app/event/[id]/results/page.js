@@ -54,7 +54,14 @@ export default function ResultsPrintPage() {
       supabase.from("classes").select("*, entries(*)").eq("event_id", id).order("day").order("sort_order"),
     ]);
     if (ev) setEvent(ev);
-    if (cls) setClasses(withoutHiddenClasses(cls).map((c) => ({ ...c, entries: activeEntries(c) }))); // hidden classes (schema-v38) stay off public results; their program breaks carry over
+    // Hidden classes (schema-v38) stay off public results, and so does any
+    // class with no competitors left (all scratched, or never filled) — there
+    // is nothing to report. Program breaks carry onto the next shown class.
+    if (cls) {
+      const marked = cls.map((c) =>
+        (c.entries ?? []).every((e) => e.scratched) ? { ...c, hidden: true } : c);
+      setClasses(withoutHiddenClasses(marked).map((c) => ({ ...c, entries: activeEntries(c) })));
+    }
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
