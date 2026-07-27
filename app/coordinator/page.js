@@ -257,6 +257,7 @@ export default function Coordinator() {
   const [classes, setClasses] = useState([]);
   const [selectedClassIds, setSelectedClassIds] = useState(new Set());
   const [classMenu, setClassMenu] = useState(null); // class id whose "⋯" menu is open
+  const [enterScores, setEnterScores] = useState(false); // inline results-entry mode
 
   const [scoreInput, setScoreInput] = useState("");
   const [scoreInput2, setScoreInput2] = useState("");
@@ -1525,6 +1526,25 @@ export default function Coordinator() {
     }
   };
 
+  // Inline results entry ("✍ Enter results" mode): each score box saves on
+  // its own as you move to the next one, and feeds championships exactly
+  // like saving through the Edit window.
+  const saveInlineScore = async (cls, entry, field, raw) => {
+    const trimmed = String(raw ?? "").trim();
+    const val = trimmed === "" ? null : parseFloat(trimmed);
+    if (trimmed !== "" && Number.isNaN(val)) {
+      window.alert(`"${raw}" isn't a number — score for #${fmtBack(entry.back_number)} ${entry.horse} was not saved.`);
+      return;
+    }
+    if ((entry[field] ?? null) === val) return;
+    const { error } = await supabase.from("entries").update({ [field]: val }).eq("id", entry.id);
+    if (error) {
+      window.alert(`Could not save #${fmtBack(entry.back_number)} ${entry.horse}: ${error.message}`);
+      return;
+    }
+    if (cls.status === "completed") await fillChampionshipsFedBy(cls.id);
+  };
+
   const submitEditEntry = async () => {
     if (!form.exhibitor?.trim()) {
       setFormError(isClinic ? "Participant name is required" : "Back number, horse, and exhibitor are required");
@@ -1955,6 +1975,14 @@ export default function Coordinator() {
                 🚪 Gate access
               </button>
             )}
+            {!isClinic && (
+              <button className="btn-ghost"
+                style={enterScores ? { background: "var(--leather)", color: "#fff", borderColor: "var(--leather)", fontWeight: 700 } : { fontWeight: 700 }}
+                onClick={() => setEnterScores((v) => !v)} disabled={!eventId || classes.length === 0}
+                title="Type results straight into every class down the page — each score saves as you move to the next box">
+                {enterScores ? "✓ Done entering results" : "✍ Enter results"}
+              </button>
+            )}
             <button className="btn-ghost" onClick={testPush} disabled={!eventId}>Test push</button>
             {classes.some((c) => c.hp_category && c.status === "completed") && (
               <button className="btn-ghost" style={{ borderColor: "#2D7A52", color: "#2D7A52" }}
@@ -2334,6 +2362,51 @@ export default function Coordinator() {
                   )}
                 </div>
               </div>
+              {enterScores && !isClinic ? (
+                <table>
+                  {twoJudges && (
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th style={{ textAlign: "center", width: 80 }}>J1</th>
+                        <th style={{ textAlign: "center", width: 80 }}>J2</th>
+                      </tr>
+                    </thead>
+                  )}
+                  <tbody>
+                    {cls.entries.filter((e) => !e.scratched).map((e) => (
+                      <tr key={e.id}>
+                        <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
+                        <td style={{ width: 80, textAlign: "center" }}>
+                          <input className="field" type="number" inputMode="decimal" step={isPlacing ? 1 : 0.5} min={isPlacing ? 1 : undefined}
+                            style={{ width: 72, fontSize: 16, textAlign: "center", padding: "8px 4px" }}
+                            placeholder={isPlacing ? "Place" : "Score"} defaultValue={e.score ?? ""}
+                            onBlur={(ev) => saveInlineScore(cls, e, "score", ev.target.value)} />
+                        </td>
+                        {twoJudges && (
+                          <td style={{ width: 80, textAlign: "center" }}>
+                            <input className="field" type="number" inputMode="decimal" step={isPlacing ? 1 : 0.5} min={isPlacing ? 1 : undefined}
+                              style={{ width: 72, fontSize: 16, textAlign: "center", padding: "8px 4px" }}
+                              placeholder={isPlacing ? "Place" : "Score"} defaultValue={e.score2 ?? ""}
+                              onBlur={(ev) => saveInlineScore(cls, e, "score2", ev.target.value)} />
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    {scratchedRows.map((e) => (
+                      <tr key={e.id} style={{ opacity: 0.55 }}>
+                        <td colSpan={twoJudges ? 3 : 2} style={{ fontWeight: 600, textDecoration: "line-through" }}>
+                          <span style={{ color: "var(--clay)", fontSize: 10.5, fontWeight: 700, textDecoration: "none", marginRight: 8 }}>SCR</span>
+                          #{fmtBack(e.back_number)} {e.horse}
+                        </td>
+                      </tr>
+                    ))}
+                    {cls.entries.length === 0 && (
+                      <tr><td style={{ color: "var(--quiet)", fontStyle: "italic" }}>No entries.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              ) : (
               <table>
                 <tbody>
                   {placed.map((e, i) => (
@@ -2403,6 +2476,7 @@ export default function Coordinator() {
                   ))}
                 </tbody>
               </table>
+              )}
             </section>
           );
           };
