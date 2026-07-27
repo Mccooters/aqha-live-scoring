@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { normaliseBreakLabel, normaliseCategoryLabel, programDisplayRows, withoutHiddenClasses } from "../../../lib/classCategories";
+import { scoreRank } from "../../../lib/showPrint";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -319,8 +320,13 @@ export default function EventPage() {
             const placed = cls.entries
               .filter((e) => e.score != null && !e.scratched)
               .sort((a, b) => {
-                const d = isPlacingMode ? a.score - b.score : b.score - a.score;
-                return d !== 0 ? d : isPlacingMode ? (a.score2 ?? 99) - (b.score2 ?? 99) : (b.score2 ?? 0) - (a.score2 ?? 0);
+                const d = isPlacingMode
+                  ? scoreRank(a.score, true) - scoreRank(b.score, true)
+                  : scoreRank(b.score, false) - scoreRank(a.score, false);
+                return d !== 0 ? d
+                  : isPlacingMode
+                    ? scoreRank(a.score2, true, 99) - scoreRank(b.score2, true, 99)
+                    : scoreRank(b.score2, false, 0) - scoreRank(a.score2, false, 0);
               });
             const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && e.score == null && !e.scratched) : [];
             const pending = isTbcDraw
@@ -389,9 +395,12 @@ export default function EventPage() {
                         <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                         <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
                         <td className="display" style={{ textAlign: "right", fontWeight: 700 }}>
-                          {isPlacingMode
-                            ? (twoJudges ? `${ordinal(e.score)} / ${ordinal(e.score2 ?? "?")}` : ordinal(e.score))
-                            : (twoJudges && e.score2 != null ? `${e.score} / ${e.score2}` : e.score)}
+                          {(() => {
+                            const sc = (v) => v == null ? "?" : v === -1 ? "DQ" : isPlacingMode ? ordinal(v) : v;
+                            return twoJudges && (isPlacingMode || e.score2 != null)
+                              ? `${sc(e.score)} / ${sc(e.score2)}`
+                              : sc(e.score);
+                          })()}
                         </td>
                       </tr>
                     ))}
@@ -604,8 +613,9 @@ export default function EventPage() {
               // In placing modes the stored "score" is the placing (1 = best),
               // so the champion is the LOWEST number, not the highest.
               const isPlacingMode = ["placing", "class_only", "tbc_class"].includes(cls.scoring_mode);
-              const champion = [...cls.entries].filter((e) => e.score != null && !e.scratched)
+              const champion = [...cls.entries].filter((e) => e.score != null && e.score !== -1 && !e.scratched)
                 .sort((a, b) => (isPlacingMode ? a.score - b.score : b.score - a.score))[0];
+              if (!champion) return null; // every result was a DQ
               return (
                 <div key={cls.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", gap: 10 }}>
                   <div>

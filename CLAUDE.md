@@ -517,6 +517,11 @@ page, and `approveRegistration` copies new horse numbers into the registry
   working cow horse) or reining-style scoring from a base of 70 ("0 to
   infinity"), manoeuvres scored +3 to -3 in HALF-POINT increments. Score
   inputs must accept halves (step 0.5). A score of 0 = incomplete work.
+  A judge's **DQ** is stored as `score`/`score2 = -1` (staff type "DQ" in any
+  score box; `lib/showPrint.js` `isDq`/`scoreRank`/`scoreText`): it displays
+  as DQ everywhere, always sorts below every real result, earns no points
+  (excluded from the Club Points export and High Points push), and never
+  qualifies for a championship.
 - Many classes are placings-based; points are allocated per the rule book's
   point scale based on placing AND number of entries in the class — this is
   why the export includes an "Entries in Class" column. Current formula in
