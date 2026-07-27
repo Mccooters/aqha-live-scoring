@@ -4,6 +4,7 @@ import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import { categoryKey, programDisplayRows } from "../../lib/classCategories";
 import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQualifiers, suggestFeederIds } from "../../lib/championship";
+import { scoreRank } from "../../lib/showPrint";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 
@@ -832,7 +833,7 @@ export default function Coordinator() {
       // Fetch fresh — when called from saveScore the last score isn't in React state yet.
       const { data: fresh } = await supabase.from("entries").select("*").eq("class_id", c.id);
       const active = (fresh ?? []).filter((e) => !e.scratched);
-      const entries = active.filter((e) => e.score != null);
+      const entries = active.filter((e) => e.score != null && e.score !== -1); // DQ earns no points
       // A class can hold judge-2-only results (paperwork typed in for judge 2
       // first, or the judges disagreed) — don't skip it just because judge 1
       // has nothing yet.
@@ -856,7 +857,7 @@ export default function Coordinator() {
       );
       if (c.judge2) {
         // From ALL active entries — judge 2 may have placed a horse judge 1 didn't.
-        const j2 = active.filter((e) => e.score2 != null);
+        const j2 = active.filter((e) => e.score2 != null && e.score2 !== -1); // DQ earns no points
         applyJudge(
           [...j2].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2),
           (e) => e.score2
@@ -1530,14 +1531,23 @@ export default function Coordinator() {
     }
   };
 
+  // A score box accepts a number or "DQ" (stored as -1 — reads as DQ
+  // everywhere, ranks last, earns no points, never qualifies for a champ).
+  const parseScoreInput = (raw) => {
+    const trimmed = String(raw ?? "").trim();
+    if (trimmed === "") return { ok: true, val: null };
+    if (/^dq$/i.test(trimmed)) return { ok: true, val: -1 };
+    const val = parseFloat(trimmed);
+    return Number.isNaN(val) ? { ok: false } : { ok: true, val };
+  };
+
   // Inline results entry ("✍ Enter results" mode): each score box saves on
   // its own as you move to the next one, and feeds championships exactly
   // like saving through the Edit window.
   const saveInlineScore = async (cls, entry, field, raw) => {
-    const trimmed = String(raw ?? "").trim();
-    const val = trimmed === "" ? null : parseFloat(trimmed);
-    if (trimmed !== "" && Number.isNaN(val)) {
-      window.alert(`"${raw}" isn't a number — score for #${fmtBack(entry.back_number)} ${entry.horse} was not saved.`);
+    const { ok: parsed, val } = parseScoreInput(raw);
+    if (!parsed) {
+      window.alert(`"${raw}" isn't a score — type a number or DQ. #${fmtBack(entry.back_number)} ${entry.horse} was not saved.`);
       return;
     }
     if ((entry[field] ?? null) === val) return;
@@ -1559,14 +1569,20 @@ export default function Coordinator() {
       return;
     }
     const entryClass = classes.find((c) => c.entries.some((e) => e.id === modal.entry?.id));
+    const s1 = parseScoreInput(form.score);
+    const s2 = parseScoreInput(form.score2);
+    if (!s1.ok || (entryClass?.judge2 && !s2.ok)) {
+      setFormError("Scores must be a number, DQ, or left blank.");
+      return;
+    }
     const updateData = {
       back_number: parseInt(form.back, 10),
       horse: form.horse?.trim() ?? "",
       exhibitor: form.exhibitor.trim(),
-      score: form.score !== "" && form.score != null ? parseFloat(form.score) : null,
+      score: s1.val,
     };
     if (entryClass?.judge2) {
-      updateData.score2 = form.score2 !== "" && form.score2 != null ? parseFloat(form.score2) : null;
+      updateData.score2 = s2.val;
     }
     const { error } = await supabase.from("entries").update(updateData).eq("id", modal.entry.id);
     if (error) { setFormError(error.message); return; }
@@ -1795,13 +1811,19 @@ export default function Coordinator() {
         const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc_class";
         const placed = ce.filter((e) => e.score != null && !e.scratched)
           .sort((a, b) => {
-            const d = isPlacing ? a.score - b.score : b.score - a.score;
-            return d !== 0 ? d : isPlacing ? (a.score2 ?? 99) - (b.score2 ?? 99) : (b.score2 ?? 0) - (a.score2 ?? 0);
+            const d = isPlacing
+              ? scoreRank(a.score, true) - scoreRank(b.score, true)
+              : scoreRank(b.score, false) - scoreRank(a.score, false);
+            return d !== 0 ? d
+              : isPlacing
+                ? scoreRank(a.score2, true, 99) - scoreRank(b.score2, true, 99)
+                : scoreRank(b.score2, false, 0) - scoreRank(a.score2, false, 0);
           });
         const scratched = ce.filter((e) => e.scratched);
         placed.forEach((e, i) => {
           const regs = (horseMap[e.back_number]?.horse_registrations ?? []).map((r) => `${r.club}${r.registration_number ? " " + r.registration_number : ""}`).join(", ");
-          resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", i + 1, e.back_number, e.horse, e.exhibitor, e.score, cls.judge2 ? (e.score2 ?? "") : "", competing, regs]);
+          const dqCell = (v) => (v === -1 ? "DQ" : v);
+          resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", e.score === -1 ? "DQ" : i + 1, e.back_number, e.horse, e.exhibitor, dqCell(e.score), cls.judge2 ? (e.score2 == null ? "" : dqCell(e.score2)) : "", competing, regs]);
         });
         // A horse placed/scored by judge 2 but not judge 1 is still a result —
         // append it with a blank J1 placing rather than dropping it entirely.
@@ -1810,7 +1832,7 @@ export default function Coordinator() {
             .sort((a, b) => (isPlacing ? a.score2 - b.score2 : b.score2 - a.score2))
             .forEach((e) => {
               const regs = (horseMap[e.back_number]?.horse_registrations ?? []).map((r) => `${r.club}${r.registration_number ? " " + r.registration_number : ""}`).join(", ");
-              resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", "", e.back_number, e.horse, e.exhibitor, "", e.score2, competing, regs]);
+              resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", "", e.back_number, e.horse, e.exhibitor, "", e.score2 === -1 ? "DQ" : e.score2, competing, regs]);
             });
         }
         scratched.forEach((e) => resRows.push([cls.num, cls.name, cls.judge ?? "", cls.judge2 ?? "", "SCR", e.back_number, e.horse, e.exhibitor, "", "", competing, ""]));
@@ -1842,7 +1864,7 @@ export default function Coordinator() {
         const mode = cls.scoring_mode ?? "score";
         const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc_class";
         const active = ce.filter((e) => !e.scratched);
-        const scored = active.filter((e) => e.score != null);
+        const scored = active.filter((e) => e.score != null && e.score !== -1); // DQ earns no points
 
         if (cls.judge2) {
           // Two judges — each judge's results generate independent point rows.
@@ -1853,7 +1875,7 @@ export default function Coordinator() {
             (e) => isPlacing ? e.score : j1Sorted.findIndex((x) => x.id === e.id) + 1,
             (e) => e.score, competing);
 
-          const j2Scored = active.filter((e) => e.score2 != null);
+          const j2Scored = active.filter((e) => e.score2 != null && e.score2 !== -1); // DQ earns no points
           const j2Sorted = [...j2Scored].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2);
           pushPtRows(cls.num, cls.name, cls.judge2, j2Sorted,
             (e) => isPlacing ? e.score2 : j2Sorted.findIndex((x) => x.id === e.id) + 1,
@@ -2263,9 +2285,13 @@ export default function Coordinator() {
           const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc_class";
           const placed = cls.entries.filter((e) => e.score != null && !e.scratched)
             .sort((a, b) => {
-              const d = isPlacing ? a.score - b.score : b.score - a.score;
+              const d = isPlacing
+                ? scoreRank(a.score, true) - scoreRank(b.score, true)
+                : scoreRank(b.score, false) - scoreRank(a.score, false);
               if (d !== 0) return d;
-              return isPlacing ? (a.score2 ?? 99) - (b.score2 ?? 99) : (b.score2 ?? 0) - (a.score2 ?? 0);
+              return isPlacing
+                ? scoreRank(a.score2, true, 99) - scoreRank(b.score2, true, 99)
+                : scoreRank(b.score2, false, 0) - scoreRank(a.score2, false, 0);
             });
           const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && e.score == null && !e.scratched) : [];
           const pending = isTbcDraw
@@ -2382,16 +2408,16 @@ export default function Coordinator() {
                       <tr key={e.id}>
                         <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                         <td style={{ width: 80, textAlign: "center" }}>
-                          <input className="field" type="number" inputMode="decimal" step={isPlacing ? 1 : 0.5} min={isPlacing ? 1 : undefined}
+                          <input className="field" type="text"
                             style={{ width: 72, fontSize: 16, textAlign: "center", padding: "8px 4px" }}
-                            placeholder={isPlacing ? "Place" : "Score"} defaultValue={e.score ?? ""}
+                            placeholder={isPlacing ? "Pl / DQ" : "Score / DQ"} defaultValue={e.score === -1 ? "DQ" : e.score ?? ""}
                             onBlur={(ev) => saveInlineScore(cls, e, "score", ev.target.value)} />
                         </td>
                         {twoJudges && (
                           <td style={{ width: 80, textAlign: "center" }}>
-                            <input className="field" type="number" inputMode="decimal" step={isPlacing ? 1 : 0.5} min={isPlacing ? 1 : undefined}
+                            <input className="field" type="text"
                               style={{ width: 72, fontSize: 16, textAlign: "center", padding: "8px 4px" }}
-                              placeholder={isPlacing ? "Place" : "Score"} defaultValue={e.score2 ?? ""}
+                              placeholder={isPlacing ? "Pl / DQ" : "Score / DQ"} defaultValue={e.score2 === -1 ? "DQ" : e.score2 ?? ""}
                               onBlur={(ev) => saveInlineScore(cls, e, "score2", ev.target.value)} />
                           </td>
                         )}
@@ -2424,9 +2450,12 @@ export default function Coordinator() {
                       </td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td className="display" style={{ textAlign: "right", fontWeight: 700, width: twoJudges ? 120 : 70 }}>
-                        {mode === "placing"
-                          ? (twoJudges ? `${ordinal(e.score)} / ${ordinal(e.score2 ?? "?")}` : ordinal(e.score))
-                          : (twoJudges && e.score2 != null ? `${e.score} / ${e.score2}` : e.score)}
+                        {(() => {
+                          const sc = (v) => v == null ? "?" : v === -1 ? "DQ" : mode === "placing" ? ordinal(v) : v;
+                          return twoJudges && (mode === "placing" || e.score2 != null)
+                            ? `${sc(e.score)} / ${sc(e.score2)}`
+                            : sc(e.score);
+                        })()}
                       </td>
                       <td style={{ width: 1, textAlign: "right", whiteSpace: "nowrap" }}>
                         <span style={{ display: "inline-flex", gap: 5 }}>
@@ -3159,17 +3188,19 @@ export default function Coordinator() {
               const j2 = entryClass?.judge2 || "Judge 2";
               const isPlacing = eMode === "placing" || eMode === "class_only";
               const scoreLabel = isPlacing ? "Placing" : "Score";
-              const scorePlaceholder = isPlacing ? null : "e.g. 72.5";
+              const scorePlaceholder = isPlacing ? null : "e.g. 72.5 or DQ";
               const ScoreInput = ({ field, label }) => isPlacing ? (
                 <select className="field" style={{ width: "100%", fontSize: 16 }} value={form[field] ?? ""} onChange={setField(field)}>
                   <option value="">— Not placed —</option>
+                  <option value="-1">DQ — disqualified</option>
                   {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
                     <option key={n} value={n}>{ordinal(n)}</option>
                   ))}
                 </select>
               ) : (
-                <input className="field" type="number" step="0.5" style={{ width: "100%", fontSize: 16 }}
-                  value={form[field] ?? ""} onChange={setField(field)} placeholder={scorePlaceholder} />
+                <input className="field" type="text" inputMode="decimal" style={{ width: "100%", fontSize: 16 }}
+                  value={String(form[field] ?? "").trim() === "-1" ? "DQ" : form[field] ?? ""}
+                  onChange={setField(field)} placeholder={scorePlaceholder} />
               );
               return (
                 <>
