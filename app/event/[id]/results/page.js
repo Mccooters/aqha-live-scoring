@@ -22,8 +22,10 @@ function PrintStyles() {
       .class-num { text-align: right; font-weight: 700; }
       .class-name { font-weight: 700; }
       .result-list { margin: 2px 0 0 29px; padding: 0; list-style: none; font-size: 9px; }
-      .result-list li { display: grid; grid-template-columns: 18px 1fr auto; gap: 5px; margin: 1px 0; }
-      .result-place { font-weight: 800; color: #003DE0; }
+      .result-list li { display: grid; grid-template-columns: minmax(18px, auto) 1fr auto; gap: 5px; margin: 1px 0; }
+      .result-place { font-weight: 800; color: #003DE0; white-space: nowrap; }
+      .sheet-links { margin: 2px 0 4px 29px; font-size: 8.5px; color: #7A5C10; }
+      .sheet-links a { color: #7A5C10; font-weight: 700; text-decoration: none; }
       .result-score { font-weight: 700; }
       .pending-line { margin-left: 29px; color: #555; font-style: italic; font-size: 8.8px; }
       @page { size: Letter; margin: 0.32in; }
@@ -125,11 +127,15 @@ export default function ResultsPrintPage() {
                   <div className="pending-line">Results pending</div>
                 )}
                 {Array.isArray(cls.result_sheets) && cls.result_sheets.length > 0 && (
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "3px 0 4px", fontSize: "9px" }}>
+                  <div className="sheet-links">
+                    📄 Sheets:{" "}
                     {cls.result_sheets.map((s, i) => (
-                      <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{ color: "#7A5C10", fontWeight: 700, textDecoration: "none" }}>
-                        📄 {s.label}{cls.result_sheets.filter((x) => x.label === s.label).length > 1 ? ` (${cls.result_sheets.slice(0, i + 1).filter((x) => x.label === s.label).length})` : ""}&apos;s sheet
-                      </a>
+                      <span key={i}>
+                        {i > 0 && " · "}
+                        <a href={s.url} target="_blank" rel="noreferrer">
+                          {s.label}{cls.result_sheets.filter((x) => x.label === s.label).length > 1 ? ` (${cls.result_sheets.slice(0, i + 1).filter((x) => x.label === s.label).length})` : ""}
+                        </a>
+                      </span>
                     ))}
                   </div>
                 )}
