@@ -645,12 +645,10 @@ export default function Coordinator() {
   // ---- judges' result sheet photos (schema-v45) ----
   // Photographed paper results, stored in the public "patterns" bucket under
   // results/… and listed on the class as { url, label } entries.
-  const uploadResultSheet = async () => {
-    const cls = classes.find((c) => c.id === modal.classId);
-    const file = form.sheetFile;
-    if (!cls) return;
-    if (!file) { setFormError("Choose a photo (or PDF) first."); return; }
-    const label = form.sheetJudge || cls.judge || "Judge 1";
+  // One paper sheet per judge — each judge has their own upload slot in the
+  // modal, and the photo uploads as soon as it's chosen.
+  const uploadResultSheet = async (cls, label, file) => {
+    if (!cls || !file) return;
     setBusy(true);
     try {
       const path = `results/${eventId}/${cls.id}-${label.replace(/[^a-z0-9]/gi, "-")}-${Date.now()}-${file.name.replace(/[^a-z0-9.]/gi, "-")}`;
@@ -672,7 +670,7 @@ export default function Coordinator() {
         return;
       }
       setFormError("");
-      setForm((f) => ({ ...f, sheetFile: null, sheetFileKey: (f.sheetFileKey ?? 0) + 1 }));
+      setForm((f) => ({ ...f, sheetFileKey: (f.sheetFileKey ?? 0) + 1 }));
       await loadClasses();
     } finally {
       setBusy(false);
@@ -2644,34 +2642,49 @@ export default function Coordinator() {
                 <>
                   <h2 className="display modal-title">Result sheets — Class {cls.num}</h2>
                   <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
-                    Photograph each judge&apos;s paper results and attach them here. They appear as links on the public Results page next to the typed results. Multiple pages per judge are fine.
+                    Each judge has their own paper sheet — add a photo under each judge below. It uploads as soon as you choose it, and appears as a link on the public Results page. Multiple pages per judge are fine.
                   </p>
-                  {sheets.length > 0 && (
-                    <div style={{ border: "1px solid var(--line)", borderRadius: 8, background: "#fff", padding: "6px 10px", marginBottom: 10 }}>
-                      {sheets.map((s, i) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "5px 0", borderBottom: "1px solid var(--line)" }}>
+                  {judgeOptions.map((j, ji) => {
+                    const mine = sheets.map((s, i) => ({ ...s, i })).filter((s) => s.label === j);
+                    return (
+                      <div key={j} style={{ border: mine.length ? "1px solid var(--green)" : "1px solid var(--line)", borderRadius: 10, background: "#fff", padding: "10px 12px", marginBottom: 10 }}>
+                        <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 6 }}>
+                          {j}{judgeOptions.length > 1 ? ` (J${ji + 1})` : ""}
+                          {mine.length > 0
+                            ? <span style={{ color: "var(--green)", fontWeight: 700, fontSize: 12, marginLeft: 8 }}>✓ {mine.length} sheet{mine.length === 1 ? "" : "s"} attached</span>
+                            : <span style={{ color: "var(--clay)", fontWeight: 700, fontSize: 12, marginLeft: 8 }}>no sheet yet</span>}
+                        </div>
+                        {mine.map((s) => (
+                          <div key={s.i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
+                            <a href={s.url} target="_blank" rel="noreferrer" style={{ color: "var(--brass)", fontSize: 13.5, fontWeight: 700 }}>
+                              📄 View sheet
+                            </a>
+                            <button className="btn-ghost danger" style={{ fontSize: 11, padding: "3px 9px" }} onClick={() => removeResultSheet(cls, s.i)}>Remove</button>
+                          </div>
+                        ))}
+                        <input key={`${j}-${form.sheetFileKey ?? 0}`} className="field" type="file" accept="image/*,application/pdf" capture="environment"
+                          style={{ width: "100%", fontSize: 14, marginTop: 6 }} disabled={busy}
+                          onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadResultSheet(cls, j, f); }} />
+                      </div>
+                    );
+                  })}
+                  {sheets.some((s) => !judgeOptions.includes(s.label)) && (
+                    <div style={{ border: "1px solid var(--line)", borderRadius: 10, background: "#fff", padding: "10px 12px", marginBottom: 10 }}>
+                      <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 6 }}>Other sheets</div>
+                      {sheets.map((s, i) => ({ ...s, i })).filter((s) => !judgeOptions.includes(s.label)).map((s) => (
+                        <div key={s.i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
                           <a href={s.url} target="_blank" rel="noreferrer" style={{ color: "var(--brass)", fontSize: 13.5, fontWeight: 700 }}>
-                            📄 {s.label} — sheet {i + 1}
+                            📄 {s.label}
                           </a>
-                          <button className="btn-ghost danger" style={{ fontSize: 11, padding: "3px 9px" }} onClick={() => removeResultSheet(cls, i)}>Remove</button>
+                          <button className="btn-ghost danger" style={{ fontSize: 11, padding: "3px 9px" }} onClick={() => removeResultSheet(cls, s.i)}>Remove</button>
                         </div>
                       ))}
                     </div>
                   )}
-                  <label className="modal-label">Judge</label>
-                  <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.sheetJudge ?? judgeOptions[0]} onChange={setField("sheetJudge")}>
-                    {judgeOptions.map((j) => <option key={j} value={j}>{j}</option>)}
-                  </select>
-                  <label className="modal-label">Photo of the sheet (or PDF)</label>
-                  <input key={form.sheetFileKey ?? 0} className="field" type="file" accept="image/*,application/pdf" capture="environment"
-                    style={{ width: "100%", fontSize: 14 }}
-                    onChange={(e) => setForm((f) => ({ ...f, sheetFile: e.target.files?.[0] ?? null }))} />
+                  {busy && <p style={{ fontSize: 13, color: "var(--quiet)", margin: "0 0 8px" }}>Uploading…</p>}
                   {formError && <p className="modal-error">{formError}</p>}
-                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                    <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={uploadResultSheet} disabled={busy}>
-                      {busy ? "Uploading…" : "Upload sheet"}
-                    </button>
-                    <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Done</button>
+                  <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                    <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={closeModal} disabled={busy}>Done</button>
                   </div>
                 </>
               );
