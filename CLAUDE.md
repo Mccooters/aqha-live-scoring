@@ -423,6 +423,11 @@ coordinator page auto-fills. Rules:
 - Grand Champion eligibility (Champion+Reserve vs Champions only) is the
   per-class `champ_take` toggle — the committee hadn't confirmed which at
   build time; default `top2`.
+- **Club high points from championships** (owner's rule, July 2026):
+  Champion = 1 pt, Reserve = 0.5 pt, awarded ONCE per championship class
+  (titles are single awards, never per judge); Supreme earns nothing.
+  Implemented in `pushToHighPoints` — ordinary classes keep the
+  `calcPoints` per-judge scale.
 
 ## Clinics (`events.event_type = "clinic"`)
 
