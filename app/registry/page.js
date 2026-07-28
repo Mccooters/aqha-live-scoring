@@ -75,7 +75,11 @@ export default function Registry() {
   const loadRiders = useCallback(async () => {
     setRidersLoading(true);
     setRidersError("");
-    const { data, error } = await supabase.from("riders").select("*").order("name");
+    let { data, error } = await supabase.from("riders").select("*, rider_registrations(*)").order("name");
+    if (error && /rider_registrations/i.test(error.message ?? "")) {
+      // schema-v46 not run yet — fall back to the single member-number world.
+      ({ data, error } = await supabase.from("riders").select("*").order("name"));
+    }
     if (error) {
       setRidersError(error.message.includes("does not exist") || error.message.includes("relation")
         ? "The riders table hasn't been set up yet. Run supabase/schema-v4-riders.sql in your Supabase SQL Editor, then expose the riders table in Data API settings."
@@ -93,9 +97,14 @@ export default function Registry() {
   const openModal = (type, entity = null) => {
     if (type === "rider") {
       setModal({ type, rider: entity });
+      const seededRegs = entity?.rider_registrations?.length
+        ? entity.rider_registrations.map((r) => ({ club: r.club ?? "", number: r.registration_number ?? "" }))
+        : entity?.member_number
+          ? [{ club: "AQHA", number: String(entity.member_number) }]
+          : [{ club: "", number: "" }];
       setForm(entity
-        ? { name: entity.name, member_number: entity.member_number ?? "", category: entity.category ?? "", notes: entity.notes ?? "" }
-        : { name: "", member_number: "", category: "", notes: "" });
+        ? { name: entity.name, member_number: entity.member_number ?? "", category: entity.category ?? "", notes: entity.notes ?? "", rider_regs: seededRegs }
+        : { name: "", member_number: "", category: "", notes: "", rider_regs: [{ club: "", number: "" }] });
     } else if (type === "horse") {
       setModal({ type, horse: entity });
       setForm(entity ? { back_number: String(entity.back_number), name: entity.name, owner: entity.owner ?? "" } : {});
@@ -146,17 +155,44 @@ export default function Registry() {
   // ---- rider CRUD ----
   const submitRider = async () => {
     if (!form.name?.trim()) { setFormError("Rider name is required"); return; }
+    const regs = (form.rider_regs ?? [])
+      .map((r) => ({ club: String(r.club ?? "").trim(), number: String(r.number ?? "").trim() }))
+      .filter((r) => r.club || r.number);
+    if (regs.some((r) => !r.club || !r.number)) {
+      setFormError("Each association row needs both a club and a member number (or remove the row).");
+      return;
+    }
     const payload = {
       name: form.name.trim(),
-      member_number: form.member_number?.trim() || null,
+      // Legacy single-number column stays in sync with the AQHA row so
+      // pre-v46 lookups keep working.
+      member_number: regs.find((r) => r.club.toUpperCase() === "AQHA")?.number ?? form.member_number?.trim() ?? null,
       category: form.category?.trim() || null,
       notes: form.notes?.trim() || null,
     };
+    let riderId = modal.rider?.id ?? null;
     if (modal.rider) {
       const { error } = await supabase.from("riders").update(payload).eq("id", modal.rider.id);
       if (error) { setFormError(error.message); return; }
     } else {
-      const { error } = await supabase.from("riders").insert(payload);
+      const { data, error } = await supabase.from("riders").insert(payload).select("id").single();
+      if (error) { setFormError(error.message); return; }
+      riderId = data.id;
+    }
+    // Replace the association list (schema-v46). On a database without the
+    // migration the basic details are already saved — just say what to run.
+    const del = await supabase.from("rider_registrations").delete().eq("rider_id", riderId);
+    if (del.error) {
+      if (/rider_registrations|does not exist|schema cache/i.test(del.error.message ?? "")) {
+        if (regs.some((r) => r.club.toUpperCase() !== "AQHA")) {
+          setFormError('Saved the rider — but storing multiple associations needs a database update. Run "schema-v46-rider-registrations.sql" in the Supabase SQL Editor.');
+          await loadRiders();
+          return;
+        }
+      } else { setFormError(del.error.message); return; }
+    } else if (regs.length) {
+      const { error } = await supabase.from("rider_registrations").insert(
+        regs.map((r) => ({ rider_id: riderId, club: r.club, registration_number: r.number })));
       if (error) { setFormError(error.message); return; }
     }
     await loadRiders();
@@ -247,7 +283,7 @@ export default function Registry() {
     : horses;
 
   const filteredRiders = riderSearch.trim()
-    ? riders.filter((r) => r.name.toLowerCase().includes(riderSearch.toLowerCase()) || (r.member_number ?? "").toLowerCase().includes(riderSearch.toLowerCase()) || (r.category ?? "").toLowerCase().includes(riderSearch.toLowerCase()))
+    ? riders.filter((r) => r.name.toLowerCase().includes(riderSearch.toLowerCase()) || (r.member_number ?? "").toLowerCase().includes(riderSearch.toLowerCase()) || (r.category ?? "").toLowerCase().includes(riderSearch.toLowerCase()) || (r.rider_registrations ?? []).some((x) => String(x.registration_number ?? "").toLowerCase().includes(riderSearch.toLowerCase()) || String(x.club ?? "").toLowerCase().includes(riderSearch.toLowerCase())))
     : riders;
 
   const tabStyle = (t) => ({
@@ -406,7 +442,7 @@ export default function Registry() {
                       <thead>
                         <tr>
                           <th>Name</th>
-                          <th>Member #</th>
+                          <th>Associations</th>
                           <th>Category</th>
                           <th>Notes</th>
                           {session && <th style={{ width: 1 }}></th>}
@@ -416,7 +452,11 @@ export default function Registry() {
                         {filteredRiders.map((r) => (
                           <tr key={r.id}>
                             <td style={{ fontWeight: 600 }}>{r.name}</td>
-                            <td style={{ color: "var(--quiet)", fontFamily: "monospace" }}>{r.member_number ?? "—"}</td>
+                            <td style={{ color: "var(--quiet)", fontFamily: "monospace", fontSize: 12.5 }}>
+                              {r.rider_registrations?.length
+                                ? r.rider_registrations.map((x) => `${x.club} ${x.registration_number ?? ""}`.trim()).join(" · ")
+                                : r.member_number ?? "—"}
+                            </td>
                             <td>
                               {r.category ? (
                                 <span style={{ background: "var(--sand)", border: "1px solid var(--line)", borderRadius: 20, padding: "2px 9px", fontSize: 12, fontWeight: 600 }}>
@@ -493,8 +533,26 @@ export default function Registry() {
                 <h2 className="display modal-title">{modal.rider ? "Edit rider" : "Add rider"}</h2>
                 <label className="modal-label">Name *</label>
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} placeholder="e.g. Sarah O'Brien" />
-                <label className="modal-label">Member number</label>
-                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.member_number ?? ""} onChange={setField("member_number")} placeholder="e.g. 12345" />
+                <label className="modal-label">Association memberships</label>
+                {(form.rider_regs ?? []).map((r, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, marginBottom: 6 }}>
+                    <input className="field" list="rider-club-suggestions" style={{ fontSize: 15 }} placeholder="Club (e.g. AQHA)"
+                      value={r.club}
+                      onChange={(e) => setForm((f) => ({ ...f, rider_regs: f.rider_regs.map((x, xi) => (xi === i ? { ...x, club: e.target.value } : x)) }))} />
+                    <input className="field" style={{ fontSize: 15 }} placeholder="Member number"
+                      value={r.number}
+                      onChange={(e) => setForm((f) => ({ ...f, rider_regs: f.rider_regs.map((x, xi) => (xi === i ? { ...x, number: e.target.value } : x)) }))} />
+                    <button type="button" className="btn-ghost" aria-label="Remove club" style={{ padding: "6px 11px", color: "var(--clay)", borderColor: "var(--clay)" }}
+                      onClick={() => setForm((f) => ({ ...f, rider_regs: f.rider_regs.filter((_, xi) => xi !== i) }))}>×</button>
+                  </div>
+                ))}
+                <datalist id="rider-club-suggestions">
+                  {["AQHA", "PHAA", "AAA", "ApHCA", "APHA"].map((c) => <option key={c} value={c} />)}
+                </datalist>
+                <button type="button" className="btn-ghost" style={{ fontSize: 13, marginBottom: 4 }}
+                  onClick={() => setForm((f) => ({ ...f, rider_regs: [...(f.rider_regs ?? []), { club: "", number: "" }] }))}>
+                  + Add {form.rider_regs?.length ? "another " : ""}club
+                </button>
                 <label className="modal-label">Category</label>
                 <select className="field" style={{ width: "100%", fontSize: 16 }} value={form.category ?? ""} onChange={setField("category")}>
                   <option value="">— Select category —</option>

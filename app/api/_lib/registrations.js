@@ -367,6 +367,48 @@ async function saveHorseRegistrationsToRegistry(db, regEntries) {
   if (error) throw new Error(error.message);
 }
 
+// Same idea for riders (schema-v46): the association numbers the exhibitor
+// declared go into the Riders registry keyed by their name, so they
+// auto-fill next time. Insert-only — a club the rider already has recorded
+// is never overwritten; a rider not in the registry yet is created.
+async function saveRiderRegistrationsToRegistry(db, regEntries) {
+  const byName = new Map(); // lowercased name → { name, regs: [{club, number}] }
+  for (const entry of regEntries ?? []) {
+    const name = String(entry.exhibitor ?? "").trim();
+    if (!name || !Array.isArray(entry.rider_registrations)) continue;
+    const rec = byName.get(name.toLowerCase()) ?? { name, regs: [] };
+    for (const r of entry.rider_registrations) {
+      const club = String(r?.club ?? "").trim();
+      const number = String(r?.number ?? "").trim();
+      if (!club || !number) continue;
+      if (!rec.regs.some((x) => x.club.toLowerCase() === club.toLowerCase())) {
+        rec.regs.push({ club, number });
+      }
+    }
+    if (rec.regs.length) byName.set(name.toLowerCase(), rec);
+  }
+  if (!byName.size) return;
+
+  for (const rec of byName.values()) {
+    // ilike with wildcards escaped = case-insensitive exact name match.
+    const pattern = rec.name.replace(/([%_\\])/g, "\\$1");
+    let { data: rider, error: findErr } = await db
+      .from("riders").select("id").ilike("name", pattern).limit(1).maybeSingle();
+    if (findErr) throw new Error(findErr.message);
+    if (!rider) {
+      const { data: created, error: createErr } = await db
+        .from("riders").insert({ name: rec.name }).select("id").single();
+      if (createErr) throw new Error(createErr.message);
+      rider = created;
+    }
+    const rows = rec.regs.map((r) => ({ rider_id: rider.id, club: r.club, registration_number: r.number }));
+    const { error } = await db
+      .from("rider_registrations")
+      .upsert(rows, { onConflict: "rider_id,club", ignoreDuplicates: true });
+    if (error) throw new Error(error.message);
+  }
+}
+
 export async function approveRegistration(db, registrationId) {
   // Claim the registration first: flip it to paid only if it isn't already.
   // Square retries webhooks, so this can be called twice for one payment —
@@ -462,6 +504,12 @@ export async function approveRegistration(db, registrationId) {
     } catch (err) {
       // Registry enrichment is a bonus — the entries are already placed.
       console.error("Saving horse registrations to the registry failed:", err);
+    }
+    try {
+      await saveRiderRegistrationsToRegistry(db, regEntries);
+    } catch (err) {
+      // Also a bonus — and harmless on databases without schema-v46 yet.
+      console.error("Saving rider registrations to the registry failed:", err);
     }
   }
 

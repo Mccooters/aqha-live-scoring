@@ -270,8 +270,16 @@ PR with a clear plain-English description.
   `horse_registrations` (horse_id, club, registration_number). A horse can be
   registered with multiple clubs (e.g. AQHA + PHAA Paint) and earns points
   with EACH club from the same class/placing.
-- `riders` — name, member_number, category (Amateur/Novice Amateur/Select/
+- `riders` — name, member_number (legacy single number, kept in sync with the
+  AQHA row), category (Amateur/Novice Amateur/Select/
   Beginner/Youth/EWD/Leadline/Non Pro/Open), notes. Independent of horses.
+  `rider_registrations` (schema-v46 — rider_id cascade, club,
+  registration_number, unique per club) mirrors `horse_registrations`: the
+  entry form auto-fills a rider's numbers when the exhibitor name (or a
+  typed number, if the name is blank) matches the registry, and
+  `approveRegistration` copies declared rider numbers back in insert-only
+  (creating the rider row if needed). The official scoring export reads
+  these for the Rider/Owner number columns.
 - `high_points` — season, category, breed (default 'AQHA', schema-v24),
   entity_type (horse|rider), entity_name, show_name, points. Unique on
   (season, category, entity_name, show_name, breed).

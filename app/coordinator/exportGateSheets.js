@@ -49,17 +49,28 @@ export async function exportGateSheets(event, classes) {
   // Registry lookups: horse owner + association numbers by back number, and
   // member numbers by person name (used for both rider and owner columns).
   const backs = [...new Set(showClasses.flatMap((c) => c.entries.map((e) => e.back_number)).filter((b) => b != null))];
-  const [{ data: horses }, { data: riders }] = await Promise.all([
-    backs.length
-      ? supabase.from("horses").select("back_number, owner, horse_registrations(club, registration_number)").in("back_number", backs)
-      : Promise.resolve({ data: [] }),
-    supabase.from("riders").select("name, member_number"),
-  ]);
+  const horsesPromise = backs.length
+    ? supabase.from("horses").select("back_number, owner, horse_registrations(club, registration_number)").in("back_number", backs)
+    : Promise.resolve({ data: [] });
+  // Riders with their association numbers (schema-v46); pre-migration
+  // databases fall back to the legacy single member number.
+  let ridersRes = await supabase.from("riders").select("name, member_number, rider_registrations(club, registration_number)");
+  if (ridersRes.error) {
+    ridersRes = await supabase.from("riders").select("name, member_number");
+  }
+  const { data: horses } = await horsesPromise;
+  const riders = ridersRes.data ?? [];
   const horseMap = Object.fromEntries((horses ?? []).map((h) => [h.back_number, h]));
   const riderNo = (name) => {
     const key = String(name ?? "").trim().toLowerCase();
     if (!key) return "";
-    return (riders ?? []).find((r) => String(r.name ?? "").trim().toLowerCase() === key)?.member_number ?? "";
+    const r = riders.find((x) => String(x.name ?? "").trim().toLowerCase() === key);
+    if (!r) return "";
+    const regs = (r.rider_registrations ?? []).filter((x) => x.registration_number);
+    if (regs.length) {
+      return regs.map((x) => `${x.club} ${x.registration_number}`).join("  ");
+    }
+    return r.member_number ?? "";
   };
 
   const judgeName = (slot) => {
