@@ -562,6 +562,22 @@ points via `calcPoints()` — for two-judge classes, each judge's placings are
 exported as independent rows since they are never combined). This is the
 sheet used to submit points to each association.
 
+## Official scoring export ("⇩ Official scoring")
+
+`app/coordinator/exportGateSheets.js` replicates the secretary's manual
+workbook (one colour-coded "gate sheet" per judge; modelled on
+"HCQHA Spring Classic Nov 025.xlsx"): every class in program order with a
+bold heading row, then placed rows (1/2/3, or CHAMP/RESERVE/SUPREME with
+per-judge titles referencing the class the horse won through), columns for
+horse no./name, association numbers, owner + owner member no., rider +
+rider member no. (owner/rider numbers looked up from the `riders` registry
+by name). Rows are fill-coloured by the horse's registrations: QH plain,
+Appaloosa orange, Paint pink, dual Paint/QH blue, none recorded light blue —
+legend in the title rows. Colour fills need `lib/vendor/xlsx-js-style.min.js`
+(a vendored copy of the xlsx-js-style dist build + its `cpexcel.js`; the
+standard SheetJS community build cannot write styles — do not "upgrade" it
+away). `next.config.mjs` stubs Node built-ins (fs etc.) for that file.
+
 ## Conventions
 
 - Records are treated as permanent by default: "End event" only flips status

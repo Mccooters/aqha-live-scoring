@@ -269,6 +269,7 @@ export default function Coordinator() {
   const [selectedClassIds, setSelectedClassIds] = useState(new Set());
   const [classMenu, setClassMenu] = useState(null); // class id whose "⋯" menu is open
   const [enterScores, setEnterScores] = useState(false); // inline results-entry mode
+  const [exportingOfficial, setExportingOfficial] = useState(false);
 
   const [scoreInput, setScoreInput] = useState("");
   const [scoreInput2, setScoreInput2] = useState("");
@@ -1832,6 +1833,21 @@ export default function Coordinator() {
     }
   };
 
+  // The official scoring workbook — one colour-coded gate sheet per judge,
+  // matching the secretary's manual format (see exportGateSheets.js).
+  const exportOfficial = async () => {
+    if (!currentEvent) return;
+    setExportingOfficial(true);
+    try {
+      const mod = await import("./exportGateSheets");
+      await mod.exportGateSheets(currentEvent, classes);
+    } catch (err) {
+      window.alert("Export failed: " + (err?.message ?? String(err)));
+    } finally {
+      setExportingOfficial(false);
+    }
+  };
+
   const exportResults = async () => {
     if (!currentEvent) return;
     setExporting(true);
@@ -2106,6 +2122,12 @@ export default function Coordinator() {
               <button className="btn-ghost" onClick={() => openModal("bulkSheets")} disabled={!eventId || classes.length === 0}
                 title="Upload scanned result sheets in bulk — file names like 'Class 10-11-12 RS' attach them to the right classes and judge">
                 ⇪ Bulk result sheets
+              </button>
+            )}
+            {!isClinic && (
+              <button className="btn-ghost" onClick={exportOfficial} disabled={exportingOfficial || !eventId || classes.length === 0}
+                title="The official scoring workbook: one colour-coded gate sheet per judge, matching the secretary's manual format">
+                {exportingOfficial ? "Exporting…" : "⇩ Official scoring"}
               </button>
             )}
             <Link href="/coordinator/health" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>
