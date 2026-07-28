@@ -300,7 +300,7 @@ function blankEntry() {
 // Structured "association + number" rows used for both the horse's
 // registration numbers and the rider's association memberships. Points are
 // checked against each association, so the office needs these with the entry.
-function RegNumbersSection({ title, hint, rows, notRegistered, notRegisteredLabel, onRowsChange, onNotRegisteredChange }) {
+function RegNumbersSection({ title, hint, rows, notRegistered, notRegisteredLabel, onRowsChange, onNotRegisteredChange, onNumberBlur }) {
   const updateRow = (id, field, value) =>
     onRowsChange(rows.map((r) => (r._id === id ? { ...r, [field]: value } : r)));
   const removeRow = (id) =>
@@ -319,6 +319,7 @@ function RegNumbersSection({ title, hint, rows, notRegistered, notRegisteredLabe
           <input className="field" style={{ width: "100%", fontSize: 15 }}
             value={row.number}
             onChange={(e) => updateRow(row._id, "number", e.target.value)}
+            onBlur={onNumberBlur ? (e) => onNumberBlur(e.target.value) : undefined}
             placeholder="Registration / member no." />
           <button type="button" aria-label="Remove this association"
             onClick={() => removeRow(row._id)}
@@ -712,6 +713,79 @@ export default function RegisterPage() {
     if (!fromRegistry.length) return current;
     const hasTyped = current.some((r) => r.club.trim() || r.number.trim());
     return hasTyped ? current : fromRegistry;
+  };
+
+  // Rider numbers auto-fill from the Riders registry (schema-v46), the same
+  // way horses do by back number: matching the exhibitor's NAME fills their
+  // known association numbers, and a typed NUMBER that matches the registry
+  // (when the name is still blank) fills the name and the rest. Registry
+  // data never overwrites anything already typed, and databases without the
+  // migration just skip the auto-fill.
+  const riderRegistryRows = (regs) =>
+    (regs ?? [])
+      .filter((r) => r.registration_number)
+      .map((r) => ({ _id: Math.random().toString(36).slice(2), club: r.club, number: r.registration_number }));
+
+  const fetchRiderByName = async (name) => {
+    const clean = String(name ?? "").trim();
+    if (!clean) return null;
+    const { data, error } = await supabase
+      .from("riders")
+      .select("name, rider_registrations(club, registration_number)")
+      .ilike("name", clean.replace(/([%_\\])/g, "\\$1"))
+      .limit(1);
+    if (error || !data?.length) return null;
+    return data[0];
+  };
+
+  const fetchRiderByNumber = async (number) => {
+    const clean = String(number ?? "").trim();
+    if (!clean) return null;
+    const { data, error } = await supabase
+      .from("rider_registrations")
+      .select("riders(name, rider_registrations(club, registration_number))")
+      .eq("registration_number", clean)
+      .limit(1);
+    if (error || !data?.length) return null;
+    return data[0].riders;
+  };
+
+  const untouchedRegs = (rows) => !rows.some((r) => r.club.trim() || r.number.trim());
+
+  // Keep whatever was typed; append registry clubs not already listed.
+  const addMissingClubs = (current, registryRows) => {
+    const kept = current.filter((r) => r.club.trim() || r.number.trim());
+    const have = new Set(kept.map((r) => r.club.trim().toLowerCase()));
+    const extras = registryRows.filter((r) => !have.has(r.club.trim().toLowerCase()));
+    return kept.length || extras.length ? [...kept, ...extras] : current;
+  };
+
+  const lookupRiderForEntry = async (entryId, name) => {
+    const rider = await fetchRiderByName(name);
+    const rows = riderRegistryRows(rider?.rider_registrations);
+    if (!rows.length) return;
+    setEntries((prev) => prev.map((e) =>
+      e._id === entryId && untouchedRegs(e.rider_regs) && !e.rider_not_registered
+        ? { ...e, rider_regs: rows }
+        : e));
+  };
+
+  const lookupRiderForMulti = async (name) => {
+    const rider = await fetchRiderByName(name);
+    const rows = riderRegistryRows(rider?.rider_registrations);
+    if (!rows.length) return;
+    setMultiEntry((prev) =>
+      untouchedRegs(prev.rider_regs) && !prev.rider_not_registered
+        ? { ...prev, rider_regs: rows }
+        : prev);
+  };
+
+  // A typed number with no name yet: find whose it is and fill the rest.
+  const riderNumberBlurred = async (number, getExhibitor, apply) => {
+    if (!String(number ?? "").trim() || String(getExhibitor() ?? "").trim()) return;
+    const rider = await fetchRiderByNumber(number);
+    if (!rider?.name) return;
+    apply(rider.name, riderRegistryRows(rider.rider_registrations));
   };
 
   const lookupHorse = async (entryId, backNum) => {
@@ -1174,6 +1248,7 @@ export default function RegisterPage() {
               <input className="field" style={{ width: "100%", fontSize: 16 }}
                 value={multiEntry.exhibitor}
                 onChange={(e) => updateMultiEntry("exhibitor", e.target.value)}
+                onBlur={(e) => lookupRiderForMulti(e.target.value)}
                 placeholder="e.g. S. O'Brien" />
 
               <RegNumbersSection
@@ -1181,6 +1256,13 @@ export default function RegisterPage() {
                 hint="The exhibitor's membership number with each association they're a member of."
                 rows={multiEntry.rider_regs}
                 notRegistered={multiEntry.rider_not_registered}
+                onNumberBlur={(num) => riderNumberBlurred(num,
+                  () => multiEntry.exhibitor,
+                  (name, rows) => setMultiEntry((prev) => ({
+                    ...prev,
+                    exhibitor: prev.exhibitor.trim() ? prev.exhibitor : name,
+                    rider_regs: prev.rider_not_registered ? prev.rider_regs : addMissingClubs(prev.rider_regs, rows),
+                  })))}
                 notRegisteredLabel="The rider isn't a member of any association"
                 onRowsChange={(rows) => updateMultiEntry("rider_regs", rows)}
                 onNotRegisteredChange={(v) => updateMultiEntry("rider_not_registered", v)}
@@ -1304,6 +1386,7 @@ export default function RegisterPage() {
                 <input className="field" style={{ width: "100%", fontSize: 16 }}
                   value={entry.exhibitor}
                   onChange={(e) => updateEntry(entry._id, "exhibitor", e.target.value)}
+                  onBlur={(e) => lookupRiderForEntry(entry._id, e.target.value)}
                   placeholder="e.g. S. O'Brien" />
 
                 {!isClinic && (
@@ -1312,6 +1395,15 @@ export default function RegisterPage() {
                     hint="The exhibitor's membership number with each association they're a member of."
                     rows={entry.rider_regs}
                     notRegistered={entry.rider_not_registered}
+                    onNumberBlur={(num) => riderNumberBlurred(num,
+                      () => entry.exhibitor,
+                      (name, rows) => setEntries((prev) => prev.map((e) => e._id === entry._id
+                        ? {
+                            ...e,
+                            exhibitor: e.exhibitor.trim() ? e.exhibitor : name,
+                            rider_regs: e.rider_not_registered ? e.rider_regs : addMissingClubs(e.rider_regs, rows),
+                          }
+                        : e)))}
                     notRegisteredLabel="The rider isn't a member of any association"
                     onRowsChange={(rows) => updateEntry(entry._id, "rider_regs", rows)}
                     onNotRegisteredChange={(v) => updateEntry(entry._id, "rider_not_registered", v)}

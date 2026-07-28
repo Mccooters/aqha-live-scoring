@@ -153,6 +153,12 @@ hasn't been run.
       → lets staff attach **photos of each judge's paper result sheets** to a
         class (shown on the public Results page). Without it uploading shows
         a run-this message.
+- [ ] **v46** — `schema-v46-rider-registrations.sql`
+      → gives the **Riders registry a list of association numbers** per rider
+        (AQHA, PHAA, …), auto-filled on the entry form by name or number and
+        copied back from paid entries — the same system horses already have.
+        Existing single member numbers are carried over automatically.
+        Without it the entry form simply doesn't auto-fill rider numbers.
 
 Tick these off once you've run them.
 
@@ -207,6 +213,7 @@ Tick these off once you've run them.
 | `schema-v43-championship-classes.sql` | Champ & Reserve / Grand Champion classes auto-fill from their feeder classes' place-getters |
 | `schema-v44-gate-access.sql` | Gate marshal link: gate controls only (advance TBC draw, scratch), no staff login |
 | `schema-v45-result-sheets.sql` | Photos of each judge's paper result sheets attached per class (public Results page) |
+| `schema-v46-rider-registrations.sql` | Rider association numbers in the registry (multi-club, auto-fill + copy-back like horses) |
 
 ## For whoever updates the code next
 

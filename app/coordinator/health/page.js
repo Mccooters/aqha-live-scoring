@@ -27,6 +27,8 @@ const MIGRATION_CHECKS = [
   { m: "v42", what: "Multi-club registrations on members", probe: () => supabase.from("club_members").select("association_registrations").limit(1) },
   { m: "v43", what: "Championship classes (Champ & Reserve)", probe: () => supabase.from("classes").select("champ_feeder_ids").limit(1) },
   { m: "v44", what: "Gate marshal access", probe: () => supabase.from("gate_codes").select("event_id").limit(1) },
+  { m: "v45", what: "Judges' result sheet photos", probe: () => supabase.from("classes").select("result_sheets").limit(1) },
+  { m: "v46", what: "Rider association numbers in the registry", probe: () => supabase.from("rider_registrations").select("rider_id").limit(1) },
 ];
 
 const CONFIG_LABELS = {
