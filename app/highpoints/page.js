@@ -245,16 +245,20 @@ export default function HighPoints() {
   const allShowNames = sortShows([...new Set(seasonRows.map(r => r.show_name))], showDateMap);
   const catRows = seasonRows.filter(r => r.category === effectiveCategory);
 
+  // Names group case-insensitively — "Elise Lennon" and "Elise lennon" are
+  // the same person; the better-capitalised spelling is displayed.
   const buildLeaderboard = (rows) => {
+    const caps = (str) => (String(str).match(/[A-Z]/g) ?? []).length;
     const map = {};
     rows.forEach(r => {
-      if (!map[r.entity_name]) map[r.entity_name] = { type: r.entity_type, shows: {}, total: 0 };
-      map[r.entity_name].shows[r.show_name] = (map[r.entity_name].shows[r.show_name] ?? 0) + r.points;
-      map[r.entity_name].total += r.points;
+      const display = String(r.entity_name ?? "").trim();
+      const key = display.toLowerCase();
+      if (!map[key]) map[key] = { name: display, type: r.entity_type, shows: {}, total: 0 };
+      if (caps(display) > caps(map[key].name)) map[key].name = display;
+      map[key].shows[r.show_name] = (map[key].shows[r.show_name] ?? 0) + r.points;
+      map[key].total += r.points;
     });
-    return Object.entries(map)
-      .map(([name, d]) => ({ name, ...d }))
-      .sort((a, b) => b.total - a.total);
+    return Object.values(map).sort((a, b) => b.total - a.total);
   };
 
   const leaderboard = buildLeaderboard(catRows);
@@ -299,13 +303,14 @@ export default function HighPoints() {
     const legacyAqha = breed === "AQHA";
 
     if (modal.type === "edit") {
+      const namePattern = String(modal.entry.name).trim().replace(/([%_\\])/g, "\\$1");
       const del = await supabase.from("high_points").delete()
-        .eq("season", season).eq("category", effectiveCategory).eq("entity_name", modal.entry.name)
+        .eq("season", season).eq("category", effectiveCategory).ilike("entity_name", namePattern)
         .eq("breed", breed);
       if (del.error && isMissingBreedColumn(del.error)) {
         if (!legacyAqha) { setFormError(MIGRATION_HINT); return; }
         await supabase.from("high_points").delete()
-          .eq("season", season).eq("category", effectiveCategory).eq("entity_name", modal.entry.name);
+          .eq("season", season).eq("category", effectiveCategory).ilike("entity_name", namePattern);
       } else if (del.error) { setFormError(del.error.message); return; }
     }
 
@@ -323,12 +328,13 @@ export default function HighPoints() {
 
   const deleteEntry = async (entry) => {
     if (!window.confirm(`Remove all ${season} points for "${entry.name}" in ${effectiveCategory}?`)) return;
+    const namePattern = String(entry.name).trim().replace(/([%_\\])/g, "\\$1");
     const del = await supabase.from("high_points").delete()
-      .eq("season", season).eq("category", effectiveCategory).eq("entity_name", entry.name)
+      .eq("season", season).eq("category", effectiveCategory).ilike("entity_name", namePattern)
       .eq("breed", breed);
     if (del.error && isMissingBreedColumn(del.error) && breed === "AQHA") {
       await supabase.from("high_points").delete()
-        .eq("season", season).eq("category", effectiveCategory).eq("entity_name", entry.name);
+        .eq("season", season).eq("category", effectiveCategory).ilike("entity_name", namePattern);
     } else if (del.error) {
       window.alert(isMissingBreedColumn(del.error) ? MIGRATION_HINT : del.error.message);
       return;
