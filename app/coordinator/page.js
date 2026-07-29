@@ -878,7 +878,20 @@ export default function Coordinator() {
         const names = isHorseCat
           ? (breedsByBack[e.back_number] ?? [null]).map((l) => (l ? `${e.horse} (${l})` : e.horse))
           : [e.exhibitor];
-        names.forEach((name) => { pointsMap[name] = (pointsMap[name] ?? 0) + pts; });
+        // Names accumulate case-insensitively — "Elise Lennon" typed lowercase
+        // on one entry is still the same person; keep the better-capitalised
+        // spelling for display.
+        const caps = (str) => (String(str).match(/[A-Z]/g) ?? []).length;
+        names.forEach((raw) => {
+          const name = String(raw ?? "").trim();
+          if (!name) return;
+          const key = name.toLowerCase();
+          const cur = pointsMap[key];
+          pointsMap[key] = {
+            name: cur && caps(cur.name) >= caps(name) ? cur.name : name,
+            pts: (cur?.pts ?? 0) + pts,
+          };
+        });
       };
 
       // Championship classes (owner's rule): Champion = 1 pt, Reserve = 0.5,
@@ -931,7 +944,7 @@ export default function Coordinator() {
     // deleted first and could leave the category wiped if the insert then
     // failed on a dropped connection — this way the leaderboard never ends up
     // with the data nowhere, even if one request fails mid-push.
-    const toInsert = Object.entries(pointsMap).map(([name, pts]) => ({
+    const toInsert = Object.values(pointsMap).map(({ name, pts }) => ({
       season, category, breed: "AQHA",
       entity_type: isHorseCat ? "horse" : "rider",
       entity_name: name, show_name: showName, show_date: currentEvent.starts_on, points: pts,
