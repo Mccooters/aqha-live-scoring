@@ -444,6 +444,21 @@ export default function EventPage() {
                     ))}
                   </tbody>
                 </table>
+                {/* Photographed judge's sheets (schema-v45) — one tap from the
+                    scoreboard to the paper results. */}
+                {Array.isArray(cls.result_sheets) && cls.result_sheets.length > 0 && (
+                  <div style={{ padding: "8px 16px", borderTop: "1px solid var(--line)", fontSize: 12.5, color: "#7A5C10", background: "#FDFBF7" }}>
+                    📄 Judge&apos;s sheets:{" "}
+                    {cls.result_sheets.map((s, i) => (
+                      <span key={i}>
+                        {i > 0 && " · "}
+                        <a href={s.url} target="_blank" rel="noreferrer" style={{ color: "#7A5C10", fontWeight: 700 }}>
+                          {s.label}{cls.result_sheets.filter((x) => x.label === s.label).length > 1 ? ` (${cls.result_sheets.slice(0, i + 1).filter((x) => x.label === s.label).length})` : ""}
+                        </a>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </section>
             );
           };
