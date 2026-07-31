@@ -1462,11 +1462,17 @@ export default function Coordinator() {
   };
 
   const submitClass = async () => {
-    if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
+    // Clinics only name their spot types — the class number is an internal
+    // ordering detail, assigned automatically.
+    if (isClinic ? !form.name?.trim() : (!form.num || !form.name?.trim())) {
+      setFormError(isClinic ? "Spot type name is required" : "Class number and name are required");
+      return;
+    }
+    const autoNum = Math.max(0, ...classes.map((c) => c.num ?? 0)) + 1;
     const maxOrder = Math.max(0, ...classes.map((c) => c.sort_order));
     const insertData = {
       event_id: eventId,
-      num: parseInt(form.num, 10),
+      num: isClinic && !form.num ? autoNum : parseInt(form.num, 10),
       name: form.name.trim(),
       judge: form.judge ?? "",
       judge2: form.judge2?.trim() || null,
@@ -1671,8 +1677,11 @@ export default function Coordinator() {
   };
 
   const submitEditClass = async () => {
-    if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
-    const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", judge2: form.judge2?.trim() || null, scoring_mode: form.scoring_mode ?? "score", capacity: form.capacity ? parseInt(form.capacity, 10) : null, hp_category: form.hp_category || null };
+    if (isClinic ? !form.name?.trim() : (!form.num || !form.name?.trim())) {
+      setFormError(isClinic ? "Spot type name is required" : "Class number and name are required");
+      return;
+    }
+    const updateData = { num: isClinic && !form.num ? (modal.cls?.num ?? 1) : parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", judge2: form.judge2?.trim() || null, scoring_mode: form.scoring_mode ?? "score", capacity: form.capacity ? parseInt(form.capacity, 10) : null, hp_category: form.hp_category || null };
     if (isClinic) {
       // Clinic pricing (schema-v47) — blank = use the event fee / no deposit.
       updateData.fee_cents = form.fee_dollars !== "" && form.fee_dollars != null ? Math.round(parseFloat(form.fee_dollars) * 100) : null;
@@ -2820,7 +2829,16 @@ export default function Coordinator() {
 
             {modal.type === "class" && (
               <>
-                <h2 className="display modal-title">Add class</h2>
+                <h2 className="display modal-title">{isClinic ? "Add spot type" : "Add class"}</h2>
+                {isClinic ? (
+                  <>
+                    {/* Clinics only need a name — class numbers, judges,
+                        program details and patterns are show concepts. */}
+                    <label className="modal-label">Spot type name *</label>
+                    <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} placeholder="e.g. Rider spots · Fence sitting" autoFocus />
+                  </>
+                ) : (
+                  <>
                 <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 10 }}>
                   <div>
                     <label className="modal-label">Class # *</label>
@@ -2845,6 +2863,8 @@ export default function Coordinator() {
                 <input className="field" style={{ width: "100%", fontSize: 15 }} value={form.pattern_url ?? ""} onChange={setField("pattern_url")} placeholder="Link to pattern image or PDF" />
                 <label className="modal-label">Show day (1 for single-day events)</label>
                 <input className="field" type="number" min="1" max="10" style={{ width: 80, fontSize: 16 }} value={form.day ?? "1"} onChange={setField("day")} />
+                  </>
+                )}
                 {!isClinic && (
                   <>
                     <label className="modal-label">Scoring mode</label>
@@ -3377,7 +3397,16 @@ export default function Coordinator() {
 
             {modal.type === "editClass" && (
               <>
-                <h2 className="display modal-title">Edit class</h2>
+                <h2 className="display modal-title">{isClinic ? "Edit spot type" : "Edit class"}</h2>
+                {isClinic ? (
+                  <>
+                    {/* Clinics only need the name — numbers, judges, program
+                        details and patterns are show concepts. */}
+                    <label className="modal-label">Spot type name *</label>
+                    <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.name ?? ""} onChange={setField("name")} autoFocus />
+                  </>
+                ) : (
+                  <>
                 <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 10 }}>
                   <div>
                     <label className="modal-label">Class # *</label>
@@ -3402,6 +3431,8 @@ export default function Coordinator() {
                   <>
                     <label className="modal-label">Show day</label>
                     <input className="field" type="number" min="1" max="10" style={{ width: 80, fontSize: 16 }} value={form.day ?? "1"} onChange={setField("day")} />
+                  </>
+                )}
                   </>
                 )}
                 {!isClinic && (
