@@ -57,8 +57,11 @@ export default function Home() {
         {active.map((ev) => {
           const isOpen = ev.status === "open" || ev.status === "upcoming";
           const isLive = ev.status === "live";
+          // Finished shows fade back so what's coming up (or on now) stands
+          // out — results stay one tap away.
+          const isDone = ev.status === "completed";
           return (
-            <section key={ev.id} className="card" style={{ marginBottom: 14, overflow: "hidden" }}>
+            <section key={ev.id} className="card" style={{ marginBottom: 14, overflow: "hidden", ...(isDone ? { opacity: 0.6 } : {}) }}>
               <Link href={`/event/${ev.id}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "14px 16px", textDecoration: "none", color: "inherit" }}>
                 <div>
                   <div className="display" style={{ fontWeight: 700, fontSize: 18 }}>{ev.name}</div>
@@ -66,7 +69,10 @@ export default function Home() {
                     {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}
                   </div>
                 </div>
-                <span className={`badge ${ev.status}`}>{STATUS_LABEL[ev.status] ?? ev.status}</span>
+                <span className={`badge ${ev.status}`}
+                  style={isDone ? { background: "#F3EEE4", color: "#6E6254", border: "1px solid #D8D0C3" } : {}}>
+                  {STATUS_LABEL[ev.status] ?? ev.status}
+                </span>
               </Link>
               <div style={{ borderTop: "1px solid var(--line)", padding: "8px 16px", display: "flex", gap: 16 }}>
                 <Link href={`/event/${ev.id}`} style={{ fontSize: 12.5, color: "var(--brass)", textDecoration: "none", fontWeight: 600 }}>
