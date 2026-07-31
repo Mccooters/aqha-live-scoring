@@ -265,14 +265,20 @@ export default function EventPage() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
                     <div>
                       <div className="display" style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>Registrations open</div>
-                      {spotsRows.map(({ cls, taken, full, remaining }) => (
-                        <div key={cls.id} style={{ fontSize: 14, color: full ? "var(--clay)" : "var(--quiet)", marginBottom: 2 }}>
-                          <strong>{cls.name}</strong>
-                          {remaining != null
-                            ? full ? " — Full" : ` — ${remaining} spot${remaining === 1 ? "" : "s"} remaining`
-                            : null}
-                        </div>
-                      ))}
+                      {spotsRows.map(({ cls, taken, full, remaining }) => {
+                        const fee = cls.fee_cents ?? event.entry_fee_cents ?? 0;
+                        const dep = cls.deposit_cents ?? 0;
+                        return (
+                          <div key={cls.id} style={{ fontSize: 14, color: full ? "var(--clay)" : "var(--quiet)", marginBottom: 2 }}>
+                            <strong>{cls.name}</strong>
+                            {fee > 0 && ` — $${(fee / 100).toFixed(2).replace(/\.00$/, "")}`}
+                            {dep > 0 && dep < fee && ` (or $${(dep / 100).toFixed(2).replace(/\.00$/, "")} deposit)`}
+                            {remaining != null
+                              ? full ? " — Full" : ` — ${remaining} spot${remaining === 1 ? "" : "s"} remaining`
+                              : null}
+                          </div>
+                        );
+                      })}
                     </div>
                     <Link href={`/event/${id}/register`} className="btn"
                       style={{ background: "var(--leather)", textDecoration: "none", fontSize: 15, whiteSpace: "nowrap" }}>

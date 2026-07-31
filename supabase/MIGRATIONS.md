@@ -160,6 +160,12 @@ hasn't been run.
         Existing single member numbers are carried over automatically.
         Without it the entry form simply doesn't auto-fill rider numbers.
 
+- [ ] **v47** — `schema-v47-clinic-deposits.sql`
+      → clinics: **non-refundable deposit + pay-the-balance-later** (balance
+        due 2 weeks before), and a **price per spot type** (e.g. Fence
+        sitting cheaper than a Rider spot). Without it clinics keep the old
+        single-fee pay-in-full behaviour.
+
 Tick these off once you've run them.
 
 ---
@@ -214,6 +220,7 @@ Tick these off once you've run them.
 | `schema-v44-gate-access.sql` | Gate marshal link: gate controls only (advance TBC draw, scratch), no staff login |
 | `schema-v45-result-sheets.sql` | Photos of each judge's paper result sheets attached per class (public Results page) |
 | `schema-v46-rider-registrations.sql` | Rider association numbers in the registry (multi-club, auto-fill + copy-back like horses) |
+| `schema-v47-clinic-deposits.sql` | Clinic deposits (non-refundable, balance due 2 weeks out) + per-spot-type pricing |
 
 ## For whoever updates the code next
 

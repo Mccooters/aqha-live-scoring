@@ -5,6 +5,7 @@ import { membershipRequirement, hasMembershipForEvent, renewalOffer, markMembers
 import { getMemberAccount } from "../../_lib/memberAuth";
 import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squarePayments";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
+import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
 const REPLACEMENT_NUMBERS_CENTS = 500;
@@ -25,6 +26,7 @@ export async function POST(req) {
       day_membership, replacement_numbers,
       membership_renewal, membership_renewal_type_id,
       annual_membership_type_id,
+      payment_plan, // "full" (default) | "deposit" — clinics only (schema-v47)
     } = await req.json();
 
     if (!event_id || !contact_name?.trim() || !contact_email?.trim() || !entries?.length) {
@@ -375,6 +377,41 @@ export async function POST(req) {
     }
 
     const feePerClass = event.entry_fee_cents ?? 0;
+    // Clinics price per spot type (schema-v47): a class's own fee wins over
+    // the event-wide fee, so e.g. Fence sitting can cost less than a Rider
+    // spot. Shows keep the single event fee.
+    const entryFeeCents = (e) => (isClinic ? classFeeCents(classMap[e.class_id], event) : feePerClass);
+    const entriesFeeCents = normalEntries.reduce((sum, e) => sum + entryFeeCents(e), 0);
+
+    // Deposit option (clinics only): pay each spot's non-refundable deposit
+    // now, balance separately up to 2 weeks before the clinic. Validated
+    // server-side so a crafted request can't underpay.
+    const wantsDeposit = payment_plan === "deposit";
+    let entryDepositCents = 0;
+    if (wantsDeposit) {
+      if (!isClinic) {
+        return NextResponse.json({ error: "Deposits are only available for clinics." }, { status: 400 });
+      }
+      if (!depositWindowOpen(event.starts_on)) {
+        return NextResponse.json(
+          { error: "The deposit option has closed (balances are due 2 weeks before the clinic) — please pay in full." },
+          { status: 400 }
+        );
+      }
+      for (const e of normalEntries) {
+        const cls = classMap[e.class_id];
+        const dep = cls?.deposit_cents ?? 0;
+        const fee = entryFeeCents(e);
+        if (!(dep > 0) || dep >= fee) {
+          return NextResponse.json(
+            { error: `${classLabel(cls)} doesn't offer a deposit — please pay in full.` },
+            { status: 400 }
+          );
+        }
+        entryDepositCents += dep;
+      }
+    }
+
     const dayMembershipCents = includeDayMembership ? DAY_MEMBERSHIP_CENTS : 0;
     const includeReplacementNumbers = Boolean(replacement_numbers);
     const replacementNumbersCents = includeReplacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0;
@@ -407,8 +444,14 @@ export async function POST(req) {
     // Square order.
     const renewalCents = renewal ? (renewal.type.fee_cents ?? 0) : 0;
     const annualCents = annualJoin ? (annualJoin.type.fee_cents ?? 0) : 0;
-    const totalCents = normalEntries.length * feePerClass + dayMembershipCents + replacementNumbersCents + feesCents;
-    const chargeCents = totalCents + renewalCents + annualCents;
+    const totalCents = entriesFeeCents + dayMembershipCents + replacementNumbersCents + feesCents;
+    // The deposit charge is everything due now: each spot's deposit plus any
+    // extras (fees/day membership) — only the spot balances wait.
+    const depositCents = wantsDeposit
+      ? entryDepositCents + dayMembershipCents + replacementNumbersCents + feesCents
+      : 0;
+    const dueNowCents = wantsDeposit ? depositCents : totalCents;
+    const chargeCents = dueNowCents + renewalCents + annualCents;
 
     // Double-submit guard: if this same person already started an unpaid
     // checkout for this event moments ago with the same amount and the same
@@ -458,6 +501,11 @@ export async function POST(req) {
     if (feesCents > 0) {
       registrationRow.fees_cents = feesCents;
     }
+    if (wantsDeposit) {
+      // Deposit plan (schema-v47): total_cents stays the FULL price; this is
+      // the non-refundable portion paid up front.
+      registrationRow.deposit_cents = depositCents;
+    }
     // Permanent audit stamp (schema-v37). Recorded when available but never
     // allowed to block an entry — retried without it on an older database.
     registrationRow.membership_basis = membershipBasis;
@@ -477,6 +525,12 @@ export async function POST(req) {
     }
     if (regErr) {
       const msg = `${regErr.message ?? ""} ${regErr.details ?? ""}`.toLowerCase();
+      if (wantsDeposit && msg.includes("deposit_cents")) {
+        return NextResponse.json(
+          { error: "Deposits need the latest database update before they can be taken. Run schema-v47." },
+          { status: 500 }
+        );
+      }
       if ((includeDayMembership && msg.includes("day_membership")) || (includeReplacementNumbers && msg.includes("replacement_numbers"))) {
         return NextResponse.json(
           { error: "Registration add-ons need the latest database update before they can be sold. Run schema-v29 and schema-v30." },
@@ -627,19 +681,24 @@ export async function POST(req) {
     // access token, and applies the developer fee when configured)
     const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
 
-    const lineItems = feePerClass > 0
-      ? normalEntries.map((e) => {
-          const cls = classMap[e.class_id];
-          return {
-            name: cls ? `Class ${cls.num}: ${cls.name}` : "Class entry",
-            quantity: "1",
-            base_price_money: { amount: feePerClass, currency: "AUD" },
-            note: isClinic
-              ? `${e.horse_name || "Participant"} (${e.exhibitor})`
-              : `Back #${e.back_number} — ${e.horse_name} (${e.exhibitor})`,
-          };
-        })
-      : [];
+    const dueLabel = balanceDueLabel(event.starts_on);
+    const lineItems = normalEntries
+      .map((e) => {
+        const cls = classMap[e.class_id];
+        const amount = wantsDeposit ? (cls?.deposit_cents ?? 0) : entryFeeCents(e);
+        if (!(amount > 0)) return null;
+        return {
+          name: (cls ? (isClinic ? cls.name : `Class ${cls.num}: ${cls.name}`) : "Class entry")
+            + (wantsDeposit ? " — deposit (non-refundable)" : ""),
+          quantity: "1",
+          base_price_money: { amount, currency: "AUD" },
+          note: (isClinic
+            ? `${e.horse_name || "Participant"} (${e.exhibitor})`
+            : `Back #${e.back_number} — ${e.horse_name} (${e.exhibitor})`)
+            + (wantsDeposit && dueLabel ? ` · balance due by ${dueLabel}` : ""),
+        };
+      })
+      .filter(Boolean);
     if (includeDayMembership) {
       lineItems.push({
         name: "Day membership",

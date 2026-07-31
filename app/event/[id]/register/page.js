@@ -6,6 +6,7 @@ import { supabase } from "../../../../lib/supabaseClient";
 import { groupedByProgramCategory } from "../../../../lib/classCategories";
 import { signupSeason, currentSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
+import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 // "2026-2027" → "2026–27"
 const shortSeason = (season) => {
@@ -407,6 +408,7 @@ export default function RegisterPage() {
   const [feesDue, setFeesDue] = useState(null); // null = unknown (assume due), false = already paid for this event
   const [rulesAccepted, setRulesAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [paymentPlan, setPaymentPlan] = useState("full"); // clinics: "full" | "deposit"
   const [error, setError] = useState("");
   const submitLock = useRef(false); // guards against a double-tap creating two registrations
 
@@ -604,12 +606,39 @@ export default function RegisterPage() {
   // as a joining perk. So annual join and the day membership are alternatives.
   const annualSatisfiesEntry = annualSelected;
   const dayMembershipSelected = needsDayMembership && dayMembership && !annualSatisfiesEntry;
-  const totalCents = filledEntries.length * feePerClass
-    + (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0)
+  // Clinics price per spot type (schema-v47): a class's own fee wins over
+  // the event-wide fee; shows keep the single fee.
+  const entryFee = (entry) => {
+    const cls = classes.find((c) => c.id === entry.class_id);
+    return isClinic ? classFeeCents(cls, event) : feePerClass;
+  };
+  const entriesFeeCents = filledEntries.reduce((sum, e) => sum + entryFee(e), 0);
+  const extrasCents = (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0)
     + (annualSelected ? annualCents : 0)
     + (replacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0)
     + (chargeFees ? oneOffFees : 0)
     + renewalCents;
+  const totalCents = entriesFeeCents + extrasCents;
+
+  // Deposit option (clinics): offered when every chosen spot type has a
+  // deposit set and the balance window (2 weeks before) hasn't closed.
+  const depositWindow = isClinic && depositWindowOpen(event?.starts_on);
+  const spotDepositCents = filledEntries.reduce((sum, e) => {
+    const cls = classes.find((c) => c.id === e.class_id);
+    return sum + (cls?.deposit_cents ?? 0);
+  }, 0);
+  const depositAvailable = depositWindow && filledEntries.length > 0 && filledEntries.every((e) => {
+    const cls = classes.find((c) => c.id === e.class_id);
+    const dep = cls?.deposit_cents ?? 0;
+    return dep > 0 && dep < classFeeCents(cls, event);
+  });
+  const payDeposit = depositAvailable && paymentPlan === "deposit";
+  // The deposit charge covers each spot's deposit plus any extras — only the
+  // spot balances wait until later.
+  const depositDueNowCents = spotDepositCents + extrasCents;
+  const dueNowCents = payDeposit ? depositDueNowCents : totalCents;
+  const balanceLaterCents = payDeposit ? totalCents - depositDueNowCents : 0;
+  const dueLabel = balanceDueLabel(event?.starts_on);
 
   useEffect(() => {
     if (membershipStatus === "member") { setDayMembership(false); setAnnualJoin(false); }
@@ -617,10 +646,16 @@ export default function RegisterPage() {
 
   const classIsFull = (cls) => cls.capacity != null && (spotsTaken[cls.id] ?? 0) >= cls.capacity;
   const spotsLabel = (cls) => {
-    if (cls.capacity == null) return null;
-    const remaining = cls.capacity - (spotsTaken[cls.id] ?? 0);
-    if (remaining <= 0) return "Full";
-    return `${remaining} spot${remaining === 1 ? "" : "s"} remaining`;
+    const parts = [];
+    if (isClinic) {
+      const fee = classFeeCents(cls, event);
+      if (fee > 0) parts.push(fmtMoney(fee));
+    }
+    if (cls.capacity != null) {
+      const remaining = cls.capacity - (spotsTaken[cls.id] ?? 0);
+      parts.push(remaining <= 0 ? "Full" : `${remaining} spot${remaining === 1 ? "" : "s"} remaining`);
+    }
+    return parts.length ? parts.join(" · ") : null;
   };
   const availableClasses = classes.filter((c) => !classIsFull(c));
   const allFull = classes.length > 0 && availableClasses.length === 0;
@@ -929,6 +964,7 @@ export default function RegisterPage() {
           replacement_numbers: replacementNumbers,
           membership_renewal: Boolean(renewMembership && renewalOffer),
           membership_renewal_type_id: renewalTypeId || null,
+          payment_plan: payDeposit ? "deposit" : "full",
           entries: valid.map((e) => {
             const regList = (rows, none) => (isClinic ? null : none ? [] : rows
               .filter((r) => r.club.trim() && r.number.trim())
@@ -1035,7 +1071,9 @@ export default function RegisterPage() {
             {event.location}
             {event.starts_on ? ` · ${event.starts_on}` : ""}
             {" · "}
-            {feePerClass > 0 ? `${fmtMoney(feePerClass)} per ${isClinic ? "spot" : "class"}` : "Free entry"}
+            {isClinic && classes.some((c) => c.fee_cents != null && c.fee_cents !== feePerClass)
+              ? "Priced per spot type — see below"
+              : feePerClass > 0 ? `${fmtMoney(feePerClass)} per ${isClinic ? "spot" : "class"}` : "Free entry"}
           </div>
         </div>
       </header>
@@ -1427,7 +1465,9 @@ export default function RegisterPage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 15 }}>
-                  {filledEntries.length} {isClinic ? (filledEntries.length === 1 ? "spot" : "spots") : (filledEntries.length === 1 ? "class" : "classes")} × {fmtMoney(feePerClass)}
+                  {isClinic
+                    ? `${filledEntries.length} ${filledEntries.length === 1 ? "spot" : "spots"} · ${fmtMoney(entriesFeeCents)}`
+                    : `${filledEntries.length} ${filledEntries.length === 1 ? "class" : "classes"} × ${fmtMoney(feePerClass)}`}
                 </div>
                 {dayMembershipSelected && (
                   <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
@@ -1470,14 +1510,45 @@ export default function RegisterPage() {
                   </div>
                 )}
               </div>
-              <div className="display" style={{ fontWeight: 700, fontSize: 28, color: "var(--leather)" }}>
-                {fmtMoney(totalCents)}
+              <div style={{ textAlign: "right" }}>
+                <div className="display" style={{ fontWeight: 700, fontSize: 28, color: "var(--leather)" }}>
+                  {fmtMoney(dueNowCents)}
+                </div>
+                {payDeposit && (
+                  <div style={{ fontSize: 11.5, color: "var(--quiet)" }}>
+                    then {fmtMoney(balanceLaterCents)}{dueLabel ? ` by ${dueLabel}` : ""}
+                  </div>
+                )}
               </div>
             </div>
             {error && (
               <p style={{ color: "var(--clay)", fontSize: 13.5, fontWeight: 600, marginBottom: 10, marginTop: 0 }}>
                 {error}
               </p>
+            )}
+            {depositAvailable && totalCents > 0 && (
+              <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, background: "#fff" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--leather)", marginBottom: 6 }}>How would you like to pay?</div>
+                <label style={{ display: "flex", gap: 9, alignItems: "flex-start", cursor: "pointer", marginBottom: 6 }}>
+                  <input type="radio" name="payment-plan" checked={!payDeposit} onChange={() => setPaymentPlan("full")}
+                    style={{ width: 17, height: 17, marginTop: 1, flexShrink: 0 }} />
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--leather)" }}>
+                    Pay in full now · {fmtMoney(totalCents)}
+                  </span>
+                </label>
+                <label style={{ display: "flex", gap: 9, alignItems: "flex-start", cursor: "pointer" }}>
+                  <input type="radio" name="payment-plan" checked={payDeposit} onChange={() => setPaymentPlan("deposit")}
+                    style={{ width: 17, height: 17, marginTop: 1, flexShrink: 0 }} />
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 13.5, fontWeight: 700, color: "var(--leather)" }}>
+                      Pay a {fmtMoney(depositDueNowCents)} deposit now — balance {fmtMoney(totalCents - depositDueNowCents)}{dueLabel ? ` due by ${dueLabel}` : " due 2 weeks before the clinic"}
+                    </span>
+                    <span style={{ display: "block", fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                      The deposit secures your spot and is non-refundable. You&apos;ll get a link to pay the balance any time before the due date.
+                    </span>
+                  </span>
+                </label>
+              </div>
             )}
             {renewalOffer && (
               <div style={{ border: "1px solid #E0B15A", borderRadius: 10, padding: "10px 12px", marginBottom: 10, background: renewMembership ? "#FFF7D6" : "#fff" }}>
@@ -1529,8 +1600,8 @@ export default function RegisterPage() {
               onClick={submit} disabled={submitting}>
               {submitting
                 ? "Setting up payment…"
-                : totalCents > 0
-                ? `Register & Pay ${fmtMoney(totalCents)}`
+                : dueNowCents > 0
+                ? `Register & Pay ${fmtMoney(dueNowCents)}${payDeposit ? " deposit" : ""}`
                 : isClinic ? "Register" : "Submit entries"}
             </button>
             <p style={{ fontSize: 11.5, color: "var(--quiet)", lineHeight: 1.45, margin: "10px 0 0" }}>

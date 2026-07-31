@@ -55,7 +55,7 @@ export async function POST(req) {
   // Find our registration by the Square order ID stored at checkout creation time
   const { data: reg, error: regLookupErr } = await db
     .from("registrations")
-    .select("id, status, total_cents")
+    .select("*")
     .eq("square_order_id", orderId)
     .maybeSingle();
 
@@ -68,8 +68,12 @@ export async function POST(req) {
     return NextResponse.json({ error: "Lookup failed" }, { status: 500 });
   }
 
-  // Not an event entry — it may be a membership payment instead.
+  // Not the first payment of an entry — it may be a clinic BALANCE payment
+  // (schema-v47, the second checkout on a deposit registration) or a
+  // membership payment instead.
   if (!reg) {
+    const balanceRes = await handleBalancePayment(db, payment, orderId);
+    if (balanceRes) return balanceRes;
     return handleMembershipPayment(db, payment, orderId);
   }
 
@@ -78,13 +82,15 @@ export async function POST(req) {
   // the renewal another chance (no-op when there isn't one).
   if (reg.status === "paid") return handleMembershipPayment(db, payment, orderId);
 
-  // The completed payment must cover the registration total — a partial
-  // payment should never place entries. Fail closed: if the amount is missing
-  // or not a number, treat it as NOT covering the total rather than approving.
+  // The completed payment must cover what was due — the full total, or the
+  // deposit when the payer chose the deposit plan (schema-v47; the balance
+  // comes later through its own checkout). Fail closed: if the amount is
+  // missing or not a number, treat it as NOT covering rather than approving.
+  const dueCents = (reg.deposit_cents ?? 0) > 0 ? reg.deposit_cents : (reg.total_cents ?? 0);
   const paidCents = payment?.amount_money?.amount;
-  if (typeof paidCents !== "number" || paidCents < (reg.total_cents ?? 0)) {
+  if (typeof paidCents !== "number" || paidCents < dueCents) {
     console.error(
-      `Square payment ${payment.id} paid ${paidCents}c but registration ${reg.id} totals ${reg.total_cents}c — not approving`
+      `Square payment ${payment.id} paid ${paidCents}c but registration ${reg.id} needed ${dueCents}c — not approving`
     );
     return NextResponse.json({ ok: true });
   }
@@ -99,6 +105,44 @@ export async function POST(req) {
   // A membership renewal bought in the same checkout shares this Square
   // order — settle it too (does nothing when no membership matches).
   return handleMembershipPayment(db, payment, orderId);
+}
+
+// A clinic balance payment (schema-v47): the second Square checkout created
+// by /api/registrations/pay-balance. Returns null when this order isn't a
+// balance payment, so the membership handler gets its turn.
+async function handleBalancePayment(db, payment, orderId) {
+  const { data: reg, error } = await db
+    .from("registrations")
+    .select("id, total_cents, deposit_cents, balance_paid_at")
+    .eq("balance_square_order_id", orderId)
+    .maybeSingle();
+  if (error) {
+    // Pre-v47 databases have no balance columns — this can't be a balance
+    // payment there. Any other error is transient: ask Square to retry.
+    if (/balance_square_order_id|does not exist|schema cache/i.test(error.message ?? "")) return null;
+    console.error("Square webhook: balance lookup failed, asking Square to retry:", error.message);
+    return NextResponse.json({ error: "Lookup failed" }, { status: 500 });
+  }
+  if (!reg) return null;
+  if (reg.balance_paid_at) return NextResponse.json({ ok: true }); // retry — already recorded
+
+  const owed = Math.max(0, (reg.total_cents ?? 0) - (reg.deposit_cents ?? 0));
+  const paidCents = payment?.amount_money?.amount;
+  if (typeof paidCents !== "number" || paidCents < owed) {
+    console.error(
+      `Square payment ${payment.id} paid ${paidCents}c but balance for registration ${reg.id} is ${owed}c — not recording`
+    );
+    return NextResponse.json({ ok: true });
+  }
+  const { error: updErr } = await db
+    .from("registrations")
+    .update({ balance_paid_at: new Date().toISOString(), balance_payment_id: payment.id })
+    .eq("id", reg.id);
+  if (updErr) {
+    console.error("Square webhook: recording balance payment failed, asking Square to retry:", updErr.message);
+    return NextResponse.json({ error: "Update failed" }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
 }
 
 // Membership payments come through the same Square webhook as event entries.

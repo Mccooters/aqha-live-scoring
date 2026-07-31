@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import { activeSeasons } from "../../../lib/membershipSeason";
+import { balanceDueDate, balanceDueLabel } from "../../../lib/clinicPayments";
 
 const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
 // "AQHA 12345 · PHAA 678" from an entry's stored registration numbers.
@@ -25,6 +26,7 @@ export default function RegistrationsPage() {
   const [expanded, setExpanded] = useState(null);
   const [approving, setApproving] = useState(null);
   const [refunding, setRefunding] = useState(null); // registration id mid-refund
+  const [balanceBusy, setBalanceBusy] = useState(null); // reg id mid balance action
   const [refundAmount, setRefundAmount] = useState({}); // reg id -> typed dollars
   const [squareStatus, setSquareStatus] = useState(null);
   const [connecting, setConnecting] = useState(false);
@@ -134,6 +136,61 @@ export default function RegistrationsPage() {
     })();
     return () => { cancelled = true; };
   }, [session, eventId, events, registrations]);
+
+  // Clinic deposit plans (schema-v47): what's still owing on a registration.
+  const balanceInfo = (reg) => {
+    if (!(reg?.deposit_cents > 0)) return null;
+    const owing = Math.max(0, (reg.total_cents ?? 0) - reg.deposit_cents);
+    if (owing <= 0) return null;
+    const ev = events.find((e) => e.id === eventId);
+    const due = balanceDueDate(ev?.starts_on);
+    return {
+      owing,
+      paid: Boolean(reg.balance_paid_at),
+      dueLabel: balanceDueLabel(ev?.starts_on),
+      overdue: !reg.balance_paid_at && due ? new Date() > due : false,
+    };
+  };
+
+  const copyBalanceLink = async (reg) => {
+    setBalanceBusy(reg.id);
+    try {
+      const res = await fetch("/api/registrations/pay-balance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registration_id: reg.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.checkout_url) {
+        window.alert(data.error ?? "Could not create the balance payment link.");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(data.checkout_url);
+        window.alert("Balance payment link copied — paste it into a text or email to " + reg.contact_name + ".");
+      } catch {
+        window.prompt("Copy the balance payment link:", data.checkout_url);
+      }
+      await load();
+    } finally {
+      setBalanceBusy(null);
+    }
+  };
+
+  const recordBalancePaid = async (reg, info) => {
+    if (!window.confirm(`Record ${reg.contact_name}'s ${fmtMoney(info.owing)} balance as paid outside Square (cash / bank transfer)?`)) return;
+    setBalanceBusy(reg.id);
+    try {
+      const { error } = await supabase
+        .from("registrations")
+        .update({ balance_paid_at: new Date().toISOString() })
+        .eq("id", reg.id);
+      if (error) { window.alert(error.message); return; }
+      await load();
+    } finally {
+      setBalanceBusy(null);
+    }
+  };
 
   // The badge shown on a paid registration explaining why it was allowed in.
   const membershipBadge = (reg) => {
@@ -307,7 +364,14 @@ export default function RegistrationsPage() {
   const paid = registrations.filter((r) => r.status === "paid");
   const pending = registrations.filter((r) => r.status === "pending");
   // Net of any refunds issued (refunded_cents is 0/absent before schema-v36).
-  const revenue = paid.reduce((s, r) => s + (r.total_cents ?? 0) - (r.refunded_cents ?? 0), 0);
+  // Money actually received: a deposit-plan registration only counts its
+  // deposit until the balance is paid (schema-v47).
+  const revenue = paid.reduce((s, r) => {
+    const received = r.deposit_cents > 0 && !r.balance_paid_at ? r.deposit_cents : (r.total_cents ?? 0);
+    return s + received - (r.refunded_cents ?? 0);
+  }, 0);
+  const balancesOwing = paid.reduce((s, r) =>
+    s + (r.deposit_cents > 0 && !r.balance_paid_at ? Math.max(0, (r.total_cents ?? 0) - r.deposit_cents) : 0), 0);
   // Only paid registrations become real entries in the show — pending and
   // cancelled ones must not inflate the count.
   const entryCount = paid.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
@@ -451,6 +515,7 @@ export default function RegistrationsPage() {
               { label: "Replacement numbers", value: replacementNumbersCount },
               ...(membershipRequired ? [{ label: "No membership on file", value: noMembershipCount, warn: noMembershipCount > 0 }] : []),
               { label: "Revenue", value: fmtMoney(revenue) },
+              ...(balancesOwing > 0 ? [{ label: "Balances owing", value: fmtMoney(balancesOwing) }] : []),
             ].map((s) => (
               <div key={s.label} className="card" style={{ flex: "1 1 120px", padding: "12px 16px", margin: 0, borderColor: s.warn ? "var(--clay)" : undefined }}>
                 <div className="display" style={{ fontWeight: 700, fontSize: 22, color: s.warn ? "var(--clay)" : undefined }}>{s.value}</div>
@@ -506,6 +571,17 @@ export default function RegistrationsPage() {
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <span style={{ fontWeight: 700, fontSize: 14, textDecoration: isCancelled ? "line-through" : "none" }}>{fmtMoney(reg.total_cents)}</span>
+                  {isPaid && (() => {
+                    const b = balanceInfo(reg);
+                    if (!b) return null;
+                    return b.paid ? (
+                      <span className="badge" style={{ background: "var(--green)" }}>balance paid</span>
+                    ) : (
+                      <span className="badge" style={{ background: b.overdue ? "var(--clay)" : "#A05000" }}>
+                        {b.overdue ? "balance overdue" : `${fmtMoney(b.owing)} owing`}
+                      </span>
+                    );
+                  })()}
                   {isCancelled ? (
                     <span className="badge" style={{ background: "#8B8073", color: "#fff" }}>
                       {reg.cancel_reason === "expired" ? "expired" : "cancelled"}
@@ -585,6 +661,32 @@ export default function RegistrationsPage() {
                       </button>
                     </div>
                   )}
+
+                  {isPaid && (() => {
+                    const b = balanceInfo(reg);
+                    if (!b) return null;
+                    return (
+                      <div style={{ padding: "10px 12px", marginTop: 10, borderRadius: 10, border: `1px solid ${b.paid ? "var(--line)" : b.overdue ? "var(--clay)" : "#E0B15A"}`, background: b.paid ? "#F4F8F4" : b.overdue ? "#FDEEE9" : "#FFF7D6" }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--leather)" }}>
+                          {b.paid
+                            ? `✓ Deposit ${fmtMoney(reg.deposit_cents)} + balance ${fmtMoney(b.owing)} both paid.`
+                            : `Deposit ${fmtMoney(reg.deposit_cents)} paid (non-refundable) — ${fmtMoney(b.owing)} balance ${b.overdue ? "OVERDUE" : "owing"}${b.dueLabel ? `, due by ${b.dueLabel}` : ""}.`}
+                        </div>
+                        {!b.paid && (
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                            <button className="btn-ghost" style={{ fontSize: 12 }} disabled={balanceBusy === reg.id}
+                              onClick={() => copyBalanceLink(reg)}>
+                              {balanceBusy === reg.id ? "Working…" : "Copy balance payment link"}
+                            </button>
+                            <button className="btn-ghost" style={{ fontSize: 12 }} disabled={balanceBusy === reg.id}
+                              onClick={() => recordBalancePaid(reg, b)}>
+                              Record balance paid outside Square
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {isPaid && (() => {
                     const refundedCents = reg.refunded_cents ?? 0;

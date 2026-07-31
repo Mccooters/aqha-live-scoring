@@ -458,6 +458,21 @@ each with its own `capacity`) instead of a normal scored show.
   by counting non-scratched `entries` rows against `classes.capacity` —
   there's a small race window under simultaneous submissions right at the
   capacity limit, accepted as a reasonable tradeoff at clinic-sized capacities.
+- **Pricing & deposits (schema-v47)**: each clinic spot type can carry its
+  own price (`classes.fee_cents`, null = event `entry_fee_cents`) and an
+  optional NON-REFUNDABLE deposit (`classes.deposit_cents`). When every
+  selected spot type has a deposit and today is at least 2 weeks before the
+  clinic (`lib/clinicPayments.js`), the entry form offers "pay deposit now,
+  balance later": the first Square checkout charges deposits + any extras
+  (`registrations.deposit_cents`; `total_cents` stays the full price), the
+  webhook approves on the deposit amount, and the balance is a second
+  checkout via `app/api/registrations/pay-balance` (link on the success
+  page, in the booking email, and copyable from the staff Registrations
+  page, which also shows owing/overdue badges, a "record paid outside
+  Square" button, and a Balances-owing stat; revenue counts deposits only
+  until balances are paid). Balance payments close 2 weeks before the
+  clinic (`balance_*` columns on registrations; overdue = staff decide,
+  no auto-cancel).
 
 ## Online registration & payments
 
