@@ -1584,13 +1584,17 @@ export default function RegisterPage() {
                 )}
               </div>
             )}
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
-              <input type="checkbox" checked={replacementNumbers} onChange={(e) => setReplacementNumbers(e.target.checked)}
-                style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
-              <span>
-                I need replacement numbers for this event ({fmtMoney(REPLACEMENT_NUMBERS_CENTS)}).
-              </span>
-            </label>
+            {/* Replacement numbers are a show thing — clinics don't use back
+                numbers at all. */}
+            {!isClinic && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
+                <input type="checkbox" checked={replacementNumbers} onChange={(e) => setReplacementNumbers(e.target.checked)}
+                  style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
+                <span>
+                  I need replacement numbers for this event ({fmtMoney(REPLACEMENT_NUMBERS_CENTS)}).
+                </span>
+              </label>
+            )}
             <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
               <input type="checkbox" checked={rulesAccepted} onChange={(e) => setRulesAccepted(e.target.checked)}
                 style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
