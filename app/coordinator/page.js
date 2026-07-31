@@ -2723,14 +2723,16 @@ export default function Coordinator() {
                     <input className="field" type="date" style={{ width: "100%", fontSize: 15 }} value={form.ends ?? ""} onChange={setField("ends")} />
                   </div>
                 </div>
-                <label className="modal-label">Entry fee per class (AUD)</label>
+                <label className="modal-label">{form.event_type === "clinic" ? "Default price per spot (AUD)" : "Entry fee per class (AUD)"}</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 18, fontWeight: 600 }}>$</span>
                   <input className="field" type="number" min="0" step="0.50" style={{ width: 120, fontSize: 16 }}
                     value={form.fee ?? ""} onChange={setField("fee")} placeholder="0.00" />
                 </div>
                 <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
-                  Set to $0 for free entry. This is what exhibitors pay per class when registering online.
+                  {form.event_type === "clinic"
+                    ? <>The spot types themselves — Rider spots, Fence sitting, etc. — are added AFTER creating the clinic, with the <strong>&quot;+ Add spot type&quot;</strong> button on the dashboard. Each one can set its own price and a non-refundable deposit there; this amount is just the fallback for spot types without their own price.</>
+                    : "Set to $0 for free entry. This is what exhibitors pay per class when registering online."}
                 </p>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
