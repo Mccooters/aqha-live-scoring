@@ -80,18 +80,57 @@ export async function exportGateSheets(event, classes) {
     }
   } catch {}
 
+  // Third source: club membership records (schema-v42) — staff and members
+  // keep association numbers current there, including each FAMILY member's
+  // own numbers. Matched by name, approved memberships only.
+  const membershipByName = {};
+  const addMembershipRows = (name, list, legacyAqha) => {
+    const key = String(name ?? "").trim().toLowerCase();
+    if (!key || membershipByName[key]) return;
+    const rows = (Array.isArray(list) && list.length
+      ? list.map((r) => ({ club: r?.club, number: r?.number }))
+      : legacyAqha ? [{ club: "AQHA", number: String(legacyAqha) }] : [])
+      .filter((r) => String(r.club ?? "").trim() && String(r.number ?? "").trim());
+    if (rows.length) membershipByName[key] = rows;
+  };
+  try {
+    const { data: members } = await supabase
+      .from("club_members")
+      .select("member_name, status, association_registrations, aqha_member_number")
+      .eq("status", "approved");
+    (members ?? []).forEach((m) => addMembershipRows(m.member_name, m.association_registrations, m.aqha_member_number));
+  } catch {}
+  try {
+    const { data: people } = await supabase
+      .from("club_member_people")
+      .select("name, association_registrations, aqha_member_number, club_members!inner(status)")
+      .eq("club_members.status", "approved");
+    (people ?? []).forEach((p) => addMembershipRows(p.name, p.association_registrations, p.aqha_member_number));
+  } catch {}
+
+  // One club appears once: the registry wins for a club, then membership
+  // records, then what was typed on the entry — so a number added anywhere
+  // shows up, and updates in one place aren't hidden by blanks in another.
   const riderNo = (name) => {
     const key = String(name ?? "").trim().toLowerCase();
     if (!key) return "";
     const r = riders.find((x) => String(x.name ?? "").trim().toLowerCase() === key);
-    const regs = (r?.rider_registrations ?? []).filter((x) => x.registration_number);
-    if (regs.length) {
-      return regs.map((x) => `${x.club} ${x.registration_number}`).join("  ");
+    const sources = [
+      (r?.rider_registrations ?? []).map((x) => ({ club: x.club, number: x.registration_number })),
+      membershipByName[key] ?? [],
+      (declaredByName[key] ?? []).map((x) => ({ club: x.club, number: x.number })),
+    ];
+    const byClub = new Map();
+    for (const list of sources) {
+      for (const x of list) {
+        const club = String(x.club ?? "").trim();
+        const number = String(x.number ?? "").trim();
+        if (!club || !number) continue;
+        const ck = club.toUpperCase();
+        if (!byClub.has(ck)) byClub.set(ck, `${club} ${number}`);
+      }
     }
-    const declared = (declaredByName[key] ?? []).filter((x) => x.number);
-    if (declared.length) {
-      return declared.map((x) => `${x.club} ${x.number}`).join("  ");
-    }
+    if (byClub.size) return [...byClub.values()].join("  ");
     return r?.member_number ?? "";
   };
 
