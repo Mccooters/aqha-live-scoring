@@ -61,16 +61,38 @@ export async function exportGateSheets(event, classes) {
   const { data: horses } = await horsesPromise;
   const riders = ridersRes.data ?? [];
   const horseMap = Object.fromEntries((horses ?? []).map((h) => [h.back_number, h]));
+
+  // Second source for rider numbers: what exhibitors typed on their online
+  // entries for THIS event (schema-v35) — covers everyone from before the
+  // registry started filling itself (schema-v46). Staff-only table; this
+  // export runs signed in.
+  const declaredByName = {};
+  try {
+    const { data: regEntries } = await supabase
+      .from("registration_entries")
+      .select("exhibitor, rider_registrations, registrations!inner(event_id, status)")
+      .eq("registrations.event_id", event.id)
+      .eq("registrations.status", "paid");
+    for (const e of regEntries ?? []) {
+      const key = String(e.exhibitor ?? "").trim().toLowerCase();
+      if (!key || !Array.isArray(e.rider_registrations) || !e.rider_registrations.length) continue;
+      if (!declaredByName[key]) declaredByName[key] = e.rider_registrations;
+    }
+  } catch {}
+
   const riderNo = (name) => {
     const key = String(name ?? "").trim().toLowerCase();
     if (!key) return "";
     const r = riders.find((x) => String(x.name ?? "").trim().toLowerCase() === key);
-    if (!r) return "";
-    const regs = (r.rider_registrations ?? []).filter((x) => x.registration_number);
+    const regs = (r?.rider_registrations ?? []).filter((x) => x.registration_number);
     if (regs.length) {
       return regs.map((x) => `${x.club} ${x.registration_number}`).join("  ");
     }
-    return r.member_number ?? "";
+    const declared = (declaredByName[key] ?? []).filter((x) => x.number);
+    if (declared.length) {
+      return declared.map((x) => `${x.club} ${x.number}`).join("  ");
+    }
+    return r?.member_number ?? "";
   };
 
   const judgeName = (slot) => {
