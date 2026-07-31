@@ -46,5 +46,26 @@ export async function GET(req) {
   if (error || !reg) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json(reg);
+
+  // Clinic deposit info (schema-v47) — best-effort so pre-migration
+  // databases still serve the success page.
+  let balance = null;
+  try {
+    const { data: extra } = await db
+      .from("registrations")
+      .select("deposit_cents, balance_paid_at, event:events(starts_on, event_type)")
+      .eq("id", regId)
+      .maybeSingle();
+    if (extra?.deposit_cents > 0) {
+      const { balanceDueLabel } = await import("../../../../lib/clinicPayments");
+      balance = {
+        deposit_cents: extra.deposit_cents,
+        owing_cents: Math.max(0, (reg.total_cents ?? 0) - extra.deposit_cents),
+        paid: Boolean(extra.balance_paid_at),
+        due_label: balanceDueLabel(extra.event?.starts_on),
+      };
+    }
+  } catch {}
+
+  return NextResponse.json({ ...reg, balance });
 }

@@ -1345,7 +1345,7 @@ export default function Coordinator() {
       // champ_feeder_ids: [] (not undefined) when nothing is saved, so a class
       // staff deliberately made normal is never silently re-suggested back into
       // a championship on a later edit — the "Use suggested" button is explicit.
-      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : [], champ_take: c.champ_take ?? "top2" };
+      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", fee_dollars: c.fee_cents != null ? String(c.fee_cents / 100) : "", deposit_dollars: c.deposit_cents != null && c.deposit_cents > 0 ? String(c.deposit_cents / 100) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : [], champ_take: c.champ_take ?? "top2" };
     }
     if (type === "editEvent" && extra.event) {
       const ev = extra.event;
@@ -1480,6 +1480,10 @@ export default function Coordinator() {
     if (form.program_category?.trim()) insertData.program_category = form.program_category.trim();
     if (form.program_break_before?.trim()) insertData.program_break_before = form.program_break_before.trim();
     if (form.program_break_after?.trim()) insertData.program_break_after = form.program_break_after.trim();
+    // Clinic pricing (schema-v47): per-spot price + optional non-refundable
+    // deposit. Only sent when set, so pre-migration databases keep working.
+    if (isClinic && form.fee_dollars !== "" && form.fee_dollars != null) insertData.fee_cents = Math.round(parseFloat(form.fee_dollars) * 100);
+    if (isClinic && form.deposit_dollars !== "" && form.deposit_dollars != null) insertData.deposit_cents = Math.round(parseFloat(form.deposit_dollars) * 100);
     const feederIds = Array.isArray(form.champ_feeder_ids) ? form.champ_feeder_ids.filter(Boolean) : [];
     if (feederIds.length) {
       insertData.champ_feeder_ids = feederIds;
@@ -1501,6 +1505,8 @@ export default function Coordinator() {
     if (error) {
       const msg = error.message?.includes("champ_feeder_ids") || error.message?.includes("champ_take")
         ? 'Championship classes need a database update. Please run "schema-v43-championship-classes.sql" in your Supabase SQL Editor first.'
+        : error.message?.includes("fee_cents") || error.message?.includes("deposit_cents")
+        ? 'Spot pricing needs a database update. Please run "schema-v47-clinic-deposits.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("program_break_before") || error.message?.includes("program_break_after")
         ? 'Database migration needed. Please run "schema-v20-program-breaks.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("program_category") ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
@@ -1667,6 +1673,11 @@ export default function Coordinator() {
   const submitEditClass = async () => {
     if (!form.num || !form.name?.trim()) { setFormError("Class number and name are required"); return; }
     const updateData = { num: parseInt(form.num, 10), name: form.name.trim(), judge: form.judge ?? "", judge2: form.judge2?.trim() || null, scoring_mode: form.scoring_mode ?? "score", capacity: form.capacity ? parseInt(form.capacity, 10) : null, hp_category: form.hp_category || null };
+    if (isClinic) {
+      // Clinic pricing (schema-v47) — blank = use the event fee / no deposit.
+      updateData.fee_cents = form.fee_dollars !== "" && form.fee_dollars != null ? Math.round(parseFloat(form.fee_dollars) * 100) : null;
+      updateData.deposit_cents = form.deposit_dollars !== "" && form.deposit_dollars != null ? Math.round(parseFloat(form.deposit_dollars) * 100) : null;
+    }
     if (Object.prototype.hasOwnProperty.call(modal.cls ?? {}, "program_category") || form.program_category?.trim()) {
       updateData.program_category = form.program_category?.trim() || null;
     }
@@ -1686,6 +1697,8 @@ export default function Coordinator() {
     if (error) {
       setFormError(error.message?.includes("champ_feeder_ids") || error.message?.includes("champ_take")
         ? 'Championship classes need a database update. Please run "schema-v43-championship-classes.sql" in your Supabase SQL Editor first.'
+        : error.message?.includes("fee_cents") || error.message?.includes("deposit_cents")
+        ? 'Spot pricing needs a database update. Please run "schema-v47-clinic-deposits.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("program_break_before") || error.message?.includes("program_break_after")
         ? 'Database migration needed. Please run "schema-v20-program-breaks.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("program_category") ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
@@ -2847,6 +2860,19 @@ export default function Coordinator() {
                     </select>
                   </>
                 )}
+                {isClinic && (
+                  <>
+                    <label className="modal-label">Price for this spot type ($ — blank = event fee)</label>
+                    <input className="field" type="number" min="0" step="0.5" style={{ width: 140, fontSize: 16 }}
+                      value={form.fee_dollars ?? ""} onChange={setField("fee_dollars")} placeholder="e.g. 150" />
+                    <label className="modal-label">Non-refundable deposit ($ — blank = no deposit option)</label>
+                    <input className="field" type="number" min="0" step="0.5" style={{ width: 140, fontSize: 16 }}
+                      value={form.deposit_dollars ?? ""} onChange={setField("deposit_dollars")} placeholder="e.g. 50" />
+                    <p style={{ fontSize: 12, color: "var(--quiet)", margin: "2px 0 0" }}>
+                      With a deposit set, people can pay just the deposit at registration and the balance any time up to 2 weeks before the clinic.
+                    </p>
+                  </>
+                )}
                 <label className="modal-label">Spot capacity (leave blank for unlimited)</label>
                 <input className="field" type="number" min="1" style={{ width: 120, fontSize: 16 }}
                   value={form.capacity ?? ""} onChange={setField("capacity")} placeholder="e.g. 20" />
@@ -3391,6 +3417,19 @@ export default function Coordinator() {
                       <option value="">— Does not count toward High Points —</option>
                       {HP_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
                     </select>
+                  </>
+                )}
+                {isClinic && (
+                  <>
+                    <label className="modal-label">Price for this spot type ($ — blank = event fee)</label>
+                    <input className="field" type="number" min="0" step="0.5" style={{ width: 140, fontSize: 16 }}
+                      value={form.fee_dollars ?? ""} onChange={setField("fee_dollars")} placeholder="e.g. 150" />
+                    <label className="modal-label">Non-refundable deposit ($ — blank = no deposit option)</label>
+                    <input className="field" type="number" min="0" step="0.5" style={{ width: 140, fontSize: 16 }}
+                      value={form.deposit_dollars ?? ""} onChange={setField("deposit_dollars")} placeholder="e.g. 50" />
+                    <p style={{ fontSize: 12, color: "var(--quiet)", margin: "2px 0 0" }}>
+                      With a deposit set, people can pay just the deposit at registration and the balance any time up to 2 weeks before the clinic.
+                    </p>
                   </>
                 )}
                 <label className="modal-label">Spot capacity (leave blank for unlimited)</label>

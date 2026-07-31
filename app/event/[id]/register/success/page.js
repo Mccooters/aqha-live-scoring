@@ -18,6 +18,7 @@ function SuccessContent() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pollCount, setPollCount] = useState(0);
+  const [payingBalance, setPayingBalance] = useState(false);
 
   useEffect(() => {
     if (!regId) { setLoading(false); return; }
@@ -73,6 +74,26 @@ function SuccessContent() {
   const hasPayment = (reg.total_cents ?? 0) > 0;
   const hasDayMembership = !!reg.day_membership;
   const hasReplacementNumbers = !!reg.replacement_numbers;
+  const balance = reg.balance; // clinic deposit plan (schema-v47)
+
+  const payBalance = async () => {
+    setPayingBalance(true);
+    try {
+      const res = await fetch("/api/registrations/pay-balance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registration_id: regId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.checkout_url) {
+        window.alert(data.error ?? "Could not open the balance payment — please try again.");
+        return;
+      }
+      window.location.href = data.checkout_url;
+    } finally {
+      setPayingBalance(false);
+    }
+  };
 
   return (
     <>
@@ -107,6 +128,26 @@ function SuccessContent() {
                 {hasReplacementNumbers && (
                   <p style={{ fontSize: 13.5, color: "var(--leather)", fontWeight: 700, marginTop: 0 }}>
                     Includes replacement numbers ({`$${((reg.replacement_numbers_cents ?? 500) / 100).toFixed(2)}`}).
+                  </p>
+                )}
+                {balance && !balance.paid && balance.owing_cents > 0 && (
+                  <div style={{ border: "1px solid #E0B15A", background: "#FFF7D6", borderRadius: 10, padding: "12px 14px", marginTop: 12 }}>
+                    <div style={{ fontWeight: 800, color: "var(--leather)", fontSize: 14 }}>
+                      Deposit received — ${(balance.owing_cents / 100).toFixed(2)} balance still to pay
+                    </div>
+                    <p style={{ fontSize: 13, color: "var(--quiet)", margin: "4px 0 10px" }}>
+                      Your spot is held by the non-refundable deposit. The balance is due
+                      {balance.due_label ? <> by <strong>{balance.due_label}</strong></> : " 2 weeks before the clinic"} —
+                      you can pay it any time from this page or the link in your confirmation email.
+                    </p>
+                    <button className="btn" style={{ background: "var(--leather)" }} onClick={payBalance} disabled={payingBalance}>
+                      {payingBalance ? "Opening payment…" : `Pay the ${`$${(balance.owing_cents / 100).toFixed(2)}`} balance now`}
+                    </button>
+                  </div>
+                )}
+                {balance && balance.paid && (
+                  <p style={{ fontSize: 13.5, color: "var(--green)", fontWeight: 700, marginTop: 0 }}>
+                    ✓ Deposit and balance both paid — nothing owing.
                   </p>
                 )}
               </>

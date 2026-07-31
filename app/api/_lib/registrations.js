@@ -192,6 +192,30 @@ async function sendBookingConfirmation(db, registrationId) {
   const hasReplacementNumbers = !!reg.replacement_numbers;
   const replacementNumbersAmount = reg.replacement_numbers_cents ?? 500;
 
+  // Clinic deposit plan (schema-v47): the confirmation email spells out the
+  // balance and links to the page with the pay button. Best-effort — a
+  // pre-migration database simply has no deposit info.
+  let balanceInfo = null;
+  try {
+    const { data: extra } = await db
+      .from("registrations")
+      .select("deposit_cents, balance_paid_at, event_id")
+      .eq("id", registrationId)
+      .maybeSingle();
+    if (extra?.deposit_cents > 0 && !extra.balance_paid_at) {
+      const owing = Math.max(0, (reg.total_cents ?? 0) - extra.deposit_cents);
+      if (owing > 0) {
+        const { balanceDueLabel } = await import("../../../lib/clinicPayments");
+        balanceInfo = {
+          deposit: extra.deposit_cents,
+          owing,
+          dueLabel: balanceDueLabel(reg.event?.starts_on),
+          url: `${(process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "")}/event/${extra.event_id}/register/success?reg=${registrationId}`,
+        };
+      }
+    }
+  } catch {}
+
   const rowsHtml = entries.map((entry) => `
     <tr>
       <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">${escapeHtml(classLabel(entry))}</td>
@@ -234,7 +258,13 @@ async function sendBookingConfirmation(db, registrationId) {
         </thead>
         <tbody>${rowsHtml}</tbody>
       </table>
-      <p>Total paid: <strong>${escapeHtml(formatMoney(reg.total_cents))}</strong></p>
+      ${balanceInfo ? `
+      <p>Deposit paid (non-refundable): <strong>${escapeHtml(formatMoney(balanceInfo.deposit))}</strong></p>
+      <div style="border:1px solid #e0b15a;background:#fff7d6;border-radius:8px;padding:12px 14px;max-width:680px;">
+        <p style="margin:0 0 6px;"><strong>Balance to pay: ${escapeHtml(formatMoney(balanceInfo.owing))}</strong>${balanceInfo.dueLabel ? ` — due by <strong>${escapeHtml(balanceInfo.dueLabel)}</strong>` : " — due 2 weeks before the clinic"}.</p>
+        <p style="margin:0;">Pay it any time here: <a href="${balanceInfo.url}">${balanceInfo.url}</a></p>
+      </div>
+      ` : `<p>Total paid: <strong>${escapeHtml(formatMoney(reg.total_cents))}</strong></p>`}
       ${hasPayment ? `<p style="color:#6e6254;">Square sends the payment receipt separately.</p>` : ""}
     </div>
   `;
@@ -250,7 +280,12 @@ async function sendBookingConfirmation(db, registrationId) {
     dayMembershipText,
     replacementNumbersText,
     "",
-    `Total paid: ${formatMoney(reg.total_cents)}`,
+    balanceInfo
+      ? `Deposit paid (non-refundable): ${formatMoney(balanceInfo.deposit)}`
+      : `Total paid: ${formatMoney(reg.total_cents)}`,
+    balanceInfo
+      ? `Balance to pay: ${formatMoney(balanceInfo.owing)}${balanceInfo.dueLabel ? ` - due by ${balanceInfo.dueLabel}` : " - due 2 weeks before the clinic"}. Pay any time at ${balanceInfo.url}`
+      : null,
     hasPayment ? "Square sends the payment receipt separately." : null,
   ].filter((line) => line != null).join("\n");
 

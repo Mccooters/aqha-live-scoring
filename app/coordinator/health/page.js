@@ -29,6 +29,7 @@ const MIGRATION_CHECKS = [
   { m: "v44", what: "Gate marshal access", probe: () => supabase.from("gate_codes").select("event_id").limit(1) },
   { m: "v45", what: "Judges' result sheet photos", probe: () => supabase.from("classes").select("result_sheets").limit(1) },
   { m: "v46", what: "Rider association numbers in the registry", probe: () => supabase.from("rider_registrations").select("rider_id").limit(1) },
+  { m: "v47", what: "Clinic deposits + per-spot pricing", probe: () => supabase.from("classes").select("deposit_cents").limit(1) },
 ];
 
 const CONFIG_LABELS = {
