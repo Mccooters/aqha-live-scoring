@@ -204,6 +204,11 @@ PR with a clear plain-English description.
   sign-ups count for the coming season and are valid immediately).
   Application flow: pending (unpaid) → paid (awaiting approval) → approved
   (staff) or rejected. Emails via Resend on payment and on approval.
+  **Returning members skip the committee** (owner's rule, Aug 2026):
+  `markMembershipPaid` auto-approves when the email's most recent DECIDED
+  application (approved/rejected, any season) was approved — covering July
+  renewals and re-joins; first-timers and last-rejected still get reviewed.
+  Lookup failures leave it for the committee.
 - `app/account/page.js` — member portal (schema-v25): sign in with email +
   password, or with an emailed 6-digit code (the default for first-time and
   forgotten-password sign-ins; see Member accounts above), then see

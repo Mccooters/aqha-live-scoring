@@ -141,8 +141,38 @@ export async function markMembershipPaid(db, memberId) {
     .eq("member_id", memberId);
   if (feeErr) console.error("Marking horse number fees paid failed:", feeErr.message);
 
+  // Returning members skip the committee (owner's rule): if this email's
+  // most recent DECIDED application was approved, the renewal is approved
+  // automatically and the welcome email goes straight out. The committee
+  // only reviews first-time applicants and anyone whose last decision was a
+  // rejection. Any doubt (lookup failure) leaves it for the committee.
+  const member = claimed[0];
+  let autoApprove = false;
   try {
-    await sendApplicationReceivedEmail(claimed[0]);
+    const cleaned = escapeIlike(String(member.email ?? "").trim());
+    const { data: prior } = await db
+      .from("club_members")
+      .select("id, status, season, created_at")
+      .ilike("email", cleaned)
+      .neq("id", member.id)
+      .order("season", { ascending: false })
+      .order("created_at", { ascending: false });
+    const decided = (prior ?? []).find((r) => r.status === "approved" || r.status === "rejected");
+    autoApprove = decided?.status === "approved";
+  } catch (err) {
+    console.error("Prior-membership check failed (leaving for the committee):", err);
+  }
+  if (autoApprove) {
+    try {
+      await approveMembership(db, member.id);
+      return;
+    } catch (err) {
+      console.error("Auto-approval failed (left as paid for the committee):", err);
+    }
+  }
+
+  try {
+    await sendApplicationReceivedEmail(member);
   } catch (err) {
     console.error("Membership received email failed:", err);
   }
