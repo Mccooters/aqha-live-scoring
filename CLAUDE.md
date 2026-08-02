@@ -449,9 +449,11 @@ Added so the same app can run clinics with a capacity-limited spot count
 each with its own `capacity`) instead of a normal scored show.
 
 - Coordinator UI hides Start/Complete/Pattern/scoring-mode/reorder controls
-  for clinic classes; "+ Add class" becomes "+ Add spot type", "+ Participant"
-  replaces "+ Entry". Back numbers are auto-assigned sequentially and hidden
-  from the UI entirely (participants don't need one).
+  for clinic classes; "+ Add class" becomes "+ Add spot type" (name/price/
+  deposit/capacity only), "+ Participant" replaces "+ Entry". Back numbers:
+  a horse already in the permanent registry keeps its REAL number (matched
+  by name at approval and in the + Participant modal); unknown horses get a
+  sequential placeholder.
 - Public event page shows a registration-only view (no live scoring banner)
   with per-spot-type availability, "Sold out"/"Closed"/"Coming soon" states.
 - Capacity is enforced server-side in `app/api/registrations/create/route.js`

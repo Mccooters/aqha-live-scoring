@@ -1535,9 +1535,18 @@ export default function Coordinator() {
       }
     }
     const maxDraw = Math.max(0, ...cls.entries.map((e) => e.draw_order));
+    // Clinic participants: a horse that's in the permanent registry keeps
+    // its real back number; unknown horses get a sequential placeholder.
+    let clinicBack = maxDraw + 1;
+    if (isClinic && form.horse?.trim()) {
+      const pattern = form.horse.trim().replace(/([%_\\])/g, "\\$1");
+      const { data: match } = await supabase
+        .from("horses").select("back_number").ilike("name", pattern).limit(1);
+      if (match?.[0]?.back_number != null) clinicBack = match[0].back_number;
+    }
     const { error } = await supabase.from("entries").insert({
       class_id: cls.id,
-      back_number: isClinic ? maxDraw + 1 : parseInt(form.back, 10),
+      back_number: isClinic ? clinicBack : parseInt(form.back, 10),
       horse: form.horse?.trim() || "",
       exhibitor: form.exhibitor.trim(),
       draw_order: maxDraw + 1,
