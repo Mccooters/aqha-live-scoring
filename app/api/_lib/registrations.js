@@ -498,6 +498,20 @@ export async function approveRegistration(db, registrationId) {
     }
   }
 
+  // Clinics use the permanent horse registry too: a participating horse
+  // that's already registered keeps its real back number — only horses the
+  // registry doesn't know get a sequential placeholder.
+  const normName = (v) => String(v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+  const clinicRegistryNumbers = {};
+  if (isClinic && regEntries?.some((e) => e.back_number == null && String(e.horse_name ?? "").trim())) {
+    try {
+      const { data: regHorses } = await db.from("horses").select("back_number, name");
+      (regHorses ?? []).forEach((h) => { clinicRegistryNumbers[normName(h.name)] = h.back_number; });
+    } catch (err) {
+      console.error("Clinic registry lookup failed (sequential numbers used):", err);
+    }
+  }
+
   if (regEntries?.length) {
     // Get the current max draw_order for each class so new entries slot in at the end
     const classIds = [...new Set(regEntries.map((e) => e.class_id))];
@@ -517,7 +531,11 @@ export async function approveRegistration(db, registrationId) {
       maxDraws[e.class_id] = (maxDraws[e.class_id] ?? 0) + 1;
       return {
         class_id: e.class_id,
-        back_number: e.back_number || maxDraws[e.class_id], // clinics: auto-assign sequential number
+        // Clinics: the horse's registry number when it's a known horse, else
+        // a sequential placeholder.
+        back_number: e.back_number
+          ?? clinicRegistryNumbers[normName(e.horse_name)]
+          ?? maxDraws[e.class_id],
         horse: e.horse_name,
         exhibitor: e.exhibitor,
         draw_order: maxDraws[e.class_id],
