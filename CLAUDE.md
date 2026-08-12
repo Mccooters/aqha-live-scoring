@@ -40,6 +40,15 @@ PR with a clear plain-English description.
   API routes use the service-role key intentionally to act on behalf of
   unauthenticated exhibitors. Public sign-ups should stay disabled in the
   Supabase dashboard — any authenticated user can write.
+  **Committee read-only accounts (schema-v48)**: logins listed in
+  `staff_viewers` see everything but can change nothing — RESTRICTIVE
+  policies block their INSERT/UPDATE/DELETE on every staff-writable table
+  (and storage uploads), staff-JWT write routes check
+  `isCommitteeViewer()` (`app/api/_lib/registrations.js`), the send-push
+  edge function refuses them (redeploy needed when that file changes), and
+  `app/components/ReadOnlyBanner.js` shows the read-only notice on staff
+  pages. Viewers are added/removed with the SQL snippets at the bottom of
+  the migration file.
 - **Member accounts (schema-v25)** — the `/account` member portal. CRITICAL
   INVARIANT: members are never Supabase auth users (see the security model
   above — any authenticated user has staff-wide write). Member sessions are

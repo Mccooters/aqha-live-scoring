@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { adminClient } from "../../_lib/registrations";
+import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 import { currentSeason, signupSeason, seasonLabel } from "../../../../lib/membershipSeason";
 import { escapeIlike } from "../../_lib/memberAuth";
 
@@ -121,6 +121,10 @@ export async function POST(req) {
     const { member_id, source_season, season: requestedSeason } = await req.json();
 
     const db = adminClient();
+    if (await isCommitteeViewer(db, staff.id)) {
+      return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
+    }
+
     // Renew into the current season or the coming one (they only differ during
     // July). Anything else is rejected; default to the coming season.
     const allowedSeasons = [currentSeason(), signupSeason()];

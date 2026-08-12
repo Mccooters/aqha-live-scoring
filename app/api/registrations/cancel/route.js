@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { adminClient, cancelRegistration, expireStaleRegistrations } from "../../_lib/registrations";
+import { adminClient, cancelRegistration, expireStaleRegistrations, isCommitteeViewer } from "../../_lib/registrations";
 
 // Staff-only. Two jobs:
 //   { registration_id }            — cancel one pending registration
@@ -30,6 +30,10 @@ export async function POST(req) {
 
     const { registration_id, expire, event_id } = await req.json();
     const db = adminClient();
+    if (await isCommitteeViewer(db, staff.id)) {
+      return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
+    }
+
 
     if (expire) {
       const expired = await expireStaleRegistrations(db, { eventId: event_id || undefined });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { adminClient } from "../../_lib/registrations";
+import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 
 // Staff-only: edit a member's core details and the people on their membership
 // (each person can have their own email). Service-role so it works on the
@@ -52,6 +52,10 @@ export async function POST(req) {
     if (!member_id) return NextResponse.json({ error: "member_id required" }, { status: 400 });
 
     const db = adminClient();
+    if (await isCommitteeViewer(db, staff.id)) {
+      return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
+    }
+
     const { data: member, error: mErr } = await db
       .from("club_members")
       .select("*")

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
-import { adminClient } from "../../_lib/registrations";
+import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 import { refundSquarePayment } from "../../_lib/squarePayments";
 
 // Issuing a refund moves real money, so only signed-in show staff may call it.
@@ -38,6 +38,10 @@ export async function POST(req) {
     }
 
     const db = adminClient();
+    if (await isCommitteeViewer(db, staff.id)) {
+      return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
+    }
+
 
     // select * so refunded_cents comes through when schema-v36 has been run,
     // and is simply absent (treated as 0) when it hasn't.

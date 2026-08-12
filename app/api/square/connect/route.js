@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "crypto";
-import { adminClient } from "../../_lib/registrations";
+import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 import { squareBase, OAUTH_SCOPES } from "../../_lib/squarePayments";
 
 // Starts the "Connect Square" flow from the coordinator Registrations page.
@@ -28,6 +28,9 @@ export async function POST(req) {
     const staff = await verifyStaff(req);
     if (!staff) {
       return NextResponse.json({ error: "Staff sign-in required" }, { status: 401 });
+    }
+    if (await isCommitteeViewer(adminClient(), staff.id)) {
+      return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
     }
     if (!process.env.SQUARE_APP_ID || !process.env.SQUARE_APP_SECRET) {
       return NextResponse.json(
@@ -71,6 +74,10 @@ export async function DELETE(req) {
       return NextResponse.json({ error: "Staff sign-in required" }, { status: 401 });
     }
     const db = adminClient();
+    if (await isCommitteeViewer(db, staff.id)) {
+      return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
+    }
+
     const { error } = await db
       .from("square_connection")
       .delete()

@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
+import ReadOnlyBanner from "../../components/ReadOnlyBanner";
 import { activeSeasons } from "../../../lib/membershipSeason";
 import { balanceDueDate, balanceDueLabel } from "../../../lib/clinicPayments";
 
@@ -407,6 +408,7 @@ export default function RegistrationsPage() {
       </header>
 
       <main className="wrap">
+        <ReadOnlyBanner />
         {squareNotice && (
           <div className="card" style={{ padding: "12px 14px", marginBottom: 14, borderColor: squareNotice.startsWith("✓") ? "#2D7A52" : "#E0B15A", background: squareNotice.startsWith("✓") ? "#EAF5EE" : "#FFF7D6" }}>
             <p style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--leather)" }}>{squareNotice}</p>

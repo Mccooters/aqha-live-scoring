@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { adminClient } from "../../_lib/registrations";
+import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 import { approveMembership } from "../../_lib/memberships";
 
 // Approving / rejecting a membership is a committee decision, so only
@@ -35,6 +35,10 @@ export async function POST(req) {
     }
 
     const db = adminClient();
+    if (await isCommitteeViewer(db, staff.id)) {
+      return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
+    }
+
 
     const { data: member } = await db
       .from("club_members")

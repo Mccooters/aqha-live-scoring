@@ -2,6 +2,24 @@ import { createClient } from "@supabase/supabase-js";
 import { deleteSquarePaymentLink } from "./squarePayments";
 import { assignHorseNumber } from "./horseNumbers";
 
+// Committee read-only accounts (schema-v48): listed logins can see the back
+// end but never change it. Staff-JWT write routes call this after verifying
+// the token; databases without the migration have no viewers.
+export async function isCommitteeViewer(db, userId) {
+  if (!userId) return false;
+  try {
+    const { data, error } = await db
+      .from("staff_viewers")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return false;
+    return Boolean(data);
+  } catch {
+    return false;
+  }
+}
+
 export function adminClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,

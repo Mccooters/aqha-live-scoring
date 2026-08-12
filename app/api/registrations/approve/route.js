@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { adminClient, approveRegistration } from "../../_lib/registrations";
+import { adminClient, approveRegistration, isCommitteeViewer } from "../../_lib/registrations";
 import { markMembershipPaid } from "../../_lib/memberships";
 
 // Force-approve creates entries as if payment happened, so only signed-in
@@ -33,6 +33,10 @@ export async function POST(req) {
     }
 
     const db = adminClient();
+    if (await isCommitteeViewer(db, staff.id)) {
+      return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
+    }
+
 
     const { data: reg } = await db
       .from("registrations")

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminClient } from "../../_lib/registrations";
+import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 
 const clip = (value, max) => String(value ?? "").slice(0, max);
 
@@ -14,6 +14,9 @@ export async function POST(req) {
     const { data: userData, error: userError } = await db.auth.getUser(token);
     if (userError || !userData?.user) {
       return NextResponse.json({ error: "Staff sign-in required" }, { status: 401 });
+    }
+    if (await isCommitteeViewer(db, userData.user.id)) {
+      return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
     }
 
     const { title, body, tag } = await req.json();

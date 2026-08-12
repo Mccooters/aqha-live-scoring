@@ -166,6 +166,12 @@ hasn't been run.
         sitting cheaper than a Rider spot). Without it clinics keep the old
         single-fee pay-in-full behaviour.
 
+- [ ] **v48** — `schema-v48-committee-viewers.sql`
+      → **committee read-only staff accounts**: create their login as usual
+        (Authentication → Users), then add them to the viewers list with the
+        SQL snippet at the bottom of the file. They see the whole back end;
+        the database refuses every change from their login.
+
 Tick these off once you've run them.
 
 ---
@@ -221,6 +227,7 @@ Tick these off once you've run them.
 | `schema-v45-result-sheets.sql` | Photos of each judge's paper result sheets attached per class (public Results page) |
 | `schema-v46-rider-registrations.sql` | Rider association numbers in the registry (multi-club, auto-fill + copy-back like horses) |
 | `schema-v47-clinic-deposits.sql` | Clinic deposits (non-refundable, balance due 2 weeks out) + per-spot-type pricing |
+| `schema-v48-committee-viewers.sql` | Committee read-only staff accounts (staff_viewers + restrictive no-write policies) |
 
 ## For whoever updates the code next
 
