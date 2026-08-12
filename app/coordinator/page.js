@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
+import ReadOnlyBanner from "../components/ReadOnlyBanner";
 import { categoryKey, programDisplayRows } from "../../lib/classCategories";
 import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQualifiers, championshipTitles, suggestFeederIds } from "../../lib/championship";
 import { scoreRank } from "../../lib/showPrint";
@@ -2070,6 +2071,7 @@ export default function Coordinator() {
       </header>
 
       <main className="wrap">
+        <ReadOnlyBanner />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
           <p style={{ margin: 0, fontSize: 13 }}>
             {eventId && <>

@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
+import ReadOnlyBanner from "../../components/ReadOnlyBanner";
 import { currentSeason, signupSeason, seasonLabel } from "../../../lib/membershipSeason";
 import ClubRegistrations, { registrationsToRows } from "../../components/ClubRegistrations";
 
@@ -439,6 +440,7 @@ export default function MembershipsPage() {
       </header>
 
       <main className="wrap">
+        <ReadOnlyBanner />
         {/* Season selector + search + add */}
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>
           <div style={{ flex: "1 1 200px" }}>

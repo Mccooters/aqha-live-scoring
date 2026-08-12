@@ -161,6 +161,22 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Committee read-only accounts (schema-v48) can't send notifications.
+  // A database without the table has no viewers.
+  try {
+    const { data: viewer } = await supabaseAdmin
+      .from("staff_viewers")
+      .select("user_id")
+      .eq("user_id", staffUser.id)
+      .maybeSingle();
+    if (viewer) {
+      return new Response(JSON.stringify({ error: "This account has read-only committee access — changes are not permitted." }), {
+        status: 403,
+        headers: jsonHeaders,
+      });
+    }
+  } catch (_) { /* pre-v48 database — no viewers */ }
+
   const { title, body, tag } = await req.json();
   const clip = (value, max) => String(value ?? "").slice(0, max);
   const message = {
