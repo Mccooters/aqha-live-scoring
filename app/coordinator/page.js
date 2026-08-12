@@ -2144,6 +2144,10 @@ export default function Coordinator() {
             <Link href="/coordinator/numbers" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
               New numbers
             </Link>
+            <Link href="/coordinator/staff" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}
+              title="Add or remove staff logins, and set committee members to read-only">
+              Staff access
+            </Link>
 
             <span style={{ flexBasis: "100%", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)", marginTop: 4 }}>Setup &amp; data</span>
             <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>
