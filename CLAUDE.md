@@ -47,8 +47,13 @@ PR with a clear plain-English description.
   `isCommitteeViewer()` (`app/api/_lib/registrations.js`), the send-push
   edge function refuses them (redeploy needed when that file changes), and
   `app/components/ReadOnlyBanner.js` shows the read-only notice on staff
-  pages. Viewers are added/removed with the SQL snippets at the bottom of
-  the migration file.
+  pages. Staff manage logins from `/coordinator/staff` ("Staff access"
+  toolbar button) via `app/api/staff/users` (staff JWT; GET open to
+  viewers, writes full-access only; uses the service-role auth admin API
+  to list/create/delete logins and toggles `staff_viewers`; you can never
+  remove or downgrade YOUR OWN login, so one full-access admin always
+  remains). The SQL snippets at the bottom of the migration file still
+  work as a fallback.
 - **Member accounts (schema-v25)** — the `/account` member portal. CRITICAL
   INVARIANT: members are never Supabase auth users (see the security model
   above — any authenticated user has staff-wide write). Member sessions are
