@@ -27,7 +27,9 @@ const MODE_MAP = {
 };
 
 function normaliseMode(raw) {
-  const v = String(raw ?? "").toLowerCase().replace(/[^a-z0-9]/g, " ").trim();
+  // Collapse runs of spaces so "TBC (whole class)" — whose brackets become
+  // two spaces — still matches the "tbc whole class" alias.
+  const v = String(raw ?? "").toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
   if (!v) return null;
   for (const [mode, aliases] of Object.entries(MODE_MAP)) {
     if (aliases.includes(v)) return mode;
