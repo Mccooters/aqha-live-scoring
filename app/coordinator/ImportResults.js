@@ -211,7 +211,10 @@ export default function ImportResults({ classes, onDone }) {
         For typing in a past show in one go. Upload a spreadsheet of the judges&apos; cards: one row per card, with
         <strong> Class #</strong> and the back numbers placed <strong>1st, 2nd, 3rd…</strong> Two rows with the same
         class number are the two judges (first = J1, second = J2). Classes are matched by number, missing entries are
-        created from the horse registry, and each imported class is marked completed. Safe to run twice.
+        created from the horse registry, and each imported class is marked completed. Safe to run twice.{" "}
+        <a href="/hcqha-results-import-template.xlsx" download style={{ color: "var(--brass)", fontWeight: 700 }}>
+          Download example template
+        </a>
       </p>
       <input type="file" accept=".xlsx,.xls,.csv" onChange={parseFile} style={{ marginBottom: 10 }} />
       {error && <p className="modal-error">{error}</p>}
