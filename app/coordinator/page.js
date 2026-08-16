@@ -8,6 +8,7 @@ import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQu
 import { scoreRank } from "../../lib/showPrint";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
+import ImportResults from "./ImportResults";
 
 const firstPending = (entries, mode) =>
   mode === "tbc"
@@ -2160,6 +2161,12 @@ export default function Coordinator() {
             )}
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
+            {!isClinic && (
+              <button className="btn-ghost" onClick={() => openModal("importResults")} disabled={!eventId || classes.length === 0}
+                title="Type in a past show in one go: a spreadsheet of the judges' cards (Class #, 1st, 2nd, 3rd…) fills the results and completes the classes">
+                ⇪ Import results
+              </button>
+            )}
             <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
               title="Put every class into class-number order, day by day">
               ↕ Sort by number
@@ -3332,6 +3339,13 @@ export default function Coordinator() {
             {modal.type === "importClasses" && (
               <ImportClasses
                 eventId={eventId}
+                onDone={() => { closeModal(); loadClasses(); }}
+              />
+            )}
+
+            {modal.type === "importResults" && (
+              <ImportResults
+                classes={classes}
                 onDone={() => { closeModal(); loadClasses(); }}
               />
             )}
