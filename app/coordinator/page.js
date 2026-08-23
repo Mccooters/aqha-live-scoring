@@ -1526,6 +1526,8 @@ export default function Coordinator() {
   };
 
   const submitEntry = async () => {
+    // A slow save + a second tap must not insert the horse twice.
+    if (busy) return;
     const cls = classes.find((c) => c.id === modal.classId);
     if (!cls) return;
     if (isClinic) {
@@ -1535,27 +1537,40 @@ export default function Coordinator() {
         setFormError("Back number, horse, and exhibitor are required");
         return;
       }
+      // Back number is the horse's identity: one entry per class, same rule
+      // as the online form.
+      const back = parseInt(form.back, 10);
+      const dup = cls.entries.find((e) => e.back_number === back && !e.scratched);
+      if (dup) {
+        setFormError(`#${fmtBack(back)} ${dup.horse} is already entered in this class${dup.score != null || dup.score2 != null ? " (with a result)" : ""} — use Edit on that entry, or Delete it first.`);
+        return;
+      }
     }
-    const maxDraw = Math.max(0, ...cls.entries.map((e) => e.draw_order));
-    // Clinic participants: a horse that's in the permanent registry keeps
-    // its real back number; unknown horses get a sequential placeholder.
-    let clinicBack = maxDraw + 1;
-    if (isClinic && form.horse?.trim()) {
-      const pattern = form.horse.trim().replace(/([%_\\])/g, "\\$1");
-      const { data: match } = await supabase
-        .from("horses").select("back_number").ilike("name", pattern).limit(1);
-      if (match?.[0]?.back_number != null) clinicBack = match[0].back_number;
+    setBusy(true);
+    try {
+      const maxDraw = Math.max(0, ...cls.entries.map((e) => e.draw_order));
+      // Clinic participants: a horse that's in the permanent registry keeps
+      // its real back number; unknown horses get a sequential placeholder.
+      let clinicBack = maxDraw + 1;
+      if (isClinic && form.horse?.trim()) {
+        const pattern = form.horse.trim().replace(/([%_\\])/g, "\\$1");
+        const { data: match } = await supabase
+          .from("horses").select("back_number").ilike("name", pattern).limit(1);
+        if (match?.[0]?.back_number != null) clinicBack = match[0].back_number;
+      }
+      const { error } = await supabase.from("entries").insert({
+        class_id: cls.id,
+        back_number: isClinic ? clinicBack : parseInt(form.back, 10),
+        horse: form.horse?.trim() || "",
+        exhibitor: form.exhibitor.trim(),
+        draw_order: maxDraw + 1,
+      });
+      if (error) { setFormError(error.message); return; }
+      await loadClasses();
+      closeModal();
+    } finally {
+      setBusy(false);
     }
-    const { error } = await supabase.from("entries").insert({
-      class_id: cls.id,
-      back_number: isClinic ? clinicBack : parseInt(form.back, 10),
-      horse: form.horse?.trim() || "",
-      exhibitor: form.exhibitor.trim(),
-      draw_order: maxDraw + 1,
-    });
-    if (error) { setFormError(error.message); return; }
-    await loadClasses();
-    closeModal();
   };
 
   // Day entry: one horse into many classes at once — for taking entries at
@@ -2957,7 +2972,9 @@ export default function Coordinator() {
                 <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.exhibitor ?? ""} onChange={setField("exhibitor")} placeholder={isClinic ? "e.g. Jane Smith" : "e.g. P. Santos"} />
                 {formError && <p className="modal-error">{formError}</p>}
                 <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEntry}>Add entry</button>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitEntry} disabled={busy}>
+                    {busy ? "Adding…" : "Add entry"}
+                  </button>
                   <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
                 </div>
               </>
