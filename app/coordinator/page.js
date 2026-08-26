@@ -1349,6 +1349,12 @@ export default function Coordinator() {
       // a championship on a later edit — the "Use suggested" button is explicit.
       initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", fee_dollars: c.fee_cents != null ? String(c.fee_cents / 100) : "", deposit_dollars: c.deposit_cents != null && c.deposit_cents > 0 ? String(c.deposit_cents / 100) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : [], champ_take: c.champ_take ?? "top2" };
     }
+    if (type === "bulkJudges") {
+      // Seed from the first class that has a judge recorded, so the usual
+      // flow is "open, fix one box, apply".
+      const seed = classes.find((c) => c.judge?.trim() || c.judge2?.trim()) ?? classes[0];
+      initialForm = { judge: seed?.judge ?? "", judge2: seed?.judge2 ?? "" };
+    }
     if (type === "editEvent" && extra.event) {
       const ev = extra.event;
       initialForm = {
@@ -1740,6 +1746,27 @@ export default function Coordinator() {
         : error.message);
       return;
     }
+    closeModal();
+  };
+
+  const submitBulkJudges = async () => {
+    // One write fixes every class in the event — the usual reason to need
+    // this is an imported class list that filled Judge 2 on a single-judge
+    // show, which makes every result display as "1st / ?".
+    const judge = form.judge?.trim() ?? "";
+    const judge2 = form.judge2?.trim() || null;
+    const summary = judge2
+      ? `two judges — ${judge || "Judge 1"} and ${judge2}`
+      : judge
+      ? `a single judge — ${judge}`
+      : "no judge names";
+    if (!window.confirm(`Set ${summary} on ALL ${classes.length} class${classes.length === 1 ? "" : "es"} in this event?\n\nThis overwrites the judge names currently on every class. Scores already entered are not touched${judge2 ? "" : " — but with no second judge, any Judge 2 scores stop being shown"}.`)) return;
+    const { error } = await supabase
+      .from("classes")
+      .update({ judge, judge2 })
+      .eq("event_id", eventId);
+    if (error) { setFormError(error.message); return; }
+    await loadClasses();
     closeModal();
   };
 
@@ -2180,6 +2207,12 @@ export default function Coordinator() {
               <button className="btn-ghost" onClick={() => openModal("importResults")} disabled={!eventId || classes.length === 0}
                 title="Type in a past show in one go: a spreadsheet of the judges' cards (Class #, 1st, 2nd, 3rd…) fills the results and completes the classes">
                 ⇪ Import results
+              </button>
+            )}
+            {!isClinic && (
+              <button className="btn-ghost" onClick={() => openModal("bulkJudges")} disabled={!eventId || classes.length === 0}
+                title="Set Judge 1 and Judge 2 across every class in this event at once — leave Judge 2 blank for a single-judge show">
+                Set judges
               </button>
             )}
             <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
@@ -3358,6 +3391,31 @@ export default function Coordinator() {
                 eventId={eventId}
                 onDone={() => { closeModal(); loadClasses(); }}
               />
+            )}
+
+            {modal.type === "bulkJudges" && (
+              <>
+                <h2 className="display modal-title">Set judges for every class</h2>
+                <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
+                  Applies to all {classes.length} class{classes.length === 1 ? "" : "es"} in this event, replacing whatever judge names each class has now.
+                  Handy when an imported class list set a second judge on a single-judge show — clear the Judge 2 box and the
+                  second score column disappears everywhere (results, exports, the public pages).
+                </p>
+                <label className="modal-label">Judge 1</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge ?? ""} onChange={setField("judge")} placeholder="e.g. Katrina Lewis" autoFocus />
+                <label className="modal-label">Judge 2 — leave blank for a single-judge show</label>
+                <input className="field" style={{ width: "100%", fontSize: 16 }} value={form.judge2 ?? ""} onChange={setField("judge2")} placeholder="Blank = one judge only" />
+                <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 6 }}>
+                  Scores already entered aren&apos;t changed. If a class genuinely has different judges from the rest, edit that class afterwards from its ⋯ menu.
+                </p>
+                {formError && <p className="modal-error">{formError}</p>}
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                  <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitBulkJudges}>
+                    Apply to all {classes.length} class{classes.length === 1 ? "" : "es"}
+                  </button>
+                  <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                </div>
+              </>
             )}
 
             {modal.type === "importResults" && (
