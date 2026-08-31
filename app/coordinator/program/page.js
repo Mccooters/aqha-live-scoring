@@ -30,6 +30,11 @@ function ProgramBuilder() {
   //   { mode: "editHeading", ids }   { mode: "editBreak", classId, field }
   const [editor, setEditor] = useState(null);
   const [editorValue, setEditorValue] = useState("");
+  // Shared presets (schema-v49): saved program layouts everyone can reuse.
+  const [presets, setPresets] = useState([]);
+  const [presetsReady, setPresetsReady] = useState(true);
+  const [newPresetName, setNewPresetName] = useState("");
+  const [renaming, setRenaming] = useState(null); // { id, value }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -55,7 +60,7 @@ function ProgramBuilder() {
     if (!session || !eventId) return;
     const { data } = await supabase
       .from("classes")
-      .select("id, num, name, day, sort_order, hidden, program_category, program_break_before, program_break_after")
+      .select("id, num, name, day, sort_order, hidden, scoring_mode, capacity, hp_category, champ_feeder_ids, champ_take, program_category, program_break_before, program_break_after")
       .eq("event_id", eventId)
       .order("sort_order");
     setClasses(data ?? []);
@@ -64,14 +69,25 @@ function ProgramBuilder() {
 
   useEffect(() => { setLoading(true); load(); }, [load]);
 
+  const loadPresets = useCallback(async () => {
+    if (!session) return;
+    const { data, error: e } = await supabase.from("program_presets").select("*").order("name");
+    if (e) { setPresetsReady(false); setPresets([]); return; }
+    setPresetsReady(true);
+    setPresets(data ?? []);
+  }, [session]);
+
+  useEffect(() => { loadPresets(); }, [loadPresets]);
+
   useEffect(() => {
     if (!session || !eventId) return;
     const channel = supabase
       .channel("program-builder")
       .on("postgres_changes", { event: "*", schema: "public", table: "classes" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "program_presets" }, loadPresets)
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [session, eventId, load]);
+  }, [session, eventId, load, loadPresets]);
 
   const orderedAll = useMemo(
     () => [...classes].sort((a, b) => (a.day ?? 1) - (b.day ?? 1) || (a.sort_order ?? 0) - (b.sort_order ?? 0)),
@@ -195,6 +211,140 @@ function ProgramBuilder() {
       }
     });
   };
+
+  // ---- Presets ----------------------------------------------------------
+
+  // Snapshot the current event's program. Hidden classes are left out — they
+  // were tucked away for THIS event and shouldn't come back on the next one.
+  // Championship links are stored by class NUMBER so they survive into a new
+  // event where every class gets a fresh id.
+  const presetItemsFromCurrent = () => {
+    const numById = Object.fromEntries(orderedAll.map((c) => [c.id, c.num]));
+    return orderedAll
+      .filter((c) => !c.hidden)
+      .map((c) => ({
+        num: c.num,
+        name: c.name,
+        day: c.day ?? 1,
+        scoring_mode: c.scoring_mode ?? "score",
+        capacity: c.capacity ?? null,
+        hp_category: c.hp_category ?? null,
+        program_category: c.program_category ?? null,
+        program_break_before: c.program_break_before ?? null,
+        program_break_after: c.program_break_after ?? null,
+        champ_take: c.champ_take ?? null,
+        champ_feeder_nums: (Array.isArray(c.champ_feeder_ids) ? c.champ_feeder_ids : [])
+          .map((id) => numById[id])
+          .filter((n) => n != null),
+      }));
+  };
+
+  const currentEventName = events.find((e) => e.id === eventId)?.name ?? "this event";
+
+  const saveNewPreset = () => {
+    const name = newPresetName.trim();
+    if (!name) { setError("Give the preset a name first."); return; }
+    const items = presetItemsFromCurrent();
+    if (!items.length) { setError("This event has no classes to save yet."); return; }
+    run(async () => {
+      const { error: e } = await supabase.from("program_presets").insert({ name, items });
+      if (e) throw e;
+      setNewPresetName("");
+      await loadPresets();
+    });
+  };
+
+  const overwritePreset = (p) => {
+    const items = presetItemsFromCurrent();
+    if (!items.length) { setError("This event has no classes to save yet."); return; }
+    if (!window.confirm(`Replace the preset "${p.name}" with the current program of "${currentEventName}" (${items.length} classes)?\n\nThe preset's old contents are overwritten. No event is changed.`)) return;
+    run(async () => {
+      const { error: e } = await supabase.from("program_presets").update({ items, updated_at: new Date().toISOString() }).eq("id", p.id);
+      if (e) throw e;
+      await loadPresets();
+    });
+  };
+
+  const renamePreset = () => {
+    const name = renaming?.value?.trim();
+    if (!name) { setError("A preset needs a name."); return; }
+    run(async () => {
+      const { error: e } = await supabase.from("program_presets").update({ name }).eq("id", renaming.id);
+      if (e) throw e;
+      setRenaming(null);
+      await loadPresets();
+    });
+  };
+
+  const deletePreset = (p) => {
+    if (!window.confirm(`Delete the preset "${p.name}"?\n\nEvents that were set up from it are not affected — only the saved preset goes. This can't be undone.`)) return;
+    run(async () => {
+      const { error: e } = await supabase.from("program_presets").delete().eq("id", p.id);
+      if (e) throw e;
+      await loadPresets();
+    });
+  };
+
+  const applyPreset = (p) => {
+    const items = Array.isArray(p.items) ? p.items : [];
+    if (!items.length) { setError("That preset is empty."); return; }
+    if (classes.length === 0) {
+      if (!window.confirm(`Set up "${currentEventName}" with the ${items.length} classes from "${p.name}"?\n\nClass names, order, days, headings, breaks and championship links are all created. Judges aren't part of a preset — use the dashboard's "Set judges" button afterwards.`)) return;
+      run(async () => {
+        const rows = items.map((it, i) => ({
+          event_id: eventId,
+          num: it.num ?? i + 1,
+          name: it.name ?? `Class ${i + 1}`,
+          judge: "",
+          day: it.day ?? 1,
+          scoring_mode: it.scoring_mode ?? "score",
+          capacity: it.capacity ?? null,
+          hp_category: it.hp_category ?? null,
+          program_category: it.program_category ?? null,
+          program_break_before: it.program_break_before ?? null,
+          program_break_after: it.program_break_after ?? null,
+          sort_order: i + 1,
+        }));
+        const { data: created, error: e } = await supabase.from("classes").insert(rows).select("id, num");
+        if (e) throw e;
+        // Re-link championships to the freshly created classes by number.
+        const idByNum = {};
+        (created ?? []).forEach((c) => { idByNum[c.num] = c.id; });
+        for (const it of items) {
+          const feederNums = Array.isArray(it.champ_feeder_nums) ? it.champ_feeder_nums : [];
+          const id = idByNum[it.num];
+          const feederIds = feederNums.map((n) => idByNum[n]).filter(Boolean);
+          if (!id || !feederIds.length) continue;
+          const { error: e2 } = await supabase.from("classes")
+            .update({ champ_feeder_ids: feederIds, champ_take: it.champ_take === "top1" ? "top1" : "top2" })
+            .eq("id", id);
+          if (e2) throw e2;
+        }
+      });
+      return;
+    }
+    // The event already has classes — don't create duplicates; lay the
+    // preset's headings and breaks over matching class numbers instead.
+    if (!window.confirm(`"${currentEventName}" already has classes, so none are created or deleted.\n\nCopy the preset's section headings and breaks onto matching class numbers instead? This replaces the headings and breaks those classes have now.`)) return;
+    run(async () => {
+      const byNum = new Map(classes.map((c) => [c.num, c]));
+      let matched = 0;
+      for (const it of items) {
+        const cls = byNum.get(it.num);
+        if (!cls) continue;
+        matched += 1;
+        const { error: e } = await supabase.from("classes").update({
+          program_category: it.program_category ?? null,
+          program_break_before: it.program_break_before ?? null,
+          program_break_after: it.program_break_after ?? null,
+        }).eq("id", cls.id);
+        if (e) throw e;
+      }
+      if (!matched) throw new Error("No class numbers in this event matched the preset — nothing was changed.");
+    });
+  };
+
+  // -----------------------------------------------------------------------
 
   const openEditor = (spec, initial = "") => { setEditor(spec); setEditorValue(initial); setError(""); };
 
@@ -403,6 +553,71 @@ function ProgramBuilder() {
               </div>
             );
           })}
+        </section>
+
+        <section className="card" style={{ padding: "14px 16px" }}>
+          <div className="display" style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Program presets</div>
+          <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 10px" }}>
+            Save this event&apos;s program as a preset the whole committee can reuse — classes, order, days, headings, breaks,
+            scoring modes and championship links (judges aren&apos;t saved; hidden classes are left out). Applying a preset to an
+            <strong> empty</strong> event creates all its classes; applying to an event that <strong>already has classes</strong> only
+            copies the headings and breaks onto matching class numbers.
+          </p>
+          {!presetsReady && (
+            <div style={{ border: "1px solid #E0B15A", background: "#FFF7D6", borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--leather)", fontWeight: 700 }}>
+                Presets need a one-time database update — run &quot;schema-v49-program-presets.sql&quot; in the Supabase SQL Editor first.
+              </p>
+            </div>
+          )}
+          {presetsReady && presets.length === 0 && (
+            <p style={{ fontSize: 12.5, color: "var(--quiet)", fontStyle: "italic", margin: "0 0 10px" }}>No presets saved yet.</p>
+          )}
+          {presets.map((p) => (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "7px 0", borderTop: "1px solid var(--line)" }}>
+              {renaming?.id === p.id ? (
+                <span style={{ display: "flex", gap: 6, alignItems: "center", flex: "1 1 220px" }}>
+                  <input className="field" autoFocus style={{ flex: 1, fontSize: 14 }} value={renaming.value}
+                    onChange={(e) => setRenaming({ id: p.id, value: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") renamePreset(); if (e.key === "Escape") setRenaming(null); }} />
+                  <button className="btn" style={{ background: "var(--leather)", padding: "6px 12px", fontSize: 12.5 }} disabled={busy} onClick={renamePreset}>Save</button>
+                  <button className="btn-ghost" style={{ padding: "6px 10px", fontSize: 12.5 }} onClick={() => setRenaming(null)}>Cancel</button>
+                </span>
+              ) : (
+                <span style={{ flex: "1 1 220px" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</span>
+                  <span style={{ marginLeft: 8, fontSize: 11.5, color: "var(--quiet)" }}>
+                    {(Array.isArray(p.items) ? p.items.length : 0)} classes · saved {p.updated_at ? new Date(p.updated_at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                  </span>
+                </span>
+              )}
+              {renaming?.id !== p.id && (
+                <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
+                  <button className="btn-ghost" style={{ fontSize: 12 }} disabled={busy || !eventId} onClick={() => applyPreset(p)}
+                    title={classes.length === 0 ? "Create all this preset's classes in the selected event" : "Copy this preset's headings and breaks onto matching class numbers"}>
+                    Apply to this event
+                  </button>
+                  <button className="btn-ghost" style={{ fontSize: 12 }} disabled={busy || classes.length === 0} onClick={() => overwritePreset(p)}
+                    title="Replace this preset's contents with the selected event's current program">
+                    ⟳ Update
+                  </button>
+                  <button className="btn-ghost" style={{ fontSize: 12 }} disabled={busy} onClick={() => setRenaming({ id: p.id, value: p.name })}>Rename</button>
+                  <button className="btn-ghost danger" style={{ fontSize: 12 }} disabled={busy} onClick={() => deletePreset(p)}>Delete</button>
+                </span>
+              )}
+            </div>
+          ))}
+          {presetsReady && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
+              <input className="field" style={{ flex: "1 1 200px", fontSize: 14 }} placeholder='Preset name — e.g. "Standard two-day show"'
+                value={newPresetName} onChange={(e) => setNewPresetName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveNewPreset(); }} />
+              <button className="btn" style={{ background: "var(--leather)", padding: "8px 14px", fontSize: 13 }}
+                disabled={busy || classes.length === 0 || !newPresetName.trim()} onClick={saveNewPreset}>
+                Save current program as preset
+              </button>
+            </div>
+          )}
         </section>
 
         <datalist id="pb-categories">
