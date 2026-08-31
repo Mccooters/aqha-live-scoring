@@ -93,8 +93,17 @@ PR with a clear plain-English description.
   developer's), per Square's app-fee model (requires the
   PAYMENTS_WRITE_ADDITIONAL_RECIPIENTS scope, granted during connect). The
   fee is buyer-invisible (not a line item) and comes out of the seller's net.
+  On top of the percentage, `SQUARE_APP_FLAT_FEE_CENTS` (e.g. 500 = $5) adds
+  a flat website fee to the app fee — but ONLY on the checkout that carries
+  the event's one-off admin fee (`registrations/create` passes
+  `opts.flatFeeCents = min(flat, admin_fee_cents)` when `feesCents > 0`), so
+  like the admin fee it's charged at most once per person per event, comes
+  out of the admin fee the club collects, and never rides membership,
+  clinic-balance or fee-waived checkouts. The combined app fee is capped at
+  90% of the order total so Square never rejects a small checkout.
   Env vars for the connection: `SQUARE_APP_ID`, `SQUARE_APP_SECRET`,
-  `SQUARE_APP_FEE_BPS` (unset/0 = no fee). NOTE: once OAuth is live, the
+  `SQUARE_APP_FEE_BPS` (unset/0 = no fee), `SQUARE_APP_FLAT_FEE_CENTS`
+  (unset/0 = none). NOTE: once OAuth is live, the
   webhook subscription (and `SQUARE_WEBHOOK_SIGNATURE_KEY`) must belong to
   that same Square application.
   Staff can issue **refunds** (full or partial) from the coordinator
