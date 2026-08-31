@@ -194,6 +194,16 @@ PR with a clear plain-English description.
   ▲▼ reorder that renumbers `sort_order` event-wide and swaps the moved
   classes' layout fields so headings/breaks stay at their time slot instead
   of travelling with the class. Links to the printable `/event/[id]/program`.
+  **Program presets (schema-v49)**: the page also saves/applies shared
+  presets (`program_presets` table — name + jsonb items snapshot of the
+  program: num/name/day/scoring_mode/capacity/hp_category/headings/breaks +
+  championship links stored by class NUMBER, remapped to fresh ids on
+  apply; judges and hidden classes excluded). Applying to an EMPTY event
+  creates all the classes; applying to an event that already has classes
+  only copies headings/breaks onto matching class numbers (never creates
+  or deletes classes). Public read / staff write, with the v48 viewer
+  write-block re-declared inside the v49 file (guarded — re-run v49 after
+  v48 if run out of order).
 - `app/registry/page.js` — permanent registry, two tabs: **Horses** (public
   read, staff edit, back number permanent for life, multi-club registrations,
   bulk import) and **Riders** (public read, staff edit — name, member number,

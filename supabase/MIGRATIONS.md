@@ -172,6 +172,13 @@ hasn't been run.
         SQL snippet at the bottom of the file. They see the whole back end;
         the database refuses every change from their login.
 
+- [ ] **v49** — `schema-v49-program-presets.sql`
+      → **shared program presets**: lets the Program builder save a show's
+        program (classes, headings, breaks, championship links) as a named
+        preset every staff login can apply to future events. Run it after
+        v48 if possible (it also blocks read-only accounts from editing
+        presets; if v48 comes later, just run this file again).
+
 Tick these off once you've run them.
 
 ---
@@ -228,6 +235,7 @@ Tick these off once you've run them.
 | `schema-v46-rider-registrations.sql` | Rider association numbers in the registry (multi-club, auto-fill + copy-back like horses) |
 | `schema-v47-clinic-deposits.sql` | Clinic deposits (non-refundable, balance due 2 weeks out) + per-spot-type pricing |
 | `schema-v48-committee-viewers.sql` | Committee read-only staff accounts (staff_viewers + restrictive no-write policies) |
+| `schema-v49-program-presets.sql` | Shared program presets: saved program layouts every staff login can apply from the Program builder |
 
 ## For whoever updates the code next
 
