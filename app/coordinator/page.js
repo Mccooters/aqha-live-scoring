@@ -2196,6 +2196,12 @@ export default function Coordinator() {
             <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>
               Edit event
             </button>
+            {eventId && !isClinic && (
+              <Link href={`/coordinator/program?event=${eventId}`} className="btn-ghost" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                title="Lay out the printed program — section headings, breaks and running order in one place">
+                📋 Program builder
+              </Link>
+            )}
             {eventId && (
               <button className="btn-ghost" onClick={() => openModal("bulkPatterns")}>
                 Manage patterns PDF

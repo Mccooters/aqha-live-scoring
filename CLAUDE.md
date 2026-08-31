@@ -186,6 +186,14 @@ PR with a clear plain-English description.
   just classes) so exhibitors have something to pick from when registering
   online before the secretary has full draw data. Maps a "Type" column to
   scoring mode, including the two TBC variants.
+- `app/coordinator/program/page.js` — staff **Program builder** ("📋 Program
+  builder" toolbar link, shows only): the whole running order on one screen
+  with ＋ strips between classes to add/rename/remove section headings
+  (`classes.program_category`, applied to the contiguous group — adding one
+  mid-section splits it) and breaks (`program_break_before`/`_after`), plus
+  ▲▼ reorder that renumbers `sort_order` event-wide and swaps the moved
+  classes' layout fields so headings/breaks stay at their time slot instead
+  of travelling with the class. Links to the printable `/event/[id]/program`.
 - `app/registry/page.js` — permanent registry, two tabs: **Horses** (public
   read, staff edit, back number permanent for life, multi-club registrations,
   bulk import) and **Riders** (public read, staff edit — name, member number,
