@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { adminClient, approveRegistration, expireStaleRegistrations } from "../../_lib/registrations";
 import { membershipRequirement, hasMembershipForEvent, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
 import { getMemberAccount } from "../../_lib/memberAuth";
-import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squarePayments";
+import { appFlatFeeCents, createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squarePayments";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
 
@@ -763,8 +763,13 @@ export async function POST(req) {
       pre_populated_data: { buyer_email: contact_email.trim() },
     };
 
+    // The flat website fee rides only on the checkout that carries the
+    // one-off admin fee (so, once per person per event, exactly like the
+    // admin fee itself) and never exceeds the admin fee it comes out of.
+    const websiteFeeCents = feesCents > 0 ? Math.min(appFlatFeeCents(), adminFee) : 0;
+
     const { link, error: squareError, status: squareStatus } =
-      await createSquarePaymentLink(db, squarePayload);
+      await createSquarePaymentLink(db, squarePayload, { flatFeeCents: websiteFeeCents });
 
     if (squareError) {
       // Remove the membership applications we just created — they never got

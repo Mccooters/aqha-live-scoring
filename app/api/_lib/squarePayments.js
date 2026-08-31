@@ -35,6 +35,17 @@ export function appFeeBps() {
   return Number.isFinite(bps) && bps > 0 ? bps : 0;
 }
 
+// Flat website fee (cents, e.g. 500 = $5) added to the application fee on
+// checkouts that carry the event's one-off admin fee — so, like the admin
+// fee itself, each person pays it at most once per event, and it comes out
+// of the admin fee the club collects rather than costing the exhibitor more.
+// The registrations/create route passes it in via opts.flatFeeCents, already
+// capped at the admin fee actually charged.
+export function appFlatFeeCents() {
+  const cents = parseInt(process.env.SQUARE_APP_FLAT_FEE_CENTS ?? "", 10);
+  return Number.isFinite(cents) && cents > 0 ? cents : 0;
+}
+
 // Exchange or refresh an OAuth token. Returns Square's JSON (throws on error).
 async function obtainToken(body) {
   const res = await fetch(`${squareBase()}/oauth2/token`, {
@@ -210,8 +221,10 @@ export async function refundSquarePayment(db, { paymentId, amountCents, reason, 
 
 // Create a Square Payment Link for an order. Applies the developer fee when
 // the OAuth connection is in use. `payload` is the normal CreatePaymentLink
-// body minus authentication. Returns { link } or { error, status }.
-export async function createSquarePaymentLink(db, payload) {
+// body minus authentication. `opts.flatFeeCents` adds a fixed amount to the
+// application fee for this one checkout (the once-per-event website fee that
+// comes out of the admin fee). Returns { link } or { error, status }.
+export async function createSquarePaymentLink(db, payload, opts = {}) {
   const { connection, token } = await resolveSquareToken(db);
   if (!token || !process.env.SQUARE_LOCATION_ID) {
     return {
@@ -221,15 +234,18 @@ export async function createSquarePaymentLink(db, payload) {
   }
 
   const body = { ...payload };
-  // The developer fee rides on OAuth payments only (Square's rule), as a
-  // fixed amount computed from the order total, rounded to the cent.
+  // The developer fee rides on OAuth payments only (Square's rule):
+  // percentage of the order total plus any flat amount for this checkout,
+  // capped well inside Square's own limit (the fee must stay below the
+  // payment total) so a small order can never make Square reject the link.
   const bps = appFeeBps();
-  if (connection && bps > 0) {
+  const flat = Math.max(0, Math.floor(opts.flatFeeCents ?? 0));
+  if (connection && (bps > 0 || flat > 0)) {
     const orderTotal = (payload.order?.line_items ?? []).reduce(
       (sum, item) => sum + (item.base_price_money?.amount ?? 0) * parseInt(item.quantity ?? "1", 10),
       0
     );
-    const fee = Math.round((orderTotal * bps) / 10000);
+    const fee = Math.min(Math.round((orderTotal * bps) / 10000) + flat, Math.floor(orderTotal * 0.9));
     if (fee > 0) {
       body.checkout_options = {
         ...(payload.checkout_options ?? {}),
