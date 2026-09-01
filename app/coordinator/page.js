@@ -570,7 +570,9 @@ export default function Coordinator() {
     const isPlacingMode = cls.scoring_mode === "placing" || cls.scoring_mode === "class_only" || cls.scoring_mode === "tbc_class";
     const placed = [...cls.entries].filter((e) => e.score != null && !e.scratched)
       .sort((a, b) => isPlacingMode ? a.score - b.score : b.score - a.score);
-    if (placed.length > 0) {
+    // Notify spectators only during a live show — completing classes while
+    // back-filling a past event shouldn't ping anyone's phone.
+    if (placed.length > 0 && currentEvent?.status === "live") {
       triggerPush(
         `Class ${cls.num} complete — ${cls.name}`,
         `1st: #${fmtBack(placed[0].back_number)} ${placed[0].horse}${placed[0].score != null ? ` (${placed[0].score})` : ""}`,
@@ -606,6 +608,20 @@ export default function Coordinator() {
     if (busy) return;
     setBusy(true);
     try { await completeClass(cls); } finally { setBusy(false); }
+  };
+
+  // Undo for an accidental "Mark completed" (or Complete): back to upcoming.
+  // Results already typed in are kept — only the status changes.
+  const reopenClass = async (cls) => {
+    if (busy) return;
+    if (!window.confirm(`Reopen Class ${cls.num} (back to "upcoming")?\n\nAny results already entered are kept — the class just stops counting as completed until it's completed again.`)) return;
+    setBusy(true);
+    try {
+      await saveOrWarn(
+        supabase.from("classes").update({ status: "upcoming" }).eq("id", cls.id),
+        `Reopening Class ${cls.num} could not be saved.`
+      );
+    } finally { setBusy(false); }
   };
 
   // ---- Championship auto-fill (schema-v43) ----
@@ -2566,6 +2582,8 @@ export default function Coordinator() {
                             if (res && !res.ok) window.alert("High points could not be updated — check your internet connection and try again.");
                             else if (res && res.ok) window.alert("High points updated.");
                           } },
+                          { label: "✓ Mark completed", show: cls.status === "upcoming" && !isClinic, onClick: () => completeClassManual(cls) },
+                          { label: "Reopen (back to upcoming)", show: cls.status === "completed" && !isClinic, onClick: () => reopenClass(cls) },
                           { label: "Hide from schedule", show: cls.status === "upcoming", onClick: () => hideClass(cls) },
                           { label: "Delete class", show: cls.status === "upcoming", danger: true, onClick: () => deleteClass(cls) },
                         ].filter((a) => a.show).map((a) => (
