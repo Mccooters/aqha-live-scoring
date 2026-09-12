@@ -746,6 +746,55 @@ function PasswordCard({ hasPassword, onChanged }) {
 
 // ---------- Page ----------
 
+// Clinic balances owing on registrations made with this email (deposit
+// plans, schema-v47/v50). Renders nothing when there's nothing owing. The
+// "Pay" button goes to the registration's own payment page, which already
+// handles paying in full or in parts.
+function BalancesCard() {
+  const [balances, setBalances] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    api("/api/account/registrations")
+      .then(({ ok, data }) => { if (!cancelled && ok) setBalances(data?.balances ?? []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  if (!balances?.length) return null;
+  const money = (c) => `$${((c ?? 0) / 100).toFixed(2)}`;
+  return (
+    <section className="card" style={{ border: "1px solid #E0B15A", background: "#FFF7D6" }}>
+      <div style={{ padding: "14px 16px" }}>
+        <div className="display" style={{ fontWeight: 700, fontSize: 17, color: "var(--leather)" }}>
+          Balance{balances.length === 1 ? "" : "s"} owing
+        </div>
+        {balances.map((b) => (
+          <div key={b.id} style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #EAD9A8" }}>
+            <div style={{ fontWeight: 700, fontSize: 14.5, color: "var(--leather)" }}>{b.event_name}</div>
+            <p style={{ fontSize: 13, color: "var(--quiet)", margin: "3px 0 8px" }}>
+              Deposit {money(b.deposit_cents)} paid{b.part_paid_cents > 0 ? ` + ${money(b.part_paid_cents)} in part payments` : ""} —{" "}
+              <strong style={{ color: b.overdue ? "var(--clay)" : "var(--leather)" }}>{money(b.owing_cents)} still owing</strong>
+              {b.due_label ? `, due by ${b.due_label}` : ""}{b.overdue ? " (overdue)" : ""}.
+            </p>
+            {b.window_open ? (
+              <Link href={`/event/${b.event_id}/register/success?reg=${b.id}`} className="btn"
+                style={{ display: "inline-block", textDecoration: "none", background: "var(--leather)", padding: "9px 16px", fontSize: 13.5 }}>
+                Pay balance →
+              </Link>
+            ) : (
+              <p style={{ fontSize: 12.5, color: "var(--clay)", fontWeight: 700, margin: 0 }}>
+                Online payment has closed — please contact the organiser to arrange payment.
+              </p>
+            )}
+          </div>
+        ))}
+        <p style={{ fontSize: 12, color: "var(--quiet)", margin: "10px 0 0" }}>
+          You can pay the whole balance or part of it (minimum $10 per payment) from the payment page.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 export default function AccountPage() {
   const [phase, setPhase] = useState("checking"); // checking | signedOut | portal | error
   const [me, setMe] = useState(null);
@@ -824,6 +873,8 @@ export default function AccountPage() {
 
         {phase === "portal" && (
           <>
+            <BalancesCard />
+
             {activeRows.map((m) => (
               <StatusCard key={m.id} m={m} renewal={hasCurrent && !m.is_current} />
             ))}

@@ -534,7 +534,11 @@ each with its own `capacity`) instead of a normal scored show.
   `balance_order_ids` so the webhook still records money paid through a
   superseded link (an overpayment past settled is logged, not lost). All
   of it degrades to the v47 all-or-nothing behaviour on a pre-v50
-  database.
+  database. Signed-in members also see their balances in the `/account`
+  portal: a "Balances owing" card (BalancesCard, fed by
+  `app/api/account/registrations` — member session, registrations matched
+  by the account email like every other account route) links each one to
+  its registration's payment page.
 
 ## Online registration & payments
 
