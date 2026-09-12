@@ -520,7 +520,21 @@ each with its own `capacity`) instead of a normal scored show.
   Square" button, and a Balances-owing stat; revenue counts deposits only
   until balances are paid). Balance payments close 2 weeks before the
   clinic (`balance_*` columns on registrations; overdue = staff decide,
-  no auto-cancel).
+  no auto-cancel). **Part payments (schema-v50)**: the payer may send
+  `amount_cents` to pay-balance (min `MIN_PART_PAYMENT_CENTS` = $10, max
+  what's owing — the success page offers "pay part of it instead" when the
+  status route reports `partial_allowed`); every Square balance payment,
+  and every partial cash/transfer amount staff record, is appended to
+  `registrations.balance_payments` (jsonb log {amount_cents, at, method,
+  payment_id}), the owing figure counts down (`balanceOwingCents` in
+  `lib/clinicPayments.js`), and `balance_paid_at` is set automatically
+  when the log reaches the full balance. Each new checkout amount replaces
+  the outstanding link (`balance_checkout_cents` records its amount for
+  reuse); every balance order id ever issued is kept in
+  `balance_order_ids` so the webhook still records money paid through a
+  superseded link (an overpayment past settled is logged, not lost). All
+  of it degrades to the v47 all-or-nothing behaviour on a pre-v50
+  database.
 
 ## Online registration & payments
 

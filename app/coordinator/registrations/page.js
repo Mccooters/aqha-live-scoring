@@ -4,7 +4,7 @@ import Link from "next/link";
 import { supabase } from "../../../lib/supabaseClient";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
 import { activeSeasons } from "../../../lib/membershipSeason";
-import { balanceDueDate, balanceDueLabel } from "../../../lib/clinicPayments";
+import { balanceDueDate, balanceDueLabel, balancePaidCents } from "../../../lib/clinicPayments";
 
 const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
 // "AQHA 12345 · PHAA 678" from an entry's stored registration numbers.
@@ -28,6 +28,7 @@ export default function RegistrationsPage() {
   const [approving, setApproving] = useState(null);
   const [refunding, setRefunding] = useState(null); // registration id mid-refund
   const [balanceBusy, setBalanceBusy] = useState(null); // reg id mid balance action
+  const [balanceAmounts, setBalanceAmounts] = useState({}); // reg id -> typed dollars (record outside Square)
   const [refundAmount, setRefundAmount] = useState({}); // reg id -> typed dollars
   const [squareStatus, setSquareStatus] = useState(null);
   const [connecting, setConnecting] = useState(false);
@@ -138,15 +139,21 @@ export default function RegistrationsPage() {
     return () => { cancelled = true; };
   }, [session, eventId, events, registrations]);
 
-  // Clinic deposit plans (schema-v47): what's still owing on a registration.
+  // Clinic deposit plans (schema-v47): what's still owing on a registration,
+  // after any part payments (schema-v50).
   const balanceInfo = (reg) => {
     if (!(reg?.deposit_cents > 0)) return null;
-    const owing = Math.max(0, (reg.total_cents ?? 0) - reg.deposit_cents);
-    if (owing <= 0) return null;
+    const partPaid = balancePaidCents(reg);
+    const owingFull = Math.max(0, (reg.total_cents ?? 0) - reg.deposit_cents);
+    if (owingFull <= 0) return null;
+    const owing = reg.balance_paid_at ? 0 : Math.max(0, owingFull - partPaid);
     const ev = events.find((e) => e.id === eventId);
     const due = balanceDueDate(ev?.starts_on);
     return {
       owing,
+      owingFull,
+      partPaid,
+      payments: Array.isArray(reg.balance_payments) ? reg.balance_payments : [],
       paid: Boolean(reg.balance_paid_at),
       dueLabel: balanceDueLabel(ev?.starts_on),
       overdue: !reg.balance_paid_at && due ? new Date() > due : false,
@@ -168,7 +175,7 @@ export default function RegistrationsPage() {
       }
       try {
         await navigator.clipboard.writeText(data.checkout_url);
-        window.alert("Balance payment link copied — paste it into a text or email to " + reg.contact_name + ".");
+        window.alert("Balance payment link copied — paste it into a text or email to " + reg.contact_name + ". They can also pay part of it from their confirmation page.");
       } catch {
         window.prompt("Copy the balance payment link:", data.checkout_url);
       }
@@ -178,15 +185,44 @@ export default function RegistrationsPage() {
     }
   };
 
+  // Record money received outside Square (cash / bank transfer) against the
+  // balance — the full amount or part of it (schema-v50). Reaching the full
+  // amount marks the balance paid.
   const recordBalancePaid = async (reg, info) => {
-    if (!window.confirm(`Record ${reg.contact_name}'s ${fmtMoney(info.owing)} balance as paid outside Square (cash / bank transfer)?`)) return;
+    const typed = (balanceAmounts[reg.id] ?? "").trim();
+    const dollars = typed === "" ? info.owing / 100 : parseFloat(typed);
+    if (!Number.isFinite(dollars) || dollars <= 0) { window.alert("Enter the amount received first."); return; }
+    const cents = Math.round(dollars * 100);
+    if (cents > info.owing) {
+      window.alert(`Only ${fmtMoney(info.owing)} is owing — enter that or less.`);
+      return;
+    }
+    const settles = cents >= info.owing;
+    if (!window.confirm(
+      `Record ${fmtMoney(cents)} received from ${reg.contact_name} outside Square (cash / bank transfer)?\n\n` +
+      (settles ? "That settles the balance in full." : `That leaves ${fmtMoney(info.owing - cents)} still owing.`)
+    )) return;
     setBalanceBusy(reg.id);
     try {
-      const { error } = await supabase
+      const entry = { amount_cents: cents, at: new Date().toISOString(), method: "manual" };
+      const newList = [...(Array.isArray(reg.balance_payments) ? reg.balance_payments : []), entry];
+      let { error } = await supabase
         .from("registrations")
-        .update({ balance_paid_at: new Date().toISOString() })
+        .update({ balance_payments: newList, ...(settles ? { balance_paid_at: new Date().toISOString() } : {}) })
         .eq("id", reg.id);
+      if (error && /balance_payments|does not exist|schema cache/i.test(error.message ?? "")) {
+        // Pre-v50 database: only a full settle can be recorded.
+        if (!settles) {
+          window.alert('Recording PART payments needs a one-time database update — run "schema-v50-partial-balance.sql" in the Supabase SQL Editor first. (Recording the full balance still works.)');
+          return;
+        }
+        ({ error } = await supabase
+          .from("registrations")
+          .update({ balance_paid_at: new Date().toISOString() })
+          .eq("id", reg.id));
+      }
       if (error) { window.alert(error.message); return; }
+      setBalanceAmounts((m) => ({ ...m, [reg.id]: "" }));
       await load();
     } finally {
       setBalanceBusy(null);
@@ -366,13 +402,18 @@ export default function RegistrationsPage() {
   const pending = registrations.filter((r) => r.status === "pending");
   // Net of any refunds issued (refunded_cents is 0/absent before schema-v36).
   // Money actually received: a deposit-plan registration only counts its
-  // deposit until the balance is paid (schema-v47).
+  // deposit until the balance is paid (schema-v47) — plus any part payments
+  // already received (schema-v50).
   const revenue = paid.reduce((s, r) => {
-    const received = r.deposit_cents > 0 && !r.balance_paid_at ? r.deposit_cents : (r.total_cents ?? 0);
+    const received = r.deposit_cents > 0 && !r.balance_paid_at
+      ? Math.min((r.total_cents ?? 0), r.deposit_cents + balancePaidCents(r))
+      : (r.total_cents ?? 0);
     return s + received - (r.refunded_cents ?? 0);
   }, 0);
   const balancesOwing = paid.reduce((s, r) =>
-    s + (r.deposit_cents > 0 && !r.balance_paid_at ? Math.max(0, (r.total_cents ?? 0) - r.deposit_cents) : 0), 0);
+    s + (r.deposit_cents > 0 && !r.balance_paid_at
+      ? Math.max(0, (r.total_cents ?? 0) - r.deposit_cents - balancePaidCents(r))
+      : 0), 0);
   // Only paid registrations become real entries in the show — pending and
   // cancelled ones must not inflate the count.
   const entryCount = paid.reduce((s, r) => s + (r.registration_entries?.length ?? 0), 0);
@@ -580,7 +621,7 @@ export default function RegistrationsPage() {
                       <span className="badge" style={{ background: "var(--green)" }}>balance paid</span>
                     ) : (
                       <span className="badge" style={{ background: b.overdue ? "var(--clay)" : "#A05000" }}>
-                        {b.overdue ? "balance overdue" : `${fmtMoney(b.owing)} owing`}
+                        {b.overdue ? "balance overdue" : `${b.partPaid > 0 ? "part-paid · " : ""}${fmtMoney(b.owing)} owing`}
                       </span>
                     );
                   })()}
@@ -667,23 +708,38 @@ export default function RegistrationsPage() {
                   {isPaid && (() => {
                     const b = balanceInfo(reg);
                     if (!b) return null;
+                    const fmtWhen = (s) => (s ? new Date(s).toLocaleDateString("en-AU", { day: "numeric", month: "short" }) : "");
                     return (
                       <div style={{ padding: "10px 12px", marginTop: 10, borderRadius: 10, border: `1px solid ${b.paid ? "var(--line)" : b.overdue ? "var(--clay)" : "#E0B15A"}`, background: b.paid ? "#F4F8F4" : b.overdue ? "#FDEEE9" : "#FFF7D6" }}>
                         <div style={{ fontSize: 13, fontWeight: 800, color: "var(--leather)" }}>
                           {b.paid
-                            ? `✓ Deposit ${fmtMoney(reg.deposit_cents)} + balance ${fmtMoney(b.owing)} both paid.`
-                            : `Deposit ${fmtMoney(reg.deposit_cents)} paid (non-refundable) — ${fmtMoney(b.owing)} balance ${b.overdue ? "OVERDUE" : "owing"}${b.dueLabel ? `, due by ${b.dueLabel}` : ""}.`}
+                            ? `✓ Deposit ${fmtMoney(reg.deposit_cents)} + balance ${fmtMoney(b.owingFull)} both paid.`
+                            : `Deposit ${fmtMoney(reg.deposit_cents)} paid (non-refundable)${b.partPaid > 0 ? ` + ${fmtMoney(b.partPaid)} part payments` : ""} — ${fmtMoney(b.owing)} balance ${b.overdue ? "OVERDUE" : "owing"}${b.dueLabel ? `, due by ${b.dueLabel}` : ""}.`}
                         </div>
+                        {b.payments.length > 0 && (
+                          <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 4 }}>
+                            Payments: {b.payments.map((p, i) => `${fmtMoney(p.amount_cents)} on ${fmtWhen(p.at)} (${p.method === "manual" ? "recorded by staff" : "Square"})`).join(" · ")}
+                          </div>
+                        )}
                         {!b.paid && (
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
                             <button className="btn-ghost" style={{ fontSize: 12 }} disabled={balanceBusy === reg.id}
                               onClick={() => copyBalanceLink(reg)}>
                               {balanceBusy === reg.id ? "Working…" : "Copy balance payment link"}
                             </button>
-                            <button className="btn-ghost" style={{ fontSize: 12 }} disabled={balanceBusy === reg.id}
-                              onClick={() => recordBalancePaid(reg, b)}>
-                              Record balance paid outside Square
-                            </button>
+                            <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                              <span style={{ fontSize: 13, fontWeight: 700 }}>$</span>
+                              <input type="number" inputMode="decimal" min="0" step="0.01"
+                                value={balanceAmounts[reg.id] ?? ""}
+                                onChange={(e) => setBalanceAmounts((m) => ({ ...m, [reg.id]: e.target.value }))}
+                                placeholder={(b.owing / 100).toFixed(2)}
+                                style={{ width: 90, fontSize: 13, padding: "6px 8px", border: "1px solid var(--line)", borderRadius: 8 }} />
+                              <button className="btn-ghost" style={{ fontSize: 12 }} disabled={balanceBusy === reg.id}
+                                onClick={() => recordBalancePaid(reg, b)}
+                                title="Record cash or bank-transfer money against the balance — the full amount, or part of it">
+                                Record received outside Square
+                              </button>
+                            </span>
                           </div>
                         )}
                       </div>

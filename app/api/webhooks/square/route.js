@@ -107,13 +107,17 @@ export async function POST(req) {
   return handleMembershipPayment(db, payment, orderId);
 }
 
-// A clinic balance payment (schema-v47): the second Square checkout created
-// by /api/registrations/pay-balance. Returns null when this order isn't a
-// balance payment, so the membership handler gets its turn.
+// A clinic balance payment (schema-v47): a Square checkout created by
+// /api/registrations/pay-balance. Since schema-v50 there can be SEVERAL —
+// part payments are each logged in registrations.balance_payments and the
+// balance is marked fully paid once they add up to the total. Old links that
+// were superseded by a different amount are still matched (balance_order_ids)
+// so money paid through them is recorded too. Returns null when this order
+// isn't a balance payment, so the membership handler gets its turn.
 async function handleBalancePayment(db, payment, orderId) {
-  const { data: reg, error } = await db
+  let { data: reg, error } = await db
     .from("registrations")
-    .select("id, total_cents, deposit_cents, balance_paid_at")
+    .select("*")
     .eq("balance_square_order_id", orderId)
     .maybeSingle();
   if (error) {
@@ -123,21 +127,70 @@ async function handleBalancePayment(db, payment, orderId) {
     console.error("Square webhook: balance lookup failed, asking Square to retry:", error.message);
     return NextResponse.json({ error: "Lookup failed" }, { status: 500 });
   }
+  if (!reg) {
+    // Not the outstanding link — maybe an older balance link for this
+    // registration that a new amount replaced (schema-v50).
+    const { data: byHistory, error: histErr } = await db
+      .from("registrations")
+      .select("*")
+      .contains("balance_order_ids", JSON.stringify([orderId]))
+      .maybeSingle();
+    if (histErr) {
+      if (/balance_order_ids|does not exist|schema cache/i.test(histErr.message ?? "")) return null;
+      console.error("Square webhook: balance history lookup failed, asking Square to retry:", histErr.message);
+      return NextResponse.json({ error: "Lookup failed" }, { status: 500 });
+    }
+    reg = byHistory;
+  }
   if (!reg) return null;
-  if (reg.balance_paid_at) return NextResponse.json({ ok: true }); // retry — already recorded
 
-  const owed = Math.max(0, (reg.total_cents ?? 0) - (reg.deposit_cents ?? 0));
   const paidCents = payment?.amount_money?.amount;
-  if (typeof paidCents !== "number" || paidCents < owed) {
-    console.error(
-      `Square payment ${payment.id} paid ${paidCents}c but balance for registration ${reg.id} is ${owed}c — not recording`
-    );
+  if (typeof paidCents !== "number" || paidCents <= 0) {
+    console.error(`Square payment ${payment.id} for registration ${reg.id} has no usable amount — not recording`);
     return NextResponse.json({ ok: true });
   }
-  const { error: updErr } = await db
-    .from("registrations")
-    .update({ balance_paid_at: new Date().toISOString(), balance_payment_id: payment.id })
-    .eq("id", reg.id);
+  const owedFull = Math.max(0, (reg.total_cents ?? 0) - (reg.deposit_cents ?? 0));
+
+  // Pre-v50 database (no payments log): the original all-or-nothing rule.
+  if (!("balance_payments" in reg)) {
+    if (reg.balance_paid_at) return NextResponse.json({ ok: true }); // retry — already recorded
+    if (paidCents < owedFull) {
+      console.error(
+        `Square payment ${payment.id} paid ${paidCents}c but balance for registration ${reg.id} is ${owedFull}c — not recording`
+      );
+      return NextResponse.json({ ok: true });
+    }
+    const { error: updErr } = await db
+      .from("registrations")
+      .update({ balance_paid_at: new Date().toISOString(), balance_payment_id: payment.id })
+      .eq("id", reg.id);
+    if (updErr) {
+      console.error("Square webhook: recording balance payment failed, asking Square to retry:", updErr.message);
+      return NextResponse.json({ error: "Update failed" }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  const list = Array.isArray(reg.balance_payments) ? reg.balance_payments : [];
+  if (list.some((p) => p?.payment_id === payment.id)) return NextResponse.json({ ok: true }); // retry — already recorded
+  if (reg.balance_paid_at) {
+    // Fully settled already and this is a NEW payment (an old link paid
+    // after the fact) — log it so staff can see the overpayment and refund.
+    console.error(`Square payment ${payment.id}: registration ${reg.id} balance was already settled — recording as overpayment`);
+  }
+
+  const now = new Date().toISOString();
+  const newList = [...list, { amount_cents: paidCents, at: now, method: "square", payment_id: payment.id }];
+  const totalPaid = newList.reduce((s, p) => s + (Number(p?.amount_cents) || 0), 0);
+  const patch = { balance_payments: newList, balance_payment_id: payment.id };
+  if (reg.balance_square_order_id === orderId) {
+    // This link is now used up — the next payment needs a fresh checkout.
+    patch.balance_square_order_id = null;
+    patch.balance_checkout_url = null;
+    patch.balance_checkout_cents = null;
+  }
+  if (!reg.balance_paid_at && totalPaid >= owedFull) patch.balance_paid_at = now;
+  const { error: updErr } = await db.from("registrations").update(patch).eq("id", reg.id);
   if (updErr) {
     console.error("Square webhook: recording balance payment failed, asking Square to retry:", updErr.message);
     return NextResponse.json({ error: "Update failed" }, { status: 500 });

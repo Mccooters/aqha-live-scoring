@@ -47,21 +47,38 @@ export async function GET(req) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Clinic deposit info (schema-v47) — best-effort so pre-migration
-  // databases still serve the success page.
+  // Clinic deposit info (schema-v47, part payments schema-v50) —
+  // best-effort so pre-migration databases still serve the success page.
   let balance = null;
   try {
-    const { data: extra } = await db
+    let { data: extra, error: extraErr } = await db
       .from("registrations")
-      .select("deposit_cents, balance_paid_at, event:events(starts_on, event_type)")
+      .select("deposit_cents, balance_paid_at, balance_payments, event:events(starts_on, event_type)")
       .eq("id", regId)
       .maybeSingle();
+    let partials = true;
+    if (extraErr && /balance_payments|does not exist|schema cache/i.test(extraErr.message ?? "")) {
+      partials = false; // v50 not run — full-balance behaviour only
+      ({ data: extra } = await db
+        .from("registrations")
+        .select("deposit_cents, balance_paid_at, event:events(starts_on, event_type)")
+        .eq("id", regId)
+        .maybeSingle());
+    }
     if (extra?.deposit_cents > 0) {
-      const { balanceDueLabel } = await import("../../../../lib/clinicPayments");
+      const { balanceDueLabel, balancePaidCents, MIN_PART_PAYMENT_CENTS } = await import("../../../../lib/clinicPayments");
+      const partPaid = partials ? balancePaidCents(extra) : 0;
+      const paid = Boolean(extra.balance_paid_at);
+      const owing = paid ? 0 : Math.max(0, (reg.total_cents ?? 0) - extra.deposit_cents - partPaid);
       balance = {
         deposit_cents: extra.deposit_cents,
-        owing_cents: Math.max(0, (reg.total_cents ?? 0) - extra.deposit_cents),
-        paid: Boolean(extra.balance_paid_at),
+        owing_cents: owing,
+        paid,
+        paid_part_cents: partPaid,
+        // Choosing an amount only makes sense when part payments can be
+        // recorded and there's more owing than the minimum chunk.
+        partial_allowed: partials && !paid && owing > MIN_PART_PAYMENT_CENTS,
+        min_part_cents: MIN_PART_PAYMENT_CENTS,
         due_label: balanceDueLabel(extra.event?.starts_on),
       };
     }
