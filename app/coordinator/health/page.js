@@ -32,6 +32,7 @@ const MIGRATION_CHECKS = [
   { m: "v47", what: "Clinic deposits + per-spot pricing", probe: () => supabase.from("classes").select("deposit_cents").limit(1) },
   { m: "v48", what: "Committee read-only accounts", probe: () => supabase.from("staff_viewers").select("user_id").limit(1) },
   { m: "v49", what: "Shared program presets", probe: () => supabase.from("program_presets").select("id").limit(1) },
+  { m: "v50", what: "Clinic balance part payments", probe: () => supabase.from("registrations").select("balance_payments").limit(1) },
 ];
 
 const CONFIG_LABELS = {

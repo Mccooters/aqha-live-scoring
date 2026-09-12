@@ -19,6 +19,8 @@ function SuccessContent() {
   const [loading, setLoading] = useState(true);
   const [pollCount, setPollCount] = useState(0);
   const [payingBalance, setPayingBalance] = useState(false);
+  const [showPartForm, setShowPartForm] = useState(false);
+  const [partAmount, setPartAmount] = useState(""); // dollars, typed
 
   useEffect(() => {
     if (!regId) { setLoading(false); return; }
@@ -35,7 +37,9 @@ function SuccessContent() {
         if (data && !cancelled) {
           setReg(data);
           setEntries(data.registration_entries ?? []);
-          paid = data.status === "paid";
+          // Keep refreshing while a clinic balance is still owing too, so a
+          // part payment just made shows up without a manual reload.
+          paid = data.status === "paid" && !(data.balance && !data.balance.paid && data.balance.owing_cents > 0);
         }
       } catch {
         // Network blip right after returning from Square — don't get stuck on
@@ -76,13 +80,16 @@ function SuccessContent() {
   const hasReplacementNumbers = !!reg.replacement_numbers;
   const balance = reg.balance; // clinic deposit plan (schema-v47)
 
-  const payBalance = async () => {
+  const payBalance = async (amountCents) => {
     setPayingBalance(true);
     try {
       const res = await fetch("/api/registrations/pay-balance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registration_id: regId }),
+        body: JSON.stringify({
+          registration_id: regId,
+          ...(amountCents != null ? { amount_cents: amountCents } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.checkout_url) {
@@ -93,6 +100,25 @@ function SuccessContent() {
     } finally {
       setPayingBalance(false);
     }
+  };
+
+  const payPart = () => {
+    const dollars = parseFloat(partAmount);
+    if (!Number.isFinite(dollars) || dollars <= 0) {
+      window.alert("Enter the amount you'd like to pay.");
+      return;
+    }
+    const cents = Math.round(dollars * 100);
+    const minCents = balance?.min_part_cents ?? 1000;
+    if (cents < Math.min(minCents, balance?.owing_cents ?? cents)) {
+      window.alert(`The smallest part payment is $${(minCents / 100).toFixed(2)}.`);
+      return;
+    }
+    if (cents > (balance?.owing_cents ?? 0)) {
+      window.alert(`Only $${((balance?.owing_cents ?? 0) / 100).toFixed(2)} is owing — enter that or less.`);
+      return;
+    }
+    payBalance(cents);
   };
 
   return (
@@ -133,16 +159,41 @@ function SuccessContent() {
                 {balance && !balance.paid && balance.owing_cents > 0 && (
                   <div style={{ border: "1px solid #E0B15A", background: "#FFF7D6", borderRadius: 10, padding: "12px 14px", marginTop: 12 }}>
                     <div style={{ fontWeight: 800, color: "var(--leather)", fontSize: 14 }}>
-                      Deposit received — ${(balance.owing_cents / 100).toFixed(2)} balance still to pay
+                      {balance.paid_part_cents > 0
+                        ? `$${(balance.paid_part_cents / 100).toFixed(2)} paid so far — $${(balance.owing_cents / 100).toFixed(2)} balance to go`
+                        : `Deposit received — $${(balance.owing_cents / 100).toFixed(2)} balance still to pay`}
                     </div>
                     <p style={{ fontSize: 13, color: "var(--quiet)", margin: "4px 0 10px" }}>
                       Your spot is held by the non-refundable deposit. The balance is due
                       {balance.due_label ? <> by <strong>{balance.due_label}</strong></> : " 2 weeks before the clinic"} —
-                      you can pay it any time from this page or the link in your confirmation email.
+                      pay it {balance.partial_allowed ? "in one go or in parts, " : ""}any time from this page or the link in your confirmation email.
                     </p>
-                    <button className="btn" style={{ background: "var(--leather)" }} onClick={payBalance} disabled={payingBalance}>
-                      {payingBalance ? "Opening payment…" : `Pay the ${`$${(balance.owing_cents / 100).toFixed(2)}`} balance now`}
-                    </button>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <button className="btn" style={{ background: "var(--leather)" }} onClick={() => payBalance()} disabled={payingBalance}>
+                        {payingBalance ? "Opening payment…" : `Pay the ${`$${(balance.owing_cents / 100).toFixed(2)}`} balance now`}
+                      </button>
+                      {balance.partial_allowed && !showPartForm && (
+                        <button onClick={() => setShowPartForm(true)}
+                          style={{ border: "none", background: "transparent", color: "var(--brass)", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "6px 4px" }}>
+                          Pay part of it instead
+                        </button>
+                      )}
+                    </div>
+                    {balance.partial_allowed && showPartForm && (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+                        <span style={{ fontSize: 16, fontWeight: 700 }}>$</span>
+                        <input type="number" inputMode="decimal" min={(balance.min_part_cents ?? 1000) / 100} max={balance.owing_cents / 100} step="0.01"
+                          value={partAmount} onChange={(e) => setPartAmount(e.target.value)}
+                          placeholder={`${((balance.min_part_cents ?? 1000) / 100).toFixed(0)} – ${(balance.owing_cents / 100).toFixed(2)}`}
+                          style={{ width: 120, fontSize: 15, padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8 }} />
+                        <button className="btn" style={{ background: "var(--leather)" }} onClick={payPart} disabled={payingBalance}>
+                          {payingBalance ? "Opening payment…" : "Pay this amount"}
+                        </button>
+                        <span style={{ flexBasis: "100%", fontSize: 12, color: "var(--quiet)" }}>
+                          Minimum ${((balance.min_part_cents ?? 1000) / 100).toFixed(0)} per payment. What you&apos;ve paid counts down the balance — come back any time for the rest.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
                 {balance && balance.paid && (
