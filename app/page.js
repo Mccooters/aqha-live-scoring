@@ -25,7 +25,7 @@ function SectionHeading({ title, count, first }) {
       <h2 className="display" style={{ margin: 0, fontWeight: 700, fontSize: 15, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--leather)" }}>
         {title}
       </h2>
-      <span style={{ fontSize: 12, color: "var(--quiet)", fontWeight: 700 }}>{count}</span>
+      {count > 0 && <span style={{ fontSize: 12, color: "var(--quiet)", fontWeight: 700 }}>{count}</span>}
       <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
     </div>
   );
@@ -46,18 +46,21 @@ export default function Home() {
   const cancelled = events?.filter((e) => e.status === "cancelled") ?? [];
   const archived  = events?.filter((e) => e.status === "archived") ?? [];
 
-  const shows   = active.filter((e) => !isClinic(e));
-  const clinics = active.filter(isClinic);
+  // Finished events are collapsed away by default (owner's rule, Sept 2026) —
+  // the list is for what's coming up or on now; results stay two taps away.
+  const isDone  = (ev) => ev.status === "completed";
+  const shows   = active.filter((e) => !isClinic(e) && !isDone(e));
+  const clinics = active.filter((e) => isClinic(e) && !isDone(e));
+  const doneShows   = active.filter((e) => !isClinic(e) && isDone(e));
+  const doneClinics = active.filter((e) => isClinic(e) && isDone(e));
 
   const eventCard = (ev) => {
     const clinic = isClinic(ev);
     const isOpen = ev.status === "open" || ev.status === "upcoming";
     const isLive = ev.status === "live";
-    // Finished shows fade back so what's coming up (or on now) stands
-    // out — results stay one tap away.
-    const isDone = ev.status === "completed";
+    const done = isDone(ev);
     return (
-      <section key={ev.id} className="card" style={{ marginBottom: 14, overflow: "hidden", ...(isDone ? { opacity: 0.6 } : {}) }}>
+      <section key={ev.id} className="card" style={{ marginBottom: 14, overflow: "hidden" }}>
         <Link href={`/event/${ev.id}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "14px 16px", textDecoration: "none", color: "inherit" }}>
           <div>
             <div className="display" style={{ fontWeight: 700, fontSize: 18 }}>{ev.name}</div>
@@ -66,7 +69,7 @@ export default function Home() {
             </div>
           </div>
           <span className={`badge ${ev.status}`}
-            style={isDone ? { background: "#F3EEE4", color: "#6E6254", border: "1px solid #D8D0C3" } : {}}>
+            style={done ? { background: "#F3EEE4", color: "#6E6254", border: "1px solid #D8D0C3" } : {}}>
             {STATUS_LABEL[ev.status] ?? ev.status}
           </span>
         </Link>
@@ -113,17 +116,33 @@ export default function Home() {
           </p>
         )}
 
-        {shows.length > 0 && (
+        {(shows.length > 0 || doneShows.length > 0) && (
           <>
             <SectionHeading title="Shows" count={shows.length} first />
             {shows.map(eventCard)}
+            {doneShows.length > 0 && (
+              <details style={{ marginBottom: 14 }}>
+                <summary style={{ fontSize: 13, color: "var(--quiet)", cursor: "pointer", fontWeight: 600, letterSpacing: ".05em" }}>
+                  Completed shows ({doneShows.length})
+                </summary>
+                <div style={{ marginTop: 10 }}>{doneShows.map(eventCard)}</div>
+              </details>
+            )}
           </>
         )}
 
-        {clinics.length > 0 && (
+        {(clinics.length > 0 || doneClinics.length > 0) && (
           <>
-            <SectionHeading title="Clinics" count={clinics.length} first={shows.length === 0} />
+            <SectionHeading title="Clinics" count={clinics.length} first={shows.length === 0 && doneShows.length === 0} />
             {clinics.map(eventCard)}
+            {doneClinics.length > 0 && (
+              <details style={{ marginBottom: 14 }}>
+                <summary style={{ fontSize: 13, color: "var(--quiet)", cursor: "pointer", fontWeight: 600, letterSpacing: ".05em" }}>
+                  Completed clinics ({doneClinics.length})
+                </summary>
+                <div style={{ marginTop: 10 }}>{doneClinics.map(eventCard)}</div>
+              </details>
+            )}
           </>
         )}
 

@@ -159,8 +159,12 @@ PR with a clear plain-English description.
 
 - `app/page.js` — public home: list of events (status badge per the
   lifecycle below) under two separate headings, **Shows** and **Clinics**
-  (owner's rule, Sept 2026 — one mixed list confused spectators), plus
-  cancelled/archived events collapsed in a `<details>`. Links to
+  (owner's rule, Sept 2026 — one mixed list confused spectators). Each
+  heading lists only what's coming up or on now; that section's COMPLETED
+  events sit in a collapsed "Completed shows/clinics (n)" `<details>`
+  (owner's rule, Sept 2026 — they used to be listed inline, faded), and
+  cancelled/archived events keep their own `<details>` at the bottom.
+  Links to
   Schedule (closed/live/completed SHOWS only — clinics have no run sheet)
   and Register (open events; "Book a spot" wording on clinics).
 - `app/event/[id]/page.js` — public spectator view: live "now showing" banner
