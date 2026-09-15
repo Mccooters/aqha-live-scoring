@@ -139,6 +139,13 @@ export default function RegistrationsPage() {
     return () => { cancelled = true; };
   }, [session, eventId, events, registrations]);
 
+  // Shows and clinics are run and checked differently, so the picker keeps
+  // them apart and the page says which kind is on screen.
+  const showEvents = events.filter((e) => e.event_type !== "clinic");
+  const clinicEvents = events.filter((e) => e.event_type === "clinic");
+  const selectedEvent = events.find((e) => e.id === eventId);
+  const selectedClinic = selectedEvent?.event_type === "clinic";
+
   // Clinic deposit plans (schema-v47): what's still owing on a registration,
   // after any part payments (schema-v50).
   const balanceInfo = (reg) => {
@@ -147,7 +154,7 @@ export default function RegistrationsPage() {
     const owingFull = Math.max(0, (reg.total_cents ?? 0) - reg.deposit_cents);
     if (owingFull <= 0) return null;
     const owing = reg.balance_paid_at ? 0 : Math.max(0, owingFull - partPaid);
-    const ev = events.find((e) => e.id === eventId);
+    const ev = selectedEvent;
     const due = balanceDueDate(ev?.starts_on);
     return {
       owing,
@@ -537,14 +544,36 @@ export default function RegistrationsPage() {
           </section>
         )}
 
-        {/* Event selector */}
+        {/* Event selector — shows and clinics kept in separate groups so it's
+            always obvious which kind of event you're looking at. */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: "block", fontSize: 12, color: "var(--quiet)", marginBottom: 4 }}>Event</label>
           <select className="field" value={eventId} onChange={(e) => setEventId(e.target.value)} style={{ fontSize: 15 }}>
-            {events.map((ev) => (
-              <option key={ev.id} value={ev.id}>{ev.name}</option>
-            ))}
+            {showEvents.length > 0 && (
+              <optgroup label="Shows">
+                {showEvents.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+              </optgroup>
+            )}
+            {clinicEvents.length > 0 && (
+              <optgroup label="Clinics">
+                {clinicEvents.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
+              </optgroup>
+            )}
           </select>
+          {selectedEvent && (
+            <div style={{ marginTop: 6, fontSize: 12.5, color: "var(--quiet)" }}>
+              <span style={{
+                display: "inline-block", fontSize: 11, fontWeight: 800, letterSpacing: ".1em",
+                textTransform: "uppercase", padding: "2px 8px", borderRadius: 20, marginRight: 8,
+                color: selectedClinic ? "#1746C6" : "var(--leather)",
+                background: selectedClinic ? "#E8EEFC" : "var(--sand)",
+                border: `1px solid ${selectedClinic ? "#B9CAF0" : "var(--line)"}`,
+              }}>
+                {selectedClinic ? "Clinic" : "Show"}
+              </span>
+              {selectedEvent.starts_on ?? ""}
+            </div>
+          )}
         </div>
 
         {/* Summary cards */}
