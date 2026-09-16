@@ -135,8 +135,17 @@ export default function ImportResults({ classes, onDone }) {
 
       for (const g of preview.groups) {
         const cls = g.cls;
-        const byBack = new Map(cls.entries.map((e) => [e.back_number, { ...e }]));
-        let maxDraw = Math.max(0, ...cls.entries.map((e) => e.draw_order ?? 0));
+        // The dashboard's class list can be a stale snapshot (entries added
+        // since it loaded — an entries import, online approvals). Matching
+        // against it would re-create entries that already exist, doubling
+        // every horse — so read the class's entries from the database NOW.
+        const { data: liveEntries, error: liveErr } = await supabase
+          .from("entries")
+          .select("*")
+          .eq("class_id", cls.id);
+        if (liveErr) throw new Error(`Class ${g.num}: ${liveErr.message}`);
+        const byBack = new Map((liveEntries ?? []).map((e) => [e.back_number, { ...e }]));
+        let maxDraw = Math.max(0, ...(liveEntries ?? []).map((e) => e.draw_order ?? 0));
         const patches = new Map(); // entry back → { score?, score2? }
 
         for (let j = 0; j < g.cards.length; j++) {

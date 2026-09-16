@@ -1834,6 +1834,62 @@ export default function Coordinator() {
     }
   };
 
+  // Clean-up for doubled-up entries (e.g. results and entries imported from
+  // a stale tab before the importers re-checked the database): per class,
+  // keep ONE entry per back number — the copy with a result wins, then a
+  // scratched copy, then the earliest in the draw. Two copies with DIFFERENT
+  // results are never touched; those are listed for staff to fix by hand.
+  const removeDuplicateEntries = async () => {
+    if (busy) return;
+    const toDelete = [];
+    const conflicts = [];
+    let affectedClasses = 0;
+    for (const cls of classes) {
+      const byBack = new Map();
+      for (const e of cls.entries) {
+        byBack.set(e.back_number, [...(byBack.get(e.back_number) ?? []), e]);
+      }
+      let hit = false;
+      for (const [back, list] of byBack) {
+        if (list.length < 2) continue;
+        const scored = list.filter((e) => e.score != null || e.score2 != null);
+        const sameResult = (a, b) => a.score === b.score && a.score2 === b.score2;
+        if (scored.length > 1 && !scored.every((e) => sameResult(e, scored[0]))) {
+          conflicts.push(`Class ${cls.num} · #${fmtBack(back)}`);
+          continue;
+        }
+        const rank = (e) => (e.score != null || e.score2 != null ? 0 : e.scratched ? 1 : 2);
+        const keep = [...list].sort((a, b) => rank(a) - rank(b) || (a.draw_order ?? 0) - (b.draw_order ?? 0))[0];
+        list.filter((e) => e.id !== keep.id).forEach((e) => toDelete.push(e.id));
+        hit = true;
+      }
+      if (hit) affectedClasses += 1;
+    }
+    if (!toDelete.length) {
+      window.alert(conflicts.length
+        ? "No duplicates were safe to remove automatically, but these horses have TWO DIFFERENT results in the same class — open each class and delete the wrong copy by hand:\n\n" + conflicts.join("\n")
+        : "No duplicate entries found — every horse appears once per class.");
+      return;
+    }
+    if (!window.confirm(
+      `Remove ${toDelete.length} duplicate entr${toDelete.length === 1 ? "y" : "ies"} across ${affectedClasses} class${affectedClasses === 1 ? "" : "es"}?\n\n` +
+      "For each horse entered twice in the same class, the copy WITH the result is kept (then a scratched copy, then the earliest in the draw) — only the spare copies are deleted." +
+      (conflicts.length ? `\n\nLeft alone because the two copies hold DIFFERENT results (fix by hand):\n${conflicts.join("\n")}` : "") +
+      "\n\nThis can't be undone."
+    )) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("entries").delete().in("id", toDelete);
+      if (error) { window.alert("Could not remove duplicates: " + error.message); return; }
+      await loadClasses();
+      if (conflicts.length) {
+        window.alert("Duplicates removed. Still to fix by hand (two different results for the same horse):\n\n" + conflicts.join("\n"));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submitPattern = async () => {
     if (!form.pattern_url?.trim() && !form.patternFile) { setFormError("Provide a URL or upload a file"); return; }
     let url = form.pattern_url?.trim() || null;
@@ -2301,6 +2357,10 @@ export default function Coordinator() {
                 ⌫ Clear results
               </button>
             )}
+            <button className="btn-ghost" onClick={removeDuplicateEntries} disabled={busy || !eventId || classes.length === 0}
+              title="If horses ended up entered twice in the same class (e.g. entries and results imported separately), this keeps the copy with the result and removes the spare">
+              🧹 Remove duplicates
+            </button>
             {!isClinic && (
               <button className="btn-ghost" onClick={() => openModal("bulkJudges")} disabled={!eventId || classes.length === 0}
                 title="Set Judge 1 and Judge 2 across every class in this event at once — leave Judge 2 blank for a single-judge show">
