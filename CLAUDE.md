@@ -158,8 +158,15 @@ PR with a clear plain-English description.
 ## Pages
 
 - `app/page.js` — public home: list of events (status badge per the
-  lifecycle below) + archived events collapsed in a `<details>`. Links to
-  Schedule (closed/live/completed events) and Register (open events).
+  lifecycle below) under two separate headings, **Shows** and **Clinics**
+  (owner's rule, Sept 2026 — one mixed list confused spectators). Each
+  heading lists only what's coming up or on now; that section's COMPLETED
+  events sit in a collapsed "Completed shows/clinics (n)" `<details>`
+  (owner's rule, Sept 2026 — they used to be listed inline, faded), and
+  cancelled/archived events keep their own `<details>` at the bottom.
+  Links to
+  Schedule (closed/live/completed SHOWS only — clinics have no run sheet)
+  and Register (open events; "Book a spot" wording on clinics).
 - `app/event/[id]/page.js` — public spectator view: live "now showing" banner
   (current horse, draw position X of Y excluding scratches, progress bar),
   per-class scoreboards (placed by score desc, pending in draw order, SCR rows
@@ -185,7 +192,10 @@ PR with a clear plain-English description.
 - `app/coordinator/registrations/page.js` — list of online registrations for
   an event (paid vs pending, revenue total, entry count), expandable per
   registration, with a "force-create entries" button for when a Square
-  payment was confirmed manually but the webhook didn't fire.
+  payment was confirmed manually but the webhook didn't fire. The event
+  picker groups shows and clinics into separate `<optgroup>`s (same on the
+  dashboard's header picker) and a Show/Clinic tag under it says which kind
+  is on screen.
 - `app/coordinator/ImportEntries.js` — bulk import from .xlsx/.csv via SheetJS.
   Forgiving header mapping (e.g. "Back No"/"back#" both work; "Rider"/"Shown
   By" map to exhibitor). Preview-before-commit; creates missing classes when

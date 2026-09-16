@@ -2164,10 +2164,25 @@ export default function Coordinator() {
       <header className="header">
         <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <div>
-            <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)" }}>Coordinator dashboard</div>
+            <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)" }}>Coordinator dashboard{currentEvent ? ` · ${isClinic ? "Clinic" : "Show"}` : ""}</div>
             <select value={eventId ?? ""} onChange={(e) => setEventId(e.target.value)}
               className="display" style={{ fontWeight: 700, fontSize: 20, background: "transparent", color: "#F2EADB", border: "none", marginTop: 4 }}>
-              {events.map((ev) => <option key={ev.id} value={ev.id} style={{ color: "#241A12" }}>{ev.name}</option>)}
+              {/* Shows and clinics stay in separate groups so the picker is
+                  never ambiguous about which kind of event you're opening. */}
+              {events.some((e) => e.event_type !== "clinic") && (
+                <optgroup label="Shows" style={{ color: "#241A12" }}>
+                  {events.filter((e) => e.event_type !== "clinic").map((ev) => (
+                    <option key={ev.id} value={ev.id} style={{ color: "#241A12" }}>{ev.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              {events.some((e) => e.event_type === "clinic") && (
+                <optgroup label="Clinics" style={{ color: "#241A12" }}>
+                  {events.filter((e) => e.event_type === "clinic").map((ev) => (
+                    <option key={ev.id} value={ev.id} style={{ color: "#241A12" }}>{ev.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

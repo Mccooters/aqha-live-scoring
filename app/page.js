@@ -14,6 +14,23 @@ const STATUS_LABEL = {
   cancelled: "Cancelled",
 };
 
+const isClinic = (ev) => ev.event_type === "clinic";
+
+// Shows and clinics are different beasts — one is judged classes, the other is
+// spots you book — so they get their own labelled section instead of one mixed
+// list. Same split on the coordinator's event pickers.
+function SectionHeading({ title, count, first }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: first ? "2px 0 10px" : "26px 0 10px" }}>
+      <h2 className="display" style={{ margin: 0, fontWeight: 700, fontSize: 15, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--leather)" }}>
+        {title}
+      </h2>
+      {count > 0 && <span style={{ fontSize: 12, color: "var(--quiet)", fontWeight: 700 }}>{count}</span>}
+      <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
+    </div>
+  );
+}
+
 export default function Home() {
   const [events, setEvents] = useState(null);
 
@@ -28,6 +45,51 @@ export default function Home() {
   const active    = events?.filter((e) => e.status !== "archived" && e.status !== "cancelled") ?? [];
   const cancelled = events?.filter((e) => e.status === "cancelled") ?? [];
   const archived  = events?.filter((e) => e.status === "archived") ?? [];
+
+  // Finished events are collapsed away by default (owner's rule, Sept 2026) —
+  // the list is for what's coming up or on now; results stay two taps away.
+  const isDone  = (ev) => ev.status === "completed";
+  const shows   = active.filter((e) => !isClinic(e) && !isDone(e));
+  const clinics = active.filter((e) => isClinic(e) && !isDone(e));
+  const doneShows   = active.filter((e) => !isClinic(e) && isDone(e));
+  const doneClinics = active.filter((e) => isClinic(e) && isDone(e));
+
+  const eventCard = (ev) => {
+    const clinic = isClinic(ev);
+    const isOpen = ev.status === "open" || ev.status === "upcoming";
+    const isLive = ev.status === "live";
+    const done = isDone(ev);
+    return (
+      <section key={ev.id} className="card" style={{ marginBottom: 14, overflow: "hidden" }}>
+        <Link href={`/event/${ev.id}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "14px 16px", textDecoration: "none", color: "inherit" }}>
+          <div>
+            <div className="display" style={{ fontWeight: 700, fontSize: 18 }}>{ev.name}</div>
+            <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+              {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}
+            </div>
+          </div>
+          <span className={`badge ${ev.status}`}
+            style={done ? { background: "#F3EEE4", color: "#6E6254", border: "1px solid #D8D0C3" } : {}}>
+            {STATUS_LABEL[ev.status] ?? ev.status}
+          </span>
+        </Link>
+        <div style={{ borderTop: "1px solid var(--line)", padding: "8px 16px", display: "flex", gap: 16 }}>
+          <Link href={`/event/${ev.id}`} style={{ fontSize: 12.5, color: "var(--brass)", textDecoration: "none", fontWeight: 600 }}>
+            {clinic ? "View →" : isLive ? "Live scoring →" : ev.status === "completed" ? "Results →" : "View →"}
+          </Link>
+          {/* Clinics have no judged run sheet, so no schedule link. */}
+          {!clinic && (ev.status === "closed" || isLive || ev.status === "completed") && (
+            <Link href={`/event/${ev.id}/schedule`} style={{ fontSize: 12.5, color: "var(--brass)", textDecoration: "none", fontWeight: 600 }}>Schedule →</Link>
+          )}
+          {isOpen && (
+            <Link href={`/event/${ev.id}/register`} style={{ fontSize: 12.5, color: "var(--brass)", textDecoration: "none", fontWeight: 600 }}>
+              {clinic ? "Book a spot →" : "Register entries →"}
+            </Link>
+          )}
+        </div>
+      </section>
+    );
+  };
 
   return (
     <>
@@ -54,40 +116,35 @@ export default function Home() {
           </p>
         )}
 
-        {active.map((ev) => {
-          const isOpen = ev.status === "open" || ev.status === "upcoming";
-          const isLive = ev.status === "live";
-          // Finished shows fade back so what's coming up (or on now) stands
-          // out — results stay one tap away.
-          const isDone = ev.status === "completed";
-          return (
-            <section key={ev.id} className="card" style={{ marginBottom: 14, overflow: "hidden", ...(isDone ? { opacity: 0.6 } : {}) }}>
-              <Link href={`/event/${ev.id}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "14px 16px", textDecoration: "none", color: "inherit" }}>
-                <div>
-                  <div className="display" style={{ fontWeight: 700, fontSize: 18 }}>{ev.name}</div>
-                  <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                    {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}
-                  </div>
-                </div>
-                <span className={`badge ${ev.status}`}
-                  style={isDone ? { background: "#F3EEE4", color: "#6E6254", border: "1px solid #D8D0C3" } : {}}>
-                  {STATUS_LABEL[ev.status] ?? ev.status}
-                </span>
-              </Link>
-              <div style={{ borderTop: "1px solid var(--line)", padding: "8px 16px", display: "flex", gap: 16 }}>
-                <Link href={`/event/${ev.id}`} style={{ fontSize: 12.5, color: "var(--brass)", textDecoration: "none", fontWeight: 600 }}>
-                  {isLive ? "Live scoring →" : ev.status === "completed" ? "Results →" : "View →"}
-                </Link>
-                {(ev.status === "closed" || isLive || ev.status === "completed") && (
-                  <Link href={`/event/${ev.id}/schedule`} style={{ fontSize: 12.5, color: "var(--brass)", textDecoration: "none", fontWeight: 600 }}>Schedule →</Link>
-                )}
-                {isOpen && (
-                  <Link href={`/event/${ev.id}/register`} style={{ fontSize: 12.5, color: "var(--brass)", textDecoration: "none", fontWeight: 600 }}>Register entries →</Link>
-                )}
-              </div>
-            </section>
-          );
-        })}
+        {(shows.length > 0 || doneShows.length > 0) && (
+          <>
+            <SectionHeading title="Shows" count={shows.length} first />
+            {shows.map(eventCard)}
+            {doneShows.length > 0 && (
+              <details style={{ marginBottom: 14 }}>
+                <summary style={{ fontSize: 13, color: "var(--quiet)", cursor: "pointer", fontWeight: 600, letterSpacing: ".05em" }}>
+                  Completed shows ({doneShows.length})
+                </summary>
+                <div style={{ marginTop: 10 }}>{doneShows.map(eventCard)}</div>
+              </details>
+            )}
+          </>
+        )}
+
+        {(clinics.length > 0 || doneClinics.length > 0) && (
+          <>
+            <SectionHeading title="Clinics" count={clinics.length} first={shows.length === 0 && doneShows.length === 0} />
+            {clinics.map(eventCard)}
+            {doneClinics.length > 0 && (
+              <details style={{ marginBottom: 14 }}>
+                <summary style={{ fontSize: 13, color: "var(--quiet)", cursor: "pointer", fontWeight: 600, letterSpacing: ".05em" }}>
+                  Completed clinics ({doneClinics.length})
+                </summary>
+                <div style={{ marginTop: 10 }}>{doneClinics.map(eventCard)}</div>
+              </details>
+            )}
+          </>
+        )}
 
         {cancelled.length > 0 && (
           <details style={{ marginTop: 24 }}>
@@ -101,7 +158,7 @@ export default function Home() {
                     <div>
                       <div className="display" style={{ fontWeight: 700, fontSize: 16, textDecoration: "line-through", color: "var(--quiet)" }}>{ev.name}</div>
                       <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 1 }}>
-                        {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}
+                        {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}{isClinic(ev) ? " · Clinic" : ""}
                       </div>
                       {ev.cancellation_reason && (
                         <div style={{ fontSize: 12, color: "#B03030", marginTop: 3, fontStyle: "italic" }}>
@@ -129,7 +186,7 @@ export default function Home() {
                     <div>
                       <div className="display" style={{ fontWeight: 700, fontSize: 16 }}>{ev.name}</div>
                       <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 1 }}>
-                        {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}
+                        {ev.starts_on}{ev.ends_on && ev.ends_on !== ev.starts_on ? ` – ${ev.ends_on}` : ""}{ev.location ? ` · ${ev.location}` : ""}{isClinic(ev) ? " · Clinic" : ""}
                       </div>
                     </div>
                     <span className="badge archived">Archived</span>
