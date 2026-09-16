@@ -5,7 +5,7 @@ import { supabase } from "../../lib/supabaseClient";
 import ReadOnlyBanner from "../components/ReadOnlyBanner";
 import { categoryKey, programDisplayRows } from "../../lib/classCategories";
 import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQualifiers, championshipTitles, suggestFeederIds } from "../../lib/championship";
-import { scoreRank } from "../../lib/showPrint";
+import { hasResult, resultOrder, scoreRank } from "../../lib/showPrint";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 import ImportResults from "./ImportResults";
@@ -2654,20 +2654,13 @@ export default function Coordinator() {
           const isTbcDraw = mode === "tbc";
           const twoJudges = !!cls.judge2;
           const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc_class";
-          const placed = cls.entries.filter((e) => e.score != null && !e.scratched)
-            .sort((a, b) => {
-              const d = isPlacing
-                ? scoreRank(a.score, true) - scoreRank(b.score, true)
-                : scoreRank(b.score, false) - scoreRank(a.score, false);
-              if (d !== 0) return d;
-              return isPlacing
-                ? scoreRank(a.score2, true, 99) - scoreRank(b.score2, true, 99)
-                : scoreRank(b.score2, false, 0) - scoreRank(a.score2, false, 0);
-            });
-          const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && e.score == null && !e.scratched) : [];
+          // A result from EITHER judge places a horse (judge 2 may place one
+          // judge 1 didn't) — only horses neither judge placed stay pending.
+          const placed = cls.entries.filter((e) => hasResult(e) && !e.scratched).sort(resultOrder(cls));
+          const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && !hasResult(e) && !e.scratched) : [];
           const pending = isTbcDraw
-            ? cls.entries.filter((e) => !e.called && e.score == null && !e.scratched)
-            : cls.entries.filter((e) => e.score == null && !e.scratched);
+            ? cls.entries.filter((e) => !e.called && !hasResult(e) && !e.scratched)
+            : cls.entries.filter((e) => !hasResult(e) && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
           const confirmedSpots = cls.entries.filter((e) => !e.scratched).length;
