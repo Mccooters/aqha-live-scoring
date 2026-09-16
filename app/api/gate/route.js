@@ -110,7 +110,7 @@ export async function POST(req) {
         .select("id, draw_order, called, scratched, score")
         .eq("class_id", entry.class_id);
       const pending = (all ?? [])
-        .filter((x) => !x.scratched && (mode === "tbc" ? !x.called : x.score == null))
+        .filter((x) => !x.scratched && (mode === "tbc" ? !x.called && x.score == null : x.score == null))
         .sort((a, b) => (a.draw_order ?? 0) - (b.draw_order ?? 0));
       const idx = pending.findIndex((x) => x.id === entry_id);
       if (idx === -1) {

@@ -454,10 +454,15 @@ entries) or `live` (start the show) without reverting.
   draw, AND results come from paperwork later (the original single `tbc`
   mode before it was split).
 
-`firstPending(entries, mode)` is mode-aware: `tbc` checks `!called`, every
-other mode checks `score == null`. This logic is duplicated (intentionally,
-no shared package) across `app/coordinator/page.js` and
-`app/event/[id]/page.js` — keep both in sync when changing it.
+`firstPending(entries, mode)` is mode-aware: `tbc` checks `!called` AND
+`score == null` (a horse with a result has plainly been through — results
+typed in or imported after the show never get the gate's `called` tick, and
+treating them as pending made every placed horse show twice), every other
+mode checks `score == null`. This logic is duplicated (intentionally,
+no shared package) across `app/coordinator/page.js`,
+`app/event/[id]/page.js` and `app/event/[id]/gate/page.js` (plus the
+pending-draw filters in `app/api/gate/route.js` and the schedule page) —
+keep them all in sync when changing it.
 
 ## Championship classes (schema-v43)
 

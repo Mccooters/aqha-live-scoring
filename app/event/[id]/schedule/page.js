@@ -134,7 +134,7 @@ export default function SchedulePage() {
                         // scores only come later from paperwork.
                         const isTbcDraw = cls.scoring_mode === "tbc";
                         const scored = (cls.entries ?? []).filter(
-                          (e) => !e.scratched && (isTbcDraw ? e.called : e.score != null)
+                          (e) => !e.scratched && (isTbcDraw ? e.called || e.score != null : e.score != null)
                         ).length;
                         const isLive = cls.status === "live";
                         return (

@@ -11,7 +11,9 @@ const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
 const firstPending = (entries, mode) =>
   mode === "tbc"
-    ? entries.find((e) => !e.called && !e.scratched) ?? null
+    // A horse with a result has plainly been through — results typed in or
+    // imported after the show never get the gate's "called" tick.
+    ? entries.find((e) => !e.called && e.score == null && !e.scratched) ?? null
     : entries.find((e) => e.score == null && !e.scratched) ?? null;
 
 const fmtBack = (n) => String(n).padStart(3, "0");
@@ -204,11 +206,11 @@ export default function EventPage() {
   const active = liveClass ? liveClass.entries.filter((e) => !e.scratched) : [];
   // The horse on deck (second in the pending draw) for one-at-a-time classes.
   const livePending = liveClass
-    ? liveClass.entries.filter((e) => !e.scratched && (liveClass.scoring_mode === "tbc" ? !e.called : e.score == null))
+    ? liveClass.entries.filter((e) => !e.scratched && (liveClass.scoring_mode === "tbc" ? !e.called && e.score == null : e.score == null))
     : [];
   const nextEntry = current ? livePending[1] ?? null : null;
   const drawPos = current ? active.findIndex((e) => e.id === current.id) + 1 : 0;
-  const scored = active.filter((e) => liveClass?.scoring_mode === "tbc" ? e.called : e.score != null).length;
+  const scored = active.filter((e) => liveClass?.scoring_mode === "tbc" ? e.called || e.score != null : e.score != null).length;
 
   if (!event) return <main className="wrap"><p style={{ color: "var(--quiet)" }}>Loading…</p></main>;
 
@@ -345,7 +347,7 @@ export default function EventPage() {
               });
             const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && e.score == null && !e.scratched) : [];
             const pending = isTbcDraw
-              ? cls.entries.filter((e) => !e.called && !e.scratched)
+              ? cls.entries.filter((e) => !e.called && e.score == null && !e.scratched)
               : cls.entries.filter((e) => e.score == null && !e.scratched);
             const scratchedRows = cls.entries.filter((e) => e.scratched);
             const isLive = cls.status === "live";

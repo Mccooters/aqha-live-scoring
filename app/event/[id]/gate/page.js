@@ -13,7 +13,9 @@ import { normaliseBreakLabel, withoutHiddenClasses } from "../../../../lib/class
 const fmtBack = (n) => String(n ?? "").padStart(3, "0");
 const firstPending = (entries, mode) =>
   mode === "tbc"
-    ? entries.find((e) => !e.called && !e.scratched) ?? null
+    // A horse with a result has plainly been through — results typed in or
+    // imported after the show never get the gate's "called" tick.
+    ? entries.find((e) => !e.called && e.score == null && !e.scratched) ?? null
     : entries.find((e) => e.score == null && !e.scratched) ?? null;
 
 export default function GatePage() {
@@ -137,12 +139,12 @@ export default function GatePage() {
   // How many are still to go through — with one horse left, the button must
   // not promise a "next horse" that doesn't exist.
   const stillToGo = isTbc && liveClass
-    ? liveClass.entries.filter((e) => !e.called && !e.scratched).length
+    ? liveClass.entries.filter((e) => !e.called && e.score == null && !e.scratched).length
     : 0;
   // Highlight who's in the ring (green) and who's on deck (orange) in the
   // live class's list; horses already through fade back.
   const livePending = liveClass
-    ? liveClass.entries.filter((x) => !x.scratched && (isTbc ? !x.called : x.score == null))
+    ? liveClass.entries.filter((x) => !x.scratched && (isTbc ? !x.called && x.score == null : x.score == null))
     : [];
   // class_only / tbc_class: the WHOLE class is in the ring together — no
   // one-at-a-time order, so every active horse highlights green.
@@ -155,8 +157,8 @@ export default function GatePage() {
     // Still to go through the ring — these can be reordered for last-second
     // gate changes (horses already through, and scratches, keep their spots).
     const isTbcCls = cls.scoring_mode === "tbc";
-    const movable = !e.scratched && (isTbcCls ? !e.called : e.score == null);
-    const done = !e.scratched && (isTbcCls ? e.called : e.score != null);
+    const movable = !e.scratched && (isTbcCls ? !e.called && e.score == null : e.score == null);
+    const done = !e.scratched && (isTbcCls ? e.called || e.score != null : e.score != null);
     const isCurrent = ids.allIn ? movable : e.id === ids.currentId;
     const isNext = !ids.allIn && e.id === ids.nextId;
     const showChips = !ids.allIn;
