@@ -242,7 +242,15 @@ PR with a clear plain-English description.
   unknown clubs keep their code; no registrations = plain name). Rows still
   store `breed = 'AQHA'` (the v24 column stays as the storage default, with
   the legacy no-breed fallback for pre-v24 databases); rows under other
-  breed values are no longer displayed.
+  breed values are no longer displayed. **Two-judge shows push one column
+  per judge** (owner's rule, Sept 2026 — judges are never combined):
+  `pushToHighPoints` stores each judge's points under show_name
+  `"<event> · J1"` / `"<event> · J2"` when any class in the event has a
+  judge2 (single-judge shows keep the plain event name); the leaderboard's
+  `showLabel` renders those as "Mar '26 J1" / "Mar '26 J2" side by side
+  (same show_date, so they sort together), the Total sums both, and the
+  push's stale-row cleanup covers the plain and both per-judge names so a
+  re-push migrates an older combined column.
 - `app/membership/page.js` — public "Become a member" form (schema-v23):
   pick a membership type, contact details, optional horse details for the
   committee to review, then Square checkout (skipped when the fee is $0).

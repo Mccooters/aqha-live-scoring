@@ -55,18 +55,26 @@ function sortShows(shows, dateMap = {}) {
   });
 }
 
-// Returns "Nov '25" from a stored date; falls back to extracting month from the show name.
+// Two-judge shows are pushed as one column per judge, stored as
+// "<event> · J1" / "<event> · J2" (points are never combined across judges).
+const JUDGE_SUFFIX = /\s·\s(J[12])$/;
+
+// Returns "Nov '25" from a stored date ("Nov '25 J1" for a per-judge column);
+// falls back to extracting month from the show name.
 function showLabel(name, season, date) {
+  const judge = name.match(JUDGE_SUFFIX)?.[1];
+  const plain = name.replace(JUDGE_SUFFIX, "");
+  const withJudge = (label) => (judge ? `${label} ${judge}` : label);
   if (date) {
     const d = new Date(date + "T00:00:00");
-    return `${MONTH_ABBR[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`;
+    return withJudge(`${MONTH_ABBR[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`);
   }
-  const i = SHOW_MONTH_ORDER.findIndex(m => name.toLowerCase().includes(m));
-  const base = name.replace(/ show$/i, "");
-  if (i === -1 || !season) return base;
+  const i = SHOW_MONTH_ORDER.findIndex(m => plain.toLowerCase().includes(m));
+  const base = plain.replace(/ show$/i, "");
+  if (i === -1 || !season) return withJudge(base);
   const parts = season.split("-").map(Number);
   const year = i >= 7 ? parts[0] : parts[1];
-  return `${base} '${String(year).slice(2)}`;
+  return withJudge(`${base} '${String(year).slice(2)}`);
 }
 
 // Which season we're currently in (Aug 1 → Jul 31 cycle).
