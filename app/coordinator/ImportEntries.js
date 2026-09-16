@@ -131,8 +131,16 @@ export default function ImportEntries({ eventId, classes, onDone }) {
         }
 
         // Re-importing the same file must not double the draw: a back number
-        // already entered in this class is skipped, not inserted again.
-        const existingBacks = new Set((cls.entries ?? []).map((e) => e.back_number));
+        // already entered in this class is skipped, not inserted again. The
+        // dashboard's class list can be a stale snapshot (e.g. a results
+        // import finished moments ago in another window), so check the
+        // class's entries in the database RIGHT NOW rather than trusting it.
+        const { data: liveEntries, error: liveErr } = await supabase
+          .from("entries")
+          .select("back_number, draw_order")
+          .eq("class_id", cls.id);
+        if (liveErr) throw liveErr;
+        const existingBacks = new Set((liveEntries ?? []).map((e) => e.back_number));
         const freshRows = classRows.filter((r) => !existingBacks.has(r.back_number));
         const dupCount = classRows.length - freshRows.length;
         if (dupCount > 0) {
@@ -140,7 +148,7 @@ export default function ImportEntries({ eventId, classes, onDone }) {
         }
         if (!freshRows.length) continue;
 
-        const existingMax = Math.max(0, ...(cls.entries ?? []).map((e) => e.draw_order));
+        const existingMax = Math.max(0, ...(liveEntries ?? []).map((e) => e.draw_order ?? 0));
         const insertRows = freshRows.map((r, i) => ({
           class_id: cls.id,
           back_number: r.back_number,
