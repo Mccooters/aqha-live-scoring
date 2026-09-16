@@ -14,12 +14,20 @@ const ordinalCol = (h) => {
   return m ? parseInt(m[1], 10) : null;
 };
 const isClassNumHeader = (h) => /^(class\s*(#|no|num|number)?|#|no|num|number)$/.test(String(h ?? "").trim().toLowerCase().replace(/[^a-z#]/g, " ").replace(/\s+/g, " ").trim());
+// Modes that read a result as a SCORE (highest wins) — imported placings
+// would display and sort backwards there, so the importer offers to switch
+// them to placing order.
+const needsPlacingMode = (cls) => ["score", "tbc"].includes(cls?.scoring_mode ?? "score");
 const isClassNameHeader = (h) => /class\s*name|^name$/.test(String(h ?? "").trim().toLowerCase());
 
 export default function ImportResults({ classes, onDone }) {
   const [preview, setPreview] = useState(null); // { groups, warns }
   const [importing, setImporting] = useState(false);
   const [done, setDone] = useState(false);
+  // Old results come as placings (1st, 2nd, 3rd…) with no scores, so a class
+  // still set to 70-point scoring would show "6 / 5" and sort the wrong way
+  // round. Default: switch those classes to placing order on import.
+  const [toPlacing, setToPlacing] = useState(true);
   const [doneWarns, setDoneWarns] = useState([]);
   const [error, setError] = useState("");
 
@@ -108,8 +116,8 @@ export default function ImportResults({ classes, onDone }) {
         if (g.cards.length === 2 && !cls.judge2) {
           warns.push(`Class ${g.num}: two judges' cards, but the class has no Judge 2 set — the second card still imports as J2.`);
         }
-        if ((cls.scoring_mode ?? "score") === "score") {
-          warns.push(`Class ${g.num} is set to 70-point scoring, but this file holds placings — they'll import as placings (1, 2, 3…).`);
+        if (needsPlacingMode(cls)) {
+          warns.push(`Class ${g.num} is set to ${cls.scoring_mode === "tbc" ? "TBC draw" : "70-point scoring"} — this file holds placings, so it will be switched to placing order on import (untick the box below to leave it as is).`);
         }
         out.push({ ...g, cls });
       }
@@ -178,9 +186,12 @@ export default function ImportResults({ classes, onDone }) {
           if (updErr) throw new Error(`Class ${g.num}, back #${back}: ${updErr.message}`);
         }
 
-        if (cls.status !== "completed") {
-          const { error: stErr } = await supabase.from("classes").update({ status: "completed" }).eq("id", cls.id);
-          if (stErr) warns.push(`Class ${g.num}: results imported but the class couldn't be marked completed (${stErr.message}).`);
+        const clsPatch = {};
+        if (cls.status !== "completed") clsPatch.status = "completed";
+        if (toPlacing && needsPlacingMode(cls)) clsPatch.scoring_mode = "placing";
+        if (Object.keys(clsPatch).length) {
+          const { error: stErr } = await supabase.from("classes").update(clsPatch).eq("id", cls.id);
+          if (stErr) warns.push(`Class ${g.num}: results imported but the class couldn't be updated (${stErr.message}).`);
         }
       }
       setDoneWarns([...preview.warns, ...warns]);
@@ -263,6 +274,17 @@ export default function ImportResults({ classes, onDone }) {
               </tbody>
             </table>
           </div>
+          {preview.groups.some((g) => needsPlacingMode(g.cls)) && (
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 13, fontWeight: 600, color: "var(--leather)", marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" style={{ marginTop: 3 }} checked={toPlacing} onChange={(e) => setToPlacing(e.target.checked)} />
+              <span>
+                Switch {preview.groups.filter((g) => needsPlacingMode(g.cls)).length} class{preview.groups.filter((g) => needsPlacingMode(g.cls)).length === 1 ? "" : "es"} to placing order (1st, 2nd, 3rd…)
+                <span style={{ display: "block", fontWeight: 400, fontSize: 12, color: "var(--quiet)" }}>
+                  Recommended for old results that have placings but no scores — otherwise a class set to 70-point scoring shows &quot;6 / 5&quot; and ranks the wrong way round.
+                </span>
+              </span>
+            </label>
+          )}
           <button className="btn" style={{ width: "100%", background: "var(--leather)" }}
             disabled={importing || !preview.groups.length} onClick={commit}>
             {importing ? "Importing…" : `Import results for ${preview.groups.length} class${preview.groups.length === 1 ? "" : "es"}`}
