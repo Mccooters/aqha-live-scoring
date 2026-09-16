@@ -2829,8 +2829,8 @@ export default function Coordinator() {
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td className="display" style={{ textAlign: "right", fontWeight: 700, width: twoJudges ? 120 : 70 }}>
                         {(() => {
-                          const sc = (v) => v == null ? "?" : v === -1 ? "DQ" : mode === "placing" ? ordinal(v) : v;
-                          return twoJudges && (mode === "placing" || e.score2 != null)
+                          const sc = (v) => v == null ? "?" : v === -1 ? "DQ" : isPlacing ? ordinal(v) : v;
+                          return twoJudges && (isPlacing || e.score2 != null)
                             ? `${sc(e.score)} / ${sc(e.score2)}`
                             : sc(e.score);
                         })()}
@@ -3672,7 +3672,7 @@ export default function Coordinator() {
               const twoJ = !!entryClass?.judge2;
               const j1 = entryClass?.judge || "Judge 1";
               const j2 = entryClass?.judge2 || "Judge 2";
-              const isPlacing = eMode === "placing" || eMode === "class_only";
+              const isPlacing = eMode === "placing" || eMode === "class_only" || eMode === "tbc_class";
               const scoreLabel = isPlacing ? "Placing" : "Score";
               const scorePlaceholder = isPlacing ? null : "e.g. 72.5 or DQ";
               const ScoreInput = ({ field, label }) => isPlacing ? (
