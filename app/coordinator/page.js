@@ -848,6 +848,12 @@ export default function Coordinator() {
     const showName = currentEvent.name;
     const category = cls.hp_category;
     const isHorseCat = HP_HORSE_CATS.has(category);
+    // Two-judge shows get one leaderboard column PER JUDGE (owner's rule):
+    // points are never combined across judges, so each judge's column is
+    // stored as its own "show" — "<event> · J1" / "<event> · J2". A
+    // single-judge show keeps the plain event name as before.
+    const twoJudgeShow = classes.some((c) => c.judge2 && !c.hidden);
+    const showNameFor = (judgeIdx) => (twoJudgeShow ? `${showName} · J${judgeIdx + 1}` : showName);
 
     // Recalculate from ALL completed classes in this category so that:
     // (a) multiple classes sharing a category accumulate correctly, and
@@ -893,8 +899,9 @@ export default function Coordinator() {
       const isPlacing = ["placing", "class_only", "tbc_class"].includes(c.scoring_mode);
       // A dual-registered horse earns the same points once per breed —
       // separate leaderboard entries. No registrations known = plain name.
-      const credit = (e, pts) => {
+      const credit = (e, pts, judgeIdx = 0) => {
         if (!e) return;
+        const show = showNameFor(judgeIdx);
         const names = isHorseCat
           ? (breedsByBack[e.back_number] ?? [null]).map((l) => (l ? `${e.horse} (${l})` : e.horse))
           : [e.exhibitor];
@@ -905,10 +912,11 @@ export default function Coordinator() {
         names.forEach((raw) => {
           const name = String(raw ?? "").trim();
           if (!name) return;
-          const key = name.toLowerCase();
+          const key = `${show}||${name.toLowerCase()}`;
           const cur = pointsMap[key];
           pointsMap[key] = {
             name: cur && caps(cur.name) >= caps(name) ? cur.name : name,
+            show,
             pts: (cur?.pts ?? 0) + pts,
           };
         });
@@ -920,36 +928,38 @@ export default function Coordinator() {
       // Champion and a Reserve from different judges). Supreme earns nothing.
       if (isChampionship(c)) {
         if (/supreme/i.test(c.name ?? "")) continue;
-        ["score", ...(c.judge2 ? ["score2"] : [])].forEach((key) => {
+        ["score", ...(c.judge2 ? ["score2"] : [])].forEach((key, judgeIdx) => {
           const sorted = active
             .filter((e) => e[key] != null && e[key] !== -1)
             .sort((a, b) => (isPlacing ? a[key] - b[key] : b[key] - a[key]));
-          credit(sorted[0], 1);
-          credit(sorted[1], 0.5);
+          credit(sorted[0], 1, judgeIdx);
+          credit(sorted[1], 0.5, judgeIdx);
         });
         continue;
       }
 
-      const applyJudge = (sorted, getScore) => {
+      const applyJudge = (sorted, getScore, judgeIdx) => {
         const n = sorted.length;
         sorted.forEach((e, i) => {
           const placing = isPlacing ? Math.round(getScore(e)) : i + 1;
           const pts = calcPoints(placing, n);
           if (!pts) return;
-          credit(e, pts);
+          credit(e, pts, judgeIdx);
         });
       };
 
       applyJudge(
         [...entries].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score),
-        (e) => e.score
+        (e) => e.score,
+        0
       );
       if (c.judge2) {
         // From ALL active entries — judge 2 may have placed a horse judge 1 didn't.
         const j2 = active.filter((e) => e.score2 != null && e.score2 !== -1); // DQ earns no points
         applyJudge(
           [...j2].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2),
-          (e) => e.score2
+          (e) => e.score2,
+          1
         );
       }
     }
@@ -964,10 +974,10 @@ export default function Coordinator() {
     // deleted first and could leave the category wiped if the insert then
     // failed on a dropped connection — this way the leaderboard never ends up
     // with the data nowhere, even if one request fails mid-push.
-    const toInsert = Object.values(pointsMap).map(({ name, pts }) => ({
+    const toInsert = Object.values(pointsMap).map(({ name, show, pts }) => ({
       season, category, breed: "AQHA",
       entity_type: isHorseCat ? "horse" : "rider",
-      entity_name: name, show_name: showName, show_date: currentEvent.starts_on, points: pts,
+      entity_name: name, show_name: show, show_date: currentEvent.starts_on, points: pts,
     }));
 
     let upsertErr = null;
@@ -985,16 +995,20 @@ export default function Coordinator() {
     // Remove stale rows (entries that dropped out of the top placings since the
     // last push) by id — so nothing depends on quoting names — and only after
     // the fresh points are safely in.
-    const keepNames = new Set(toInsert.map((r) => r.entity_name));
+    // Every column this event could have written — the plain name and the
+    // per-judge ones — so switching between one and two judges (or a push
+    // made before per-judge columns existed) never leaves an old column behind.
+    const keepKeys = new Set(toInsert.map((r) => `${r.show_name}||${r.entity_name}`));
+    const eventShowNames = [showName, `${showName} · J1`, `${showName} · J2`];
     let existing = await supabase.from("high_points")
-      .select("id, entity_name")
-      .eq("season", season).eq("category", category).eq("show_name", showName).eq("breed", "AQHA");
+      .select("id, entity_name, show_name")
+      .eq("season", season).eq("category", category).in("show_name", eventShowNames).eq("breed", "AQHA");
     if (existing.error?.message?.includes("breed")) {
       existing = await supabase.from("high_points")
-        .select("id, entity_name")
-        .eq("season", season).eq("category", category).eq("show_name", showName);
+        .select("id, entity_name, show_name")
+        .eq("season", season).eq("category", category).in("show_name", eventShowNames);
     }
-    const staleIds = (existing.data ?? []).filter((r) => !keepNames.has(r.entity_name)).map((r) => r.id);
+    const staleIds = (existing.data ?? []).filter((r) => !keepKeys.has(`${r.show_name}||${r.entity_name}`)).map((r) => r.id);
     let delErr = null;
     if (staleIds.length) {
       const res = await supabase.from("high_points").delete().in("id", staleIds);
