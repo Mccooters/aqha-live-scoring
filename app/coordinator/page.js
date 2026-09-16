@@ -12,7 +12,9 @@ import ImportResults from "./ImportResults";
 
 const firstPending = (entries, mode) =>
   mode === "tbc"
-    ? entries.find((e) => !e.called && !e.scratched) ?? null
+    // A horse with a result has plainly been through — results typed in or
+    // imported after the show never get the gate's "called" tick.
+    ? entries.find((e) => !e.called && e.score == null && !e.scratched) ?? null
     : entries.find((e) => e.score == null && !e.scratched) ?? null;
 
 // All valid high-points categories in display order.
@@ -166,7 +168,7 @@ const isPdfFile = (value) => {
 function liveActivityState(cls) {
   const mode = cls.scoring_mode ?? "score";
   const active = (cls.entries ?? []).filter((e) => !e.scratched).sort((a, b) => a.draw_order - b.draw_order);
-  const cur = mode === "tbc" ? active.find((e) => !e.called) : active.find((e) => e.score == null);
+  const cur = mode === "tbc" ? active.find((e) => !e.called && e.score == null) : active.find((e) => e.score == null);
   const pos = cur ? active.findIndex((e) => e.id === cur.id) + 1 : active.length;
   const lastScored = [...active].reverse().find((e) => e.score != null);
   return {
@@ -458,7 +460,7 @@ export default function Coordinator() {
         "That horse could not be marked as shown."
       );
       if (!ok) return; // do not advance, complete, or notify on a failed write
-      const remaining = liveClass.entries.filter((e) => e.id !== current.id && !e.called && !e.scratched);
+      const remaining = liveClass.entries.filter((e) => e.id !== current.id && !e.called && e.score == null && !e.scratched);
       if (remaining.length === 0) {
         await completeClass(liveClass);
       } else {
@@ -486,7 +488,7 @@ export default function Coordinator() {
       if (liveClass) {
         const liveMode = liveClass.scoring_mode ?? "score";
         const remaining = liveMode === "tbc"
-          ? liveClass.entries.filter((e) => e.id !== entry.id && !e.called && !e.scratched)
+          ? liveClass.entries.filter((e) => e.id !== entry.id && !e.called && e.score == null && !e.scratched)
           : liveClass.entries.filter((e) => e.id !== entry.id && e.score == null && !e.scratched);
         if (remaining.length === 0) await completeClass(liveClass);
       }
@@ -497,7 +499,7 @@ export default function Coordinator() {
   const movePending = async (cls, entry, dir) => {
     const clsMode = cls.scoring_mode ?? "score";
     const pending = clsMode === "tbc"
-      ? cls.entries.filter((e) => !e.called && !e.scratched)
+      ? cls.entries.filter((e) => !e.called && e.score == null && !e.scratched)
       : cls.entries.filter((e) => e.score == null && !e.scratched);
     const pos = pending.findIndex((e) => e.id === entry.id);
     const other = pending[pos + dir];
@@ -531,7 +533,7 @@ export default function Coordinator() {
     // warn if it has entries that haven't been scored yet.
     if (liveClass && liveClass.id !== cls.id) {
       const mode = liveClass.scoring_mode ?? "score";
-      const unscored = liveClass.entries.filter((e) => !e.scratched && (mode === "tbc" ? !e.called : e.score == null)).length;
+      const unscored = liveClass.entries.filter((e) => !e.scratched && (mode === "tbc" ? !e.called && e.score == null : e.score == null)).length;
       const msg = unscored > 0
         ? `Class ${liveClass.num} (${liveClass.name}) is still live with ${unscored} ${unscored === 1 ? "entry" : "entries"} not yet ${mode === "tbc" ? "shown" : "scored"}.\n\nStarting "${cls.name}" will mark that class complete. Continue?`
         : `Class ${liveClass.num} is still live and will be marked complete. Continue?`;
@@ -1222,7 +1224,7 @@ export default function Coordinator() {
   const randomiseDraw = async () => {
     const pending = classes.flatMap((c) => {
       const m = c.scoring_mode ?? "score";
-      return c.entries.filter((e) => !e.scratched && (m === "tbc" ? !e.called : e.score == null));
+      return c.entries.filter((e) => !e.scratched && (m === "tbc" ? !e.called && e.score == null : e.score == null));
     });
     if (!pending.length) { window.alert("No pending entries to randomise."); return; }
     if (!window.confirm(
@@ -1232,7 +1234,7 @@ export default function Coordinator() {
     try {
       for (const cls of classes) {
         const m = cls.scoring_mode ?? "score";
-        const pendingInClass = cls.entries.filter((e) => !e.scratched && (m === "tbc" ? !e.called : e.score == null));
+        const pendingInClass = cls.entries.filter((e) => !e.scratched && (m === "tbc" ? !e.called && e.score == null : e.score == null));
         if (pendingInClass.length < 2) continue;
         const orders = pendingInClass.map((e) => e.draw_order);
         for (let i = orders.length - 1; i > 0; i--) {
@@ -2650,7 +2652,7 @@ export default function Coordinator() {
             });
           const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && e.score == null && !e.scratched) : [];
           const pending = isTbcDraw
-            ? cls.entries.filter((e) => !e.called && !e.scratched)
+            ? cls.entries.filter((e) => !e.called && e.score == null && !e.scratched)
             : cls.entries.filter((e) => e.score == null && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
