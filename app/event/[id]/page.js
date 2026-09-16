@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import { normaliseBreakLabel, normaliseCategoryLabel, programDisplayRows, withoutHiddenClasses } from "../../../lib/classCategories";
-import { scoreRank } from "../../../lib/showPrint";
+import { hasResult, resultOrder } from "../../../lib/showPrint";
 import { championshipTitles } from "../../../lib/championship";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -334,21 +334,13 @@ export default function EventPage() {
             // Titles are per judge: each judge's 1st is a Champion, their 2nd
             // a Reserve — a two-judge class can have two Champions.
             const titles = isChamp ? championshipTitles(cls) : null;
-            const placed = cls.entries
-              .filter((e) => e.score != null && !e.scratched)
-              .sort((a, b) => {
-                const d = isPlacingMode
-                  ? scoreRank(a.score, true) - scoreRank(b.score, true)
-                  : scoreRank(b.score, false) - scoreRank(a.score, false);
-                return d !== 0 ? d
-                  : isPlacingMode
-                    ? scoreRank(a.score2, true, 99) - scoreRank(b.score2, true, 99)
-                    : scoreRank(b.score2, false, 0) - scoreRank(a.score2, false, 0);
-              });
-            const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && e.score == null && !e.scratched) : [];
+            // A result from EITHER judge places a horse (judge 2 may place
+            // one judge 1 didn't) — only horses neither judge placed stay pending.
+            const placed = cls.entries.filter((e) => hasResult(e) && !e.scratched).sort(resultOrder(cls));
+            const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && !hasResult(e) && !e.scratched) : [];
             const pending = isTbcDraw
-              ? cls.entries.filter((e) => !e.called && e.score == null && !e.scratched)
-              : cls.entries.filter((e) => e.score == null && !e.scratched);
+              ? cls.entries.filter((e) => !e.called && !hasResult(e) && !e.scratched)
+              : cls.entries.filter((e) => !hasResult(e) && !e.scratched);
             const scratchedRows = cls.entries.filter((e) => e.scratched);
             const isLive = cls.status === "live";
             const isClassOnly = mode === "class_only";

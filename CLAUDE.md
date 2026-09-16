@@ -470,7 +470,12 @@ mode checks `score == null`. This logic is duplicated (intentionally,
 no shared package) across `app/coordinator/page.js`,
 `app/event/[id]/page.js` and `app/event/[id]/gate/page.js` (plus the
 pending-draw filters in `app/api/gate/route.js` and the schedule page) —
-keep them all in sync when changing it.
+keep them all in sync when changing it. Separately, a horse counts as
+**placed** (results list, not the pending draw) when EITHER judge gave it a
+result — `hasResult`/`resultOrder` in `lib/showPrint.js` (owner's rule,
+Sept 2026: judge 2 may place a horse judge 1 didn't, e.g. a Reserve from
+one card only); the dashboard, public event page, results page and schedule
+progress all use it, and score cells print "?" for the missing judge.
 
 ## Championship classes (schema-v43)
 

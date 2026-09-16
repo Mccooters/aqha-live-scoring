@@ -15,7 +15,7 @@ export default function SchedulePage() {
       supabase.from("events").select("*").eq("id", id).single(),
       supabase
         .from("classes")
-        .select("*, entries(id, scratched, score, called)")
+        .select("*, entries(id, scratched, score, score2, called)")
         .eq("event_id", id)
         .order("day")
         .order("sort_order"),
@@ -134,7 +134,7 @@ export default function SchedulePage() {
                         // scores only come later from paperwork.
                         const isTbcDraw = cls.scoring_mode === "tbc";
                         const scored = (cls.entries ?? []).filter(
-                          (e) => !e.scratched && (isTbcDraw ? e.called || e.score != null : e.score != null)
+                          (e) => !e.scratched && (isTbcDraw ? e.called || e.score != null || e.score2 != null : e.score != null || e.score2 != null)
                         ).length;
                         const isLive = cls.status === "live";
                         return (
