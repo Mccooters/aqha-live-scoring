@@ -1839,12 +1839,11 @@ export default function Coordinator() {
   // keep ONE entry per back number — the copy with a result wins, then a
   // scratched copy, then the earliest in the draw. Two copies with DIFFERENT
   // results are never touched; those are listed for staff to fix by hand.
-  const removeDuplicateEntries = async () => {
-    if (busy) return;
+  const findDuplicateEntries = (clsList) => {
     const toDelete = [];
     const conflicts = [];
     let affectedClasses = 0;
-    for (const cls of classes) {
+    for (const cls of clsList) {
       const byBack = new Map();
       for (const e of cls.entries) {
         byBack.set(e.back_number, [...(byBack.get(e.back_number) ?? []), e]);
@@ -1865,6 +1864,15 @@ export default function Coordinator() {
       }
       if (hit) affectedClasses += 1;
     }
+    return { toDelete, conflicts, affectedClasses };
+  };
+
+  const classHasDuplicates = (cls) =>
+    (cls.entries?.length ?? 0) > new Set((cls.entries ?? []).map((e) => e.back_number)).size;
+
+  const removeDuplicateEntries = async (clsList) => {
+    if (busy) return;
+    const { toDelete, conflicts, affectedClasses } = findDuplicateEntries(clsList);
     if (!toDelete.length) {
       window.alert(conflicts.length
         ? "No duplicates were safe to remove automatically, but these horses have TWO DIFFERENT results in the same class — open each class and delete the wrong copy by hand:\n\n" + conflicts.join("\n")
@@ -1879,12 +1887,25 @@ export default function Coordinator() {
     )) return;
     setBusy(true);
     try {
-      const { error } = await supabase.from("entries").delete().in("id", toDelete);
-      if (error) { window.alert("Could not remove duplicates: " + error.message); return; }
-      await loadClasses();
-      if (conflicts.length) {
-        window.alert("Duplicates removed. Still to fix by hand (two different results for the same horse):\n\n" + conflicts.join("\n"));
+      // Delete in small batches — one giant request with hundreds of ids can
+      // be refused outright by the server, which looks like "nothing
+      // happened". Partial progress is reported if a batch fails.
+      let removed = 0;
+      for (let i = 0; i < toDelete.length; i += 50) {
+        const chunk = toDelete.slice(i, i + 50);
+        const { error } = await supabase.from("entries").delete().in("id", chunk);
+        if (error) {
+          await loadClasses();
+          window.alert(`Stopped after removing ${removed} of ${toDelete.length} duplicates — ${error.message}\n\nRun Remove duplicates again to finish the rest.`);
+          return;
+        }
+        removed += chunk.length;
       }
+      await loadClasses();
+      window.alert(
+        `✓ Removed ${removed} duplicate entr${removed === 1 ? "y" : "ies"}.` +
+        (conflicts.length ? `\n\nStill to fix by hand (two different results for the same horse):\n${conflicts.join("\n")}` : "")
+      );
     } finally {
       setBusy(false);
     }
@@ -2357,7 +2378,7 @@ export default function Coordinator() {
                 ⌫ Clear results
               </button>
             )}
-            <button className="btn-ghost" onClick={removeDuplicateEntries} disabled={busy || !eventId || classes.length === 0}
+            <button className="btn-ghost" onClick={() => removeDuplicateEntries(classes)} disabled={busy || !eventId || classes.length === 0}
               title="If horses ended up entered twice in the same class (e.g. entries and results imported separately), this keeps the copy with the result and removes the spare">
               🧹 Remove duplicates
             </button>
@@ -2712,6 +2733,7 @@ export default function Coordinator() {
                             if (res && !res.ok) window.alert("High points could not be updated — check your internet connection and try again.");
                             else if (res && res.ok) window.alert("High points updated.");
                           } },
+                          { label: "🧹 Remove duplicates here", show: classHasDuplicates(cls), onClick: () => removeDuplicateEntries([cls]) },
                           { label: "✓ Mark completed", show: cls.status === "upcoming" && !isClinic, onClick: () => completeClassManual(cls) },
                           { label: "Reopen (back to upcoming)", show: cls.status === "completed" && !isClinic, onClick: () => reopenClass(cls) },
                           { label: "Hide from schedule", show: cls.status === "upcoming", onClick: () => hideClass(cls) },
