@@ -1371,6 +1371,9 @@ export default function Coordinator() {
       const seed = classes.find((c) => c.judge?.trim() || c.judge2?.trim()) ?? classes[0];
       initialForm = { judge: seed?.judge ?? "", judge2: seed?.judge2 ?? "" };
     }
+    if (type === "clearResults") {
+      initialForm = { resetStatus: true, deleteEntries: false };
+    }
     if (type === "editEvent" && extra.event) {
       const ev = extra.event;
       initialForm = {
@@ -1784,6 +1787,51 @@ export default function Coordinator() {
     if (error) { setFormError(error.message); return; }
     await loadClasses();
     closeModal();
+  };
+
+  // "Start over" for a bad results import (or any wrong batch of results):
+  // blanks every score in the event, optionally puts completed classes back
+  // to upcoming and — for a full restart — removes the entries themselves.
+  const submitClearResults = async () => {
+    const classIds = classes.map((c) => c.id);
+    if (!classIds.length) { setFormError("This event has no classes."); return; }
+    const scoredCount = classes.reduce((s, c) => s + c.entries.filter((e) => e.score != null || e.score2 != null).length, 0);
+    const entryCount = classes.reduce((s, c) => s + c.entries.length, 0);
+    const completedCount = classes.filter((c) => c.status === "completed").length;
+    const wipe = Boolean(form.deleteEntries);
+    const reset = Boolean(form.resetStatus);
+    const lines = wipe
+      ? [`DELETE all ${entryCount} entries from every class in this event (the horses listed in each class, including scratches).`,
+         "Online registration records and payments are NOT touched, but the entries they created will be gone until you re-import or re-add them."]
+      : [`Blank ${scoredCount} score${scoredCount === 1 ? "" : "s"} across the event — every horse stays in its class, just with no result.`];
+    if (reset && completedCount) lines.push(`Put ${completedCount} completed class${completedCount === 1 ? "" : "es"} back to "upcoming".`);
+    if (!window.confirm(`Clear this event's results so you can start again?\n\nThis will:\n• ${lines.join("\n• ")}\n\nThis can't be undone. High points already pushed are NOT removed — re-push after re-importing and the numbers overwrite.`)) return;
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (wipe) {
+        const { error } = await supabase.from("entries").delete().in("class_id", classIds);
+        if (error) { setFormError(error.message); return; }
+      } else {
+        const { error } = await supabase
+          .from("entries")
+          .update({ score: null, score2: null, called: false })
+          .in("class_id", classIds);
+        if (error) { setFormError(error.message); return; }
+      }
+      if (reset) {
+        const { error } = await supabase
+          .from("classes")
+          .update({ status: "upcoming" })
+          .eq("event_id", eventId)
+          .eq("status", "completed");
+        if (error) { setFormError(error.message); return; }
+      }
+      await loadClasses();
+      closeModal();
+    } finally {
+      setBusy(false);
+    }
   };
 
   const submitPattern = async () => {
@@ -2229,6 +2277,13 @@ export default function Coordinator() {
               <button className="btn-ghost" onClick={() => openModal("importResults")} disabled={!eventId || classes.length === 0}
                 title="Type in a past show in one go: a spreadsheet of the judges' cards (Class #, 1st, 2nd, 3rd…) fills the results and completes the classes">
                 ⇪ Import results
+              </button>
+            )}
+            {!isClinic && (
+              <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)" }}
+                onClick={() => openModal("clearResults")} disabled={!eventId || classes.length === 0}
+                title="Start over after a bad results import: blank every score in this event so a corrected file can be imported">
+                ⌫ Clear results
               </button>
             )}
             {!isClinic && (
@@ -3416,6 +3471,54 @@ export default function Coordinator() {
                 onDone={() => { closeModal(); loadClasses(); }}
               />
             )}
+
+            {modal.type === "clearResults" && (() => {
+              const scoredCount = classes.reduce((s, c) => s + c.entries.filter((e) => e.score != null || e.score2 != null).length, 0);
+              const entryCount = classes.reduce((s, c) => s + c.entries.length, 0);
+              const completedCount = classes.filter((c) => c.status === "completed").length;
+              return (
+                <>
+                  <h2 className="display modal-title">Clear this event&apos;s results</h2>
+                  <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
+                    For starting over after a bad results import (or any wrong batch of results). Right now this event has{" "}
+                    <strong>{scoredCount}</strong> score{scoredCount === 1 ? "" : "s"} across <strong>{classes.length}</strong> class{classes.length === 1 ? "" : "es"}
+                    {completedCount ? <> ({completedCount} completed)</> : null}. Fix your spreadsheet first, clear here, then use &quot;⇪ Import results&quot; again.
+                  </p>
+                  <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 13.5, fontWeight: 600, color: "var(--leather)", marginBottom: 10, cursor: "pointer" }}>
+                    <input type="checkbox" style={{ marginTop: 3 }} checked={Boolean(form.resetStatus)}
+                      onChange={(e) => setForm((f) => ({ ...f, resetStatus: e.target.checked }))} />
+                    <span>
+                      Put completed classes back to &quot;upcoming&quot;
+                      <span style={{ display: "block", fontWeight: 400, fontSize: 12, color: "var(--quiet)" }}>
+                        Recommended — re-importing marks them completed again. Untick only if you want them to stay showing as completed.
+                      </span>
+                    </span>
+                  </label>
+                  <label style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 13.5, fontWeight: 600, color: "var(--clay)", marginBottom: 10, cursor: "pointer" }}>
+                    <input type="checkbox" style={{ marginTop: 3 }} checked={Boolean(form.deleteEntries)}
+                      onChange={(e) => setForm((f) => ({ ...f, deleteEntries: e.target.checked }))} />
+                    <span>
+                      Also delete the entries themselves ({entryCount} in total)
+                      <span style={{ display: "block", fontWeight: 400, fontSize: 12, color: "var(--quiet)" }}>
+                        Tick this if the import put horses in the wrong classes — every class starts empty again and the corrected import
+                        recreates them. Leave it off to keep the horses in their classes and just blank the scores. Online registration
+                        records and payments are never touched either way.
+                      </span>
+                    </span>
+                  </label>
+                  <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                    High points already pushed are not removed by this — after re-importing, push to High Points again and the numbers overwrite.
+                  </p>
+                  {formError && <p className="modal-error">{formError}</p>}
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    <button className="btn" style={{ flex: 1, background: "var(--clay)" }} onClick={submitClearResults} disabled={busy}>
+                      {busy ? "Clearing…" : form.deleteEntries ? "Clear results & delete entries" : "Clear all results"}
+                    </button>
+                    <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                  </div>
+                </>
+              );
+            })()}
 
             {modal.type === "bulkJudges" && (
               <>
