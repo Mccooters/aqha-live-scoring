@@ -530,6 +530,15 @@ each with its own `capacity`) instead of a normal scored show.
   sequential placeholder.
 - Public event page shows a registration-only view (no live scoring banner)
   with per-spot-type availability, "Sold out"/"Closed"/"Coming soon" states.
+- **Close bookings per spot type (schema-v51)**: `classes.entries_closed`
+  (owner's rule, Sept 2026 — rider spots have a limit and a deadline, fence
+  sitting has neither, so the two close at different times). Toggled from a
+  clinic spot type's ⋯ menu on the dashboard ("Close/Reopen bookings for
+  this spot type", BOOKINGS CLOSED badge); the entry form and public clinic
+  page treat a closed type like a full one ("Bookings closed"), the whole
+  form reads "Bookings closed" rather than "Sold out" when every type is
+  staff-closed, and `registrations/create` rejects entries into a closed
+  type. The event-level "Close entries" still shuts everything at once.
 - Capacity is enforced server-side in `app/api/registrations/create/route.js`
   by counting non-scratched `entries` rows against `classes.capacity` —
   there's a small race window under simultaneous submissions right at the

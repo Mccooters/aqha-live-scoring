@@ -1290,6 +1290,22 @@ export default function Coordinator() {
     await loadClasses();
   };
 
+  // Close / reopen bookings for ONE spot type (schema-v51) — e.g. shut the
+  // rider spots once their deadline passes while fence sitting, which has no
+  // limit, keeps taking bookings until "Close entries" shuts the lot.
+  const toggleBookingsClosed = async (cls) => {
+    const closing = !cls.entries_closed;
+    if (closing && !window.confirm(`Close bookings for "${cls.name}"?\n\nIt disappears from the online booking form straight away (other spot types stay open). You can reopen it any time from this menu.`)) return;
+    const { error } = await supabase.from("classes").update({ entries_closed: closing }).eq("id", cls.id);
+    if (error) {
+      window.alert(/entries_closed|does not exist|schema cache/i.test(error.message ?? "")
+        ? 'Closing a single spot type needs a one-time database update — run "schema-v51-spot-type-closed.sql" in the Supabase SQL Editor first.'
+        : error.message);
+      return;
+    }
+    await loadClasses();
+  };
+
   const unhideClass = async (cls) => {
     const { error } = await supabase.from("classes").update({ hidden: false }).eq("id", cls.id);
     if (error) { window.alert(/hidden/i.test(error.message ?? "") ? HIDE_MIGRATION_HINT : error.message); return; }
@@ -2701,11 +2717,19 @@ export default function Coordinator() {
                       }
                     </div>
                   )}
-                  {cls.capacity != null && (
-                    <div style={{ fontSize: 12, marginTop: 2 }}>
-                      <span style={{ background: isFull ? "var(--clay)" : confirmedSpots >= cls.capacity * 0.8 ? "#A05000" : "var(--green)", color: "#fff", borderRadius: 8, padding: "1px 8px", fontWeight: 700 }}>
-                        {confirmedSpots} / {cls.capacity} spots
-                      </span>
+                  {(cls.capacity != null || cls.entries_closed) && (
+                    <div style={{ fontSize: 12, marginTop: 2, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {cls.capacity != null && (
+                        <span style={{ background: isFull ? "var(--clay)" : confirmedSpots >= cls.capacity * 0.8 ? "#A05000" : "var(--green)", color: "#fff", borderRadius: 8, padding: "1px 8px", fontWeight: 700 }}>
+                          {confirmedSpots} / {cls.capacity} spots
+                        </span>
+                      )}
+                      {cls.entries_closed && (
+                        <span style={{ background: "#F3EEE4", border: "1px solid #D8D0C3", color: "#6E6254", borderRadius: 8, padding: "0 8px", fontWeight: 800, fontSize: 11 }}
+                          title="Staff closed online bookings for this spot type — reopen from the ⋯ menu">
+                          BOOKINGS CLOSED
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2745,6 +2769,7 @@ export default function Coordinator() {
                           { label: "🧹 Remove duplicates here", show: classHasDuplicates(cls), onClick: () => removeDuplicateEntries([cls]) },
                           { label: "✓ Mark completed", show: cls.status === "upcoming" && !isClinic, onClick: () => completeClassManual(cls) },
                           { label: "Reopen (back to upcoming)", show: cls.status === "completed" && !isClinic, onClick: () => reopenClass(cls) },
+                          { label: cls.entries_closed ? "Reopen bookings for this spot type" : "Close bookings for this spot type", show: isClinic && cls.status === "upcoming", onClick: () => toggleBookingsClosed(cls) },
                           { label: "Hide from schedule", show: cls.status === "upcoming", onClick: () => hideClass(cls) },
                           { label: "Delete class", show: cls.status === "upcoming", danger: true, onClick: () => deleteClass(cls) },
                         ].filter((a) => a.show).map((a) => (
