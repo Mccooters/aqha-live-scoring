@@ -644,14 +644,20 @@ export default function RegisterPage() {
     if (membershipStatus === "member") { setDayMembership(false); setAnnualJoin(false); }
   }, [membershipStatus]);
 
-  const classIsFull = (cls) => cls.capacity != null && (spotsTaken[cls.id] ?? 0) >= cls.capacity;
+  // "Full" covers both a spot limit reached and bookings closed by staff for
+  // that one type (schema-v51) — e.g. rider spots shut while fence sitting
+  // stays open. Either way the type can't be picked.
+  const classIsClosed = (cls) => cls.entries_closed === true;
+  const classIsFull = (cls) => classIsClosed(cls) || (cls.capacity != null && (spotsTaken[cls.id] ?? 0) >= cls.capacity);
   const spotsLabel = (cls) => {
     const parts = [];
     if (isClinic) {
       const fee = classFeeCents(cls, event);
       if (fee > 0) parts.push(fmtMoney(fee));
     }
-    if (cls.capacity != null) {
+    if (classIsClosed(cls)) {
+      parts.push("Bookings closed");
+    } else if (cls.capacity != null) {
       const remaining = cls.capacity - (spotsTaken[cls.id] ?? 0);
       parts.push(remaining <= 0 ? "Full" : `${remaining} spot${remaining === 1 ? "" : "s"} remaining`);
     }
@@ -659,6 +665,7 @@ export default function RegisterPage() {
   };
   const availableClasses = classes.filter((c) => !classIsFull(c));
   const allFull = classes.length > 0 && availableClasses.length === 0;
+  const allClosedByStaff = allFull && classes.every((c) => classIsClosed(c));
   const classLabel = (classId) => {
     const cls = classes.find((c) => c.id === classId);
     if (!cls) return "this class";
@@ -1030,8 +1037,12 @@ export default function RegisterPage() {
 
   if (entriesOpen && allFull) return (
     <main className="wrap" style={{ maxWidth: 500, textAlign: "center", paddingTop: 40 }}>
-      <div className="display" style={{ fontSize: 22, fontWeight: 700, marginBottom: 10 }}>Sold out</div>
-      <p style={{ color: "var(--quiet)" }}>All spots for this {isClinic ? "clinic" : "event"} are now full. Please contact the organiser if you have any questions.</p>
+      <div className="display" style={{ fontSize: 22, fontWeight: 700, marginBottom: 10 }}>{allClosedByStaff ? "Bookings closed" : "Sold out"}</div>
+      <p style={{ color: "var(--quiet)" }}>
+        {allClosedByStaff
+          ? `Bookings for this ${isClinic ? "clinic" : "event"} have closed. Please contact the organiser if you have any questions.`
+          : `All spots for this ${isClinic ? "clinic" : "event"} are now full. Please contact the organiser if you have any questions.`}
+      </p>
       <Link href={`/event/${eventId}`} style={{ color: "var(--brass)", fontSize: 14 }}>← View event</Link>
     </main>
   );
@@ -1359,7 +1370,9 @@ export default function RegisterPage() {
 
                 {isFull && (
                   <p style={{ fontSize: 12.5, color: "var(--clay)", marginTop: 4, fontWeight: 600 }}>
-                    This spot type is now full — please select another.
+                    {selectedCls && classIsClosed(selectedCls)
+                      ? "Bookings for this spot type have closed — please select another."
+                      : "This spot type is now full — please select another."}
                   </p>
                 )}
 

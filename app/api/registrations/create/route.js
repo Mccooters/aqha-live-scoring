@@ -213,6 +213,14 @@ export async function POST(req) {
           { status: 409 }
         );
       }
+      // Bookings closed for this one spot type by staff (schema-v51) — the
+      // form hides it, but never trust the form.
+      if (cls.entries_closed === true) {
+        return NextResponse.json(
+          { error: `Bookings for "${cls.name || `Class ${cls.num}`}" have closed. Please contact the organiser.` },
+          { status: 409 }
+        );
+      }
     }
 
     // Capacity check — reject if any requested class is full

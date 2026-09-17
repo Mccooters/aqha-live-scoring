@@ -221,13 +221,18 @@ export default function EventPage() {
   if (isClinic) {
     const isOpen = event.status === "open" || event.status === "upcoming";
     const isDone = event.status === "completed" || event.status === "archived";
+    // A spot type is unavailable when its limit is reached OR staff have
+    // closed bookings for it (schema-v51) — e.g. rider spots shut while fence
+    // sitting keeps taking bookings.
     const spotsRows = classes.map((cls) => {
       const taken = cls.entries.filter((e) => !e.scratched).length;
-      const full = cls.capacity != null && taken >= cls.capacity;
+      const closed = cls.entries_closed === true;
+      const full = closed || (cls.capacity != null && taken >= cls.capacity);
       const remaining = cls.capacity != null ? cls.capacity - taken : null;
-      return { cls, taken, full, remaining };
+      return { cls, taken, full, closed, remaining };
     });
     const allFull = spotsRows.length > 0 && spotsRows.every((r) => r.full);
+    const allClosedByStaff = allFull && spotsRows.every((r) => r.closed);
     return (
       <>
         <header className="header">
@@ -259,15 +264,17 @@ export default function EventPage() {
             <>
               {allFull ? (
                 <section className="card" style={{ background: "var(--clay)", color: "#fff", padding: "18px 20px", textAlign: "center" }}>
-                  <div className="display" style={{ fontWeight: 700, fontSize: 22 }}>Sold out</div>
-                  <p style={{ margin: "4px 0 0", opacity: .85 }}>All spots are taken. Contact the organiser to be added to a waiting list.</p>
+                  <div className="display" style={{ fontWeight: 700, fontSize: 22 }}>{allClosedByStaff ? "Bookings closed" : "Sold out"}</div>
+                  <p style={{ margin: "4px 0 0", opacity: .85 }}>
+                    {allClosedByStaff ? "Bookings for this clinic have closed. Contact the organiser with any questions." : "All spots are taken. Contact the organiser to be added to a waiting list."}
+                  </p>
                 </section>
               ) : (
                 <section className="card" style={{ padding: "18px 20px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
                     <div>
                       <div className="display" style={{ fontWeight: 700, fontSize: 20, marginBottom: 4 }}>Registrations open</div>
-                      {spotsRows.map(({ cls, taken, full, remaining }) => {
+                      {spotsRows.map(({ cls, taken, full, closed, remaining }) => {
                         const fee = cls.fee_cents ?? event.entry_fee_cents ?? 0;
                         const dep = cls.deposit_cents ?? 0;
                         return (
@@ -275,9 +282,11 @@ export default function EventPage() {
                             <strong>{cls.name}</strong>
                             {fee > 0 && ` — $${(fee / 100).toFixed(2).replace(/\.00$/, "")}`}
                             {dep > 0 && dep < fee && ` (or $${(dep / 100).toFixed(2).replace(/\.00$/, "")} deposit)`}
-                            {remaining != null
-                              ? full ? " — Full" : ` — ${remaining} spot${remaining === 1 ? "" : "s"} remaining`
-                              : null}
+                            {closed
+                              ? " — Bookings closed"
+                              : remaining != null
+                                ? full ? " — Full" : ` — ${remaining} spot${remaining === 1 ? "" : "s"} remaining`
+                                : null}
                           </div>
                         );
                       })}

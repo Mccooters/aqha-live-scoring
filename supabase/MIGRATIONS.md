@@ -186,6 +186,12 @@ hasn't been run.
         balance marks itself paid when the payments add up. Without it,
         balances stay all-or-nothing.
 
+- [ ] **v51** — `schema-v51-spot-type-closed.sql`
+      → **close bookings for one spot type**: lets you shut a clinic's
+        rider spots (from the spot type's ⋯ menu) while fence sitting stays
+        open, then "Close entries" shuts everything. Without it the menu
+        item shows a reminder to run this file.
+
 Tick these off once you've run them.
 
 ---
@@ -244,6 +250,7 @@ Tick these off once you've run them.
 | `schema-v48-committee-viewers.sql` | Committee read-only staff accounts (staff_viewers + restrictive no-write policies) |
 | `schema-v49-program-presets.sql` | Shared program presets: saved program layouts every staff login can apply from the Program builder |
 | `schema-v50-partial-balance.sql` | Part payments on clinic balances: payments log, counts down what's owing, auto-marks paid in full |
+| `schema-v51-spot-type-closed.sql` | Close online bookings for a single clinic spot type (`classes.entries_closed`) while others stay open |
 
 ## For whoever updates the code next
 
