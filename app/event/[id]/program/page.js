@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
 import { programDisplayRows, withoutHiddenClasses } from "../../../../lib/classCategories";
-import { activeEntries, BEGINNER_RULES, dateRange, dayDate, drawIsPublished, fmtBack, HCQHA_RULES } from "../../../../lib/showPrint";
+import { activeEntries, BEGINNER_RULES, dateRange, dayDate, drawIsPublished, fmtBack, HCQHA_RULES, IMPROVER_RULES } from "../../../../lib/showPrint";
 
 // The program is laid out into explicit A4 pages, each with three columns that
 // we pack ourselves (by measuring every item's real height). This avoids
@@ -115,12 +115,14 @@ function buildItems(dayClasses, showDraw) {
     const cls = row.cls;
     return { key: row.key, kind: "class", cls, entries: showDraw ? activeEntries(cls) : [] };
   });
-  items.push({ key: "note", kind: "note", text: "All Beginner and EWD classes are walk/jog or walk/trot only." });
+  items.push({ key: "note", kind: "note", text: "All EWD classes are walk/jog or walk/trot only." });
   items.push({ key: "finish", kind: "break", label: "FINISH" });
   items.push({ key: "hcqha-title", kind: "rulesTitle", label: "HCQHA Rules" });
   HCQHA_RULES.forEach((rule, i) => items.push({ key: `hcqha-${i}`, kind: "ruleLine", text: rule }));
   items.push({ key: "beg-title", kind: "rulesTitle", label: "Beginner Rules" });
   BEGINNER_RULES.forEach((rule, i) => items.push({ key: `beg-${i}`, kind: "ruleLine", text: rule }));
+  items.push({ key: "imp-title", kind: "rulesTitle", label: "Improver Rules" });
+  IMPROVER_RULES.forEach((rule, i) => items.push({ key: `imp-${i}`, kind: "ruleLine", text: rule }));
   return items;
 }
 
