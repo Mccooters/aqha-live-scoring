@@ -256,7 +256,13 @@ PR with a clear plain-English description.
   `showLabel` renders those as "Mar '26 J1" / "Mar '26 J2" side by side
   (same show_date, so they sort together), the Total sums both, and the
   push's stale-row cleanup covers the plain and both per-judge names so a
-  re-push migrates an older combined column.
+  re-push migrates an older combined column. Each leaderboard row shows
+  the registry number under the name (horse back number from `horses`,
+  rider association numbers from `riders`/`rider_registrations`; breed
+  suffix stripped before the name match; decoration only — no match, no
+  line). Only COMPLETED classes are ever pushed; the dashboard flags an
+  upcoming class that already holds results ("⚠ Has results but isn't
+  completed") with an inline ✓ Mark completed button.
 - `app/membership/page.js` — public "Become a member" form (schema-v23):
   pick a membership type, contact details, optional horse details for the
   committee to review, then Square checkout (skipped when the fee is $0).

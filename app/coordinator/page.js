@@ -2755,6 +2755,14 @@ export default function Coordinator() {
                       HP: {cls.hp_category}
                     </div>
                   )}
+                  {cls.status === "upcoming" && !isClinic && placed.length > 0 && (
+                    <div style={{ fontSize: 11.5, color: "#A05000", marginTop: 3, fontWeight: 700, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+                      title="Results have been entered but the class was never marked completed, so it is not counted for High Points or the results page">
+                      <span>⚠ Has results but isn&apos;t completed{cls.hp_category ? " — not counted in High Points" : ""}</span>
+                      <button className="btn-ghost" style={{ padding: "1px 8px", fontSize: 11.5, borderColor: "#A05000", color: "#A05000" }}
+                        onClick={() => completeClassManual(cls)} disabled={busy}>✓ Mark completed</button>
+                    </div>
+                  )}
                   {isChampionship(cls) && (
                     <div style={{ fontSize: 11, color: "#7A5C10", marginTop: 2, fontWeight: 700 }}>
                       🏆 Championship — fills with {cls.champ_take === "top1" ? "the winner" : "1st & 2nd"} from classes {
