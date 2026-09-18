@@ -94,7 +94,11 @@ export async function POST(req) {
       idempotency_key: randomUUID(),
       order: {
         location_id: process.env.SQUARE_LOCATION_ID,
-        reference_id: `balance-${reg.id}`,
+        // Square caps reference_id at 40 chars — a "balance-" prefix on the
+        // 36-char uuid blew past it and Square refused every balance link
+        // ("Field must not be greater than 40 length"). The webhook matches
+        // balance orders by order id (balance_order_ids), never by this.
+        reference_id: reg.id,
         line_items: [{
           name: `${isPart ? "Balance part payment" : "Balance"} — ${reg.event?.name ?? "clinic"}`,
           quantity: "1",
