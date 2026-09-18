@@ -239,7 +239,13 @@ PR with a clear plain-English description.
   `pushToHighPoints` looks up `horse_registrations` by back number and
   splits automatically (club → suffix map `BREED_SUFFIX` in
   `app/coordinator/page.js`: AQHA→QH, PHAA/APHA→Paint, AAA/APHCA→Appaloosa,
-  unknown clubs keep their code; no registrations = plain name). Rows still
+  unknown clubs keep their code; no registrations = plain name). A
+  BREED-SPECIFIC class (name/program heading mentions QH/Quarter Horse,
+  Paint/Paint Bred, Appaloosa or Other Breeds — `breedOfClass()`) credits
+  ONLY that breed's name, so a dual QH/Paint horse's QH halter wins never
+  land on "(Paint)" (owner's report, Sept 2026 — both names were getting
+  the sum); breed-neutral classes (Showmanship, HUS, Trail…) credit every
+  registered breed. Rows still
   store `breed = 'AQHA'` (the v24 column stays as the storage default, with
   the legacy no-breed fallback for pre-v24 databases); rows under other
   breed values are no longer displayed. **Two-judge shows push one column

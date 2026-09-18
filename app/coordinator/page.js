@@ -154,6 +154,21 @@ const breedLabel = (club) => {
   return BREED_SUFFIX[key] ?? String(club).trim();
 };
 
+// Which breed a class belongs to, from its name / program heading — "QH Colt
+// 1 year & under", "Paint Bred Mare 4 yrs & over", "APPALOOSA HALTER". A
+// breed-specific class only earns points for THAT breed's leaderboard name
+// (a dual QH/Paint horse's QH halter wins never count for "(Paint)"); a class
+// with no breed in its name (Showmanship, HUS, Trail…) is open to every
+// breed and credits each registration, as before. null = breed-neutral.
+const breedOfClass = (cls) => {
+  const text = `${cls?.program_category ?? ""} ${cls?.name ?? ""}`;
+  if (/\b(paint|phaa|apha)\b/i.test(text)) return "Paint";
+  if (/\b(appaloosa|appy|aaa|aphca)\b/i.test(text)) return "Appaloosa";
+  if (/\b(qh|quarter\s*horse|aqha)\b/i.test(text)) return "QH";
+  if (/\bother\s*breeds?\b/i.test(text)) return "Other Breed";
+  return null;
+};
+
 const fmtBack = (n) => String(n).padStart(3, "0");
 const ordinal = (n) => { const s = ["th","st","nd","rd"]; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
 const cleanFilename = (value, fallback = "classes") =>
@@ -899,12 +914,15 @@ export default function Coordinator() {
       const isPlacing = ["placing", "class_only", "tbc_class"].includes(c.scoring_mode);
       // A dual-registered horse earns the same points once per breed —
       // separate leaderboard entries. No registrations known = plain name.
+      const classBreed = isHorseCat ? breedOfClass(c) : null;
       const credit = (e, pts, judgeIdx = 0) => {
         if (!e) return;
         const show = showNameFor(judgeIdx);
-        const names = isHorseCat
-          ? (breedsByBack[e.back_number] ?? [null]).map((l) => (l ? `${e.horse} (${l})` : e.horse))
-          : [e.exhibitor];
+        const names = !isHorseCat
+          ? [e.exhibitor]
+          : classBreed
+            ? [`${e.horse} (${classBreed})`]
+            : (breedsByBack[e.back_number] ?? [null]).map((l) => (l ? `${e.horse} (${l})` : e.horse));
         // Names accumulate case-insensitively — "Elise Lennon" typed lowercase
         // on one entry is still the same person; keep the better-capitalised
         // spelling for display.
