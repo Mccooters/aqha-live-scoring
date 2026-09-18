@@ -518,7 +518,8 @@ coordinator page auto-fills. Rules:
   horse that is one judge's Champion and the other's Reserve reads as
   Champion); used by the public event page, results page and dashboard.
   **Club high points**: Champion = 1 pt, Reserve = 0.5 pt per judge (a
-  horse can collect 1 + 0.5 across the two judges); Supreme earns nothing.
+  horse can collect 1 + 0.5 across the two judges); Grand Champion and
+  Supreme earn nothing (titles only — owner's rule, Sept 2026).
   Implemented in `pushToHighPoints` — ordinary classes keep the
   `calcPoints` per-judge scale.
 
@@ -693,7 +694,8 @@ placing, back, horse, exhibitor, score(s), SCR rows, registrations string),
 points via `calcPoints()` — for two-judge classes, each judge's placings are
 exported as independent rows since they are never combined). Championship
 classes use the SAME rule as the High Points leaderboard (owner's decision,
-Sept 2026: Champion = 1, Reserve = 0.5 per judge, Supreme = 0) so the
+Sept 2026: Champion = 1, Reserve = 0.5 per judge, Grand Champion and
+Supreme = 0) so the
 export and the leaderboard always agree. This is the sheet used to submit
 points to each association.
 

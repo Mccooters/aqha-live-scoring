@@ -945,7 +945,8 @@ export default function Coordinator() {
       // so a two-judge class awards two of each (a horse can collect both a
       // Champion and a Reserve from different judges). Supreme earns nothing.
       if (isChampionship(c)) {
-        if (/supreme/i.test(c.name ?? "")) continue;
+        // Grand Champion and Supreme are titles only — no club points.
+        if (/supreme|grand/i.test(c.name ?? "")) continue;
         ["score", ...(c.judge2 ? ["score2"] : [])].forEach((key, judgeIdx) => {
           const sorted = active
             .filter((e) => e[key] != null && e[key] !== -1)
@@ -2219,7 +2220,7 @@ export default function Coordinator() {
         // classes by entries, championships Champion = 1 / Reserve = 0.5 per
         // judge, Supreme earns nothing.
         const champ = isChampionship(cls);
-        const supreme = champ && /supreme/i.test(cls.name ?? "");
+        const supreme = champ && /supreme|grand/i.test(cls.name ?? ""); // Grand Champion & Supreme: titles only
         const pointsFor = (placing) => supreme ? 0
           : champ ? (placing === 1 ? 1 : placing === 2 ? 0.5 : 0)
           : calcPoints(placing, competing);
