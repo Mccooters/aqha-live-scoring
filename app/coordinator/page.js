@@ -494,6 +494,7 @@ export default function Coordinator() {
       scratching ? "That scratch could not be saved." : "Restoring that entry could not be saved."
     );
     if (!ok) return; // do not notify or complete the class on a failed write
+    await refreshHighPointsFor(classOfEntry(entry));
     if (scratching) {
       // Only ping spectators while the show is on — tidying results
       // afterwards shouldn't buzz anyone's phone.
@@ -1370,12 +1371,25 @@ export default function Coordinator() {
     }
   };
 
+  // Any correction to a COMPLETED class that feeds High Points — a fixed
+  // exhibitor name (results imports default it to the horse's registry
+  // owner, which is wrong when someone else rode), a re-typed score, a
+  // scratch, a deletion — re-pushes that category so the leaderboard never
+  // keeps a stale name or total from the earlier push.
+  const refreshHighPointsFor = async (cls) => {
+    if (!cls || cls.status !== "completed" || !cls.hp_category || isClinic) return;
+    await pushToHighPoints(cls);
+  };
+  const classOfEntry = (entry) => classes.find((c) => c.entries.some((e) => e.id === entry?.id));
+
   const deleteEntry = async (entry) => {
     const msg = entry.score != null
       ? `Remove #${fmtBack(entry.back_number)} ${entry.horse}?\n\nThis entry has a score of ${entry.score} recorded. Deleting it is permanent.`
       : `Remove #${fmtBack(entry.back_number)} ${entry.horse} from the draw?`;
     if (!window.confirm(msg)) return;
+    const cls = classOfEntry(entry);
     await supabase.from("entries").delete().eq("id", entry.id);
+    await refreshHighPointsFor(cls);
   };
 
   // ---- modal ----
@@ -1739,7 +1753,10 @@ export default function Coordinator() {
       window.alert(`Could not save #${fmtBack(entry.back_number)} ${entry.horse}: ${error.message}`);
       return;
     }
-    if (cls.status === "completed") await fillChampionshipsFedBy(cls.id);
+    if (cls.status === "completed") {
+      await fillChampionshipsFedBy(cls.id);
+      await refreshHighPointsFor(cls);
+    }
   };
 
   const submitEditEntry = async () => {
@@ -1775,6 +1792,7 @@ export default function Coordinator() {
     // draw tops up as the judge's results are entered.
     if (entryClass?.status === "completed") {
       await fillChampionshipsFedBy(entryClass.id);
+      await refreshHighPointsFor(entryClass);
     }
   };
 
