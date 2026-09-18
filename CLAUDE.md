@@ -685,8 +685,11 @@ Workbook sheets: **Event** (meta + export timestamp), **Results** (every class:
 placing, back, horse, exhibitor, score(s), SCR rows, registrations string),
 **Club Points** (one row per placing PER club registration, with calculated
 points via `calcPoints()` — for two-judge classes, each judge's placings are
-exported as independent rows since they are never combined). This is the
-sheet used to submit points to each association.
+exported as independent rows since they are never combined). Championship
+classes use the SAME rule as the High Points leaderboard (owner's decision,
+Sept 2026: Champion = 1, Reserve = 0.5 per judge, Supreme = 0) so the
+export and the leaderboard always agree. This is the sheet used to submit
+points to each association.
 
 ## Official scoring export ("⇩ Official scoring")
 

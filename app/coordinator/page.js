@@ -2174,11 +2174,11 @@ export default function Coordinator() {
       // Club Points sheet — for two-judge classes: separate rows per judge (each judge's placings are independent)
       const ptRows = [["Class #", "Class Name", "Judge", "Placing", "Back #", "Horse", "Exhibitor", "Score", "Entries in Class", "Points", "Club", "Registration #"]];
 
-      const pushPtRows = (clsNum, clsName, judgeName, sortedEntries, getPlacing, getScore, competing) => {
+      const pushPtRows = (clsNum, clsName, judgeName, sortedEntries, getPlacing, getScore, competing, pointsFor) => {
         sortedEntries.forEach((e) => {
           const placing = getPlacing(e);
           if (placing == null) return;
-          const pts = calcPoints(placing, competing);
+          const pts = pointsFor(placing);
           const regs = horseMap[e.back_number]?.horse_registrations ?? [];
           const score = getScore(e);
           if (regs.length === 0) {
@@ -2197,6 +2197,14 @@ export default function Coordinator() {
         const isPlacing = mode === "placing" || mode === "class_only" || mode === "tbc_class";
         const active = ce.filter((e) => !e.scratched);
         const scored = active.filter((e) => e.score != null && e.score !== -1); // DQ earns no points
+        // Same scale as the High Points leaderboard (owner's rule): ordinary
+        // classes by entries, championships Champion = 1 / Reserve = 0.5 per
+        // judge, Supreme earns nothing.
+        const champ = isChampionship(cls);
+        const supreme = champ && /supreme/i.test(cls.name ?? "");
+        const pointsFor = (placing) => supreme ? 0
+          : champ ? (placing === 1 ? 1 : placing === 2 ? 0.5 : 0)
+          : calcPoints(placing, competing);
 
         if (cls.judge2) {
           // Two judges — each judge's results generate independent point rows.
@@ -2205,19 +2213,19 @@ export default function Coordinator() {
           const j1Sorted = [...scored].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score);
           pushPtRows(cls.num, cls.name, cls.judge || "Judge 1", j1Sorted,
             (e) => isPlacing ? e.score : j1Sorted.findIndex((x) => x.id === e.id) + 1,
-            (e) => e.score, competing);
+            (e) => e.score, competing, pointsFor);
 
           const j2Scored = active.filter((e) => e.score2 != null && e.score2 !== -1); // DQ earns no points
           const j2Sorted = [...j2Scored].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2);
           pushPtRows(cls.num, cls.name, cls.judge2, j2Sorted,
             (e) => isPlacing ? e.score2 : j2Sorted.findIndex((x) => x.id === e.id) + 1,
-            (e) => e.score2, competing);
+            (e) => e.score2, competing, pointsFor);
         } else {
           // Single judge
           const j1Sorted = [...scored].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score);
           pushPtRows(cls.num, cls.name, cls.judge ?? "", j1Sorted,
             (e) => isPlacing ? e.score : j1Sorted.findIndex((x) => x.id === e.id) + 1,
-            (e) => e.score, competing);
+            (e) => e.score, competing, pointsFor);
         }
       });
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ptRows), "Club Points");
