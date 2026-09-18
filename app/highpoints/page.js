@@ -137,6 +137,14 @@ function parseHighPointsCSV(text) {
   return { entries, season, showNames };
 }
 
+// Registry lookups shown under each leaderboard name (owner's request,
+// Sept 2026): a horse's back number, a rider's association member numbers.
+// Leaderboard names carry a breed suffix — "Harry High Pants (QH)" — which
+// is stripped before matching the horses registry by name.
+const BREED_SUFFIX_RE = /\s*\([^)]*\)\s*$/;
+const lookupKey = (name) => String(name ?? "").replace(BREED_SUFFIX_RE, "").trim().toLowerCase();
+const fmtBack = (n) => String(n ?? "").padStart(3, "0");
+
 export default function HighPoints() {
   const [session, setSession] = useState(null);
   const [records, setRecords] = useState([]);
@@ -157,6 +165,9 @@ export default function HighPoints() {
   const [noticeReady, setNoticeReady] = useState(false);
   const [noticeSaving, setNoticeSaving] = useState(false);
   const [noticeError, setNoticeError] = useState("");
+  // lowercase name → "#008" (horses) / "AQHA 12345 · PHAA 678" (riders)
+  const [horseNumbers, setHorseNumbers] = useState({});
+  const [riderNumbers, setRiderNumbers] = useState({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -186,6 +197,31 @@ export default function HighPoints() {
     setLoading(false);
   }, []);
 
+  // Registry numbers are decoration only — any error just leaves them off.
+  const loadRegistryNumbers = useCallback(async () => {
+    const { data: horses } = await supabase.from("horses").select("back_number, name");
+    const hmap = {};
+    (horses ?? []).forEach((h) => {
+      const key = lookupKey(h.name);
+      if (key && hmap[key] == null) hmap[key] = fmtBack(h.back_number);
+    });
+    setHorseNumbers(hmap);
+
+    let { data: riders, error } = await supabase.from("riders").select("name, member_number, rider_registrations(club, registration_number)");
+    if (error) ({ data: riders } = await supabase.from("riders").select("name, member_number")); // pre-v46
+    const rmap = {};
+    (riders ?? []).forEach((r) => {
+      const key = lookupKey(r.name);
+      if (!key || rmap[key] != null) return;
+      const regs = (r.rider_registrations ?? [])
+        .filter((x) => x.registration_number)
+        .map((x) => `${x.club ?? ""} ${x.registration_number}`.trim());
+      const text = regs.length ? regs.join(" · ") : r.member_number ? `AQHA ${r.member_number}` : "";
+      if (text) rmap[key] = text;
+    });
+    setRiderNumbers(rmap);
+  }, []);
+
   const loadNotice = useCallback(async () => {
     const { data, error } = await supabase
       .from("site_settings")
@@ -203,6 +239,7 @@ export default function HighPoints() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadNotice(); }, [loadNotice]);
+  useEffect(() => { loadRegistryNumbers(); }, [loadRegistryNumbers]);
 
   const toggleNotice = async () => {
     const nextEnabled = !noticeEnabled;
@@ -593,7 +630,19 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                       {leaderboard.map((entry, i) => (
                         <tr key={entry.name} style={i === 0 ? { background: "#FBF4E4" } : {}}>
                           <td className="display" style={{ fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
-                          <td style={{ fontWeight: 600 }}>{entry.name}</td>
+                          <td style={{ fontWeight: 600 }}>
+                            {entry.name}
+                            {(() => {
+                              const isHorse = HORSE_CATEGORIES.has(effectiveCategory);
+                              const num = isHorse ? horseNumbers[lookupKey(entry.name)] : riderNumbers[lookupKey(entry.name)];
+                              if (!num) return null;
+                              return (
+                                <div style={{ fontSize: 11, color: "var(--quiet)", fontWeight: 500, marginTop: 1, whiteSpace: "nowrap" }}>
+                                  {isHorse ? `#${num}` : num}
+                                </div>
+                              );
+                            })()}
+                          </td>
                           {allShowNames.map(s => (
                             <td key={s} style={{ textAlign: "right", color: entry.shows[s] != null ? "var(--ink)" : "var(--line)" }}>
                               {entry.shows[s] != null ? entry.shows[s] : "—"}
