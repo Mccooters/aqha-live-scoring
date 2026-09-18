@@ -9,6 +9,7 @@ import { supabase } from "../../../lib/supabaseClient";
 // /api/health which server settings are configured (booleans only).
 
 const MIGRATION_CHECKS = [
+  { m: "v21", what: "Rider-facing Patterns PDF choice", probe: () => supabase.from("events").select("patterns_pdf_url").limit(1) },
   { m: "v22", what: "Site settings (notices, switches)", probe: () => supabase.from("site_settings").select("key").limit(1) },
   { m: "v23", what: "Club memberships", probe: () => supabase.from("club_members").select("id").limit(1) },
   { m: "v24", what: "Breed high-points (Paint, Appaloosa…)", probe: () => supabase.from("high_points").select("breed").limit(1) },

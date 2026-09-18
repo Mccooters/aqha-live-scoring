@@ -3529,6 +3529,25 @@ export default function Coordinator() {
                 </div>
 
                 <label className="modal-label">Rider-facing Patterns PDF</label>
+                {/* What the public link serves RIGHT NOW (saved value, not the
+                    unsaved dropdown) plus a test link — "I picked a file but the
+                    link gives the generated book" is almost always a not-yet-
+                    saved choice, or a copy of the generated book re-uploaded. */}
+                <p style={{ fontSize: 12.5, margin: "0 0 8px", color: "var(--quiet)" }}>
+                  Currently live:{" "}
+                  {currentEvent?.patterns_pdf_url
+                    ? <strong style={{ color: "var(--leather)" }}>{decodeURIComponent(String(currentEvent.patterns_pdf_url).split("/").pop() ?? "")}</strong>
+                    : <strong style={{ color: "var(--leather)" }}>the generated class pattern book</strong>}
+                  {" · "}
+                  <a href={`/api/events/${eventId}/patterns`} target="_blank" rel="noreferrer" style={{ color: "var(--brass)", fontWeight: 700 }}>
+                    Open the public Patterns PDF ↗
+                  </a>
+                  {form.patterns_pdf_url?.trim() && (form.patterns_pdf_url.trim() !== (currentEvent?.patterns_pdf_url ?? "")) && (
+                    <span style={{ display: "block", color: "#A05000", fontWeight: 700, marginTop: 2 }}>
+                      Your selection below isn&apos;t saved yet — press &quot;Save rider PDF&quot; to make it live.
+                    </span>
+                  )}
+                </p>
                 <select className="field" style={{ width: "100%", fontSize: 15 }}
                   value={uploadedPdfFiles.some((file) => file.url === form.patterns_pdf_url) ? form.patterns_pdf_url : ""}
                   onChange={(e) => setForm((f) => ({ ...f, patterns_pdf_url: e.target.value, patternsPdfMessage: "" }))}>
