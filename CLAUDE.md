@@ -179,7 +179,12 @@ PR with a clear plain-English description.
   exhibitors pick classes, fills back number/horse/exhibitor (or just a name
   for clinics), shows remaining spots per class, calculates the total entry
   fee, and submits to `app/api/registrations/create`. Disables/hides classes
-  that are full; shows "Sold out" if every class is full.
+  that are full; shows "Sold out" if every class is full. Two entry modes
+  on shows: **One by one** (one class per row) and **By horse**
+  (`multiHorses` — a block per horse, each with its own class picker,
+  "+ Add another horse"; owner's rule, Sept 2026 — families with several
+  horses used to need one registration and one checkout per horse). Both
+  flatten to the same per-class entry list the server has always taken.
 - `app/event/[id]/register/success/page.js` — post-checkout confirmation;
   polls the registration every 2s (up to 15 times) until the Square webhook
   marks it paid, then shows the confirmed entries.

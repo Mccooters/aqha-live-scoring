@@ -298,6 +298,13 @@ function blankEntry() {
   };
 }
 
+// One horse block in "By horse" mode — same fields as an entry, but a LIST of
+// classes instead of one.
+function blankMultiHorse() {
+  const { class_id, ...rest } = blankEntry();
+  return { ...rest, class_ids: [] };
+}
+
 // Structured "association + number" rows used for both the horse's
 // registration numbers and the rider's association memberships. Points are
 // checked against each association, so the office needs these with the entry.
@@ -379,19 +386,11 @@ export default function RegisterPage() {
 
   const [entries, setEntries] = useState([blankEntry()]);
   const [entryMode, setEntryMode] = useState("single");
-  const [multiEntry, setMultiEntry] = useState({
-    class_ids: [],
-    back_number: "",
-    no_back_number: false,
-    horse_name: "",
-    exhibitor: "",
-    registryChecked: false,
-    registryMatched: false,
-    horse_regs: [blankRegRow()],
-    horse_not_registered: false,
-    rider_regs: [blankRegRow()],
-    rider_not_registered: false,
-  });
+  // "By horse" mode: one block per horse, each with its own class list, so a
+  // family bringing two or three horses enters them all in ONE registration
+  // (owner's rule, Sept 2026 — they used to need a separate registration and
+  // a separate checkout per horse).
+  const [multiHorses, setMultiHorses] = useState([blankMultiHorse()]);
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [memberAccount, setMemberAccount] = useState(null); // member-portal sign-in: { email, name, renewalOffer }
@@ -558,18 +557,18 @@ export default function RegisterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberAccount, oneOffFees]);
 
-  const multiEntries = multiEntry.class_ids.map((classId) => ({
-    _id: `multi-${classId}`,
+  const multiEntries = multiHorses.flatMap((h) => h.class_ids.map((classId) => ({
+    _id: `multi-${h._id}-${classId}`,
     class_id: classId,
-    back_number: multiEntry.back_number,
-    no_back_number: multiEntry.no_back_number,
-    horse_name: multiEntry.horse_name,
-    exhibitor: multiEntry.exhibitor,
-    horse_regs: multiEntry.horse_regs,
-    horse_not_registered: multiEntry.horse_not_registered,
-    rider_regs: multiEntry.rider_regs,
-    rider_not_registered: multiEntry.rider_not_registered,
-  }));
+    back_number: h.back_number,
+    no_back_number: h.no_back_number,
+    horse_name: h.horse_name,
+    exhibitor: h.exhibitor,
+    horse_regs: h.horse_regs,
+    horse_not_registered: h.horse_not_registered,
+    rider_regs: h.rider_regs,
+    rider_not_registered: h.rider_not_registered,
+  })));
   const submissionEntries = isMultiMode ? multiEntries : entries;
   const filledEntries = submissionEntries.filter((e) => e.class_id);
   // A membership covers this event when its season is active for the event —
@@ -717,8 +716,11 @@ export default function RegisterPage() {
       return { ...e, [field]: value };
     }));
 
-  const updateMultiEntry = (field, value) =>
-    setMultiEntry((prev) => {
+  const setMultiHorse = (horseId, fn) =>
+    setMultiHorses((prev) => prev.map((h) => (h._id === horseId ? fn(h) : h)));
+
+  const updateMultiEntry = (horseId, field, value) =>
+    setMultiHorse(horseId, (prev) => {
       if (field === "back_number") {
         return { ...prev, back_number: value, registryChecked: false, registryMatched: false };
       }
@@ -728,17 +730,22 @@ export default function RegisterPage() {
       return { ...prev, [field]: value };
     });
 
-  const toggleMultiClass = (classId) => {
+  const toggleMultiClass = (horseId, classId) => {
     const cls = classes.find((c) => c.id === classId);
-    const alreadySelected = multiEntry.class_ids.includes(classId);
+    const horse = multiHorses.find((h) => h._id === horseId);
+    const alreadySelected = Boolean(horse?.class_ids.includes(classId));
     if (!alreadySelected && cls && classIsFull(cls)) return;
-    setMultiEntry((prev) => ({
+    setMultiHorse(horseId, (prev) => ({
       ...prev,
       class_ids: alreadySelected
         ? prev.class_ids.filter((id) => id !== classId)
         : [...prev.class_ids, classId],
     }));
   };
+
+  const addMultiHorse = () => setMultiHorses((prev) => [...prev, blankMultiHorse()]);
+  const removeMultiHorse = (horseId) =>
+    setMultiHorses((prev) => (prev.length > 1 ? prev.filter((h) => h._id !== horseId) : prev));
 
   // Back number is the horse's permanent registry identity, so once it resolves
   // to a registered horse, the horse name is locked to whatever's on file —
@@ -812,11 +819,11 @@ export default function RegisterPage() {
         : e));
   };
 
-  const lookupRiderForMulti = async (name) => {
+  const lookupRiderForMulti = async (horseId, name) => {
     const rider = await fetchRiderByName(name);
     const rows = riderRegistryRows(rider?.rider_registrations);
     if (!rows.length) return;
-    setMultiEntry((prev) =>
+    setMultiHorse(horseId, (prev) =>
       untouchedRegs(prev.rider_regs) && !prev.rider_not_registered
         ? { ...prev, rider_regs: rows }
         : prev);
@@ -855,7 +862,7 @@ export default function RegisterPage() {
     );
   };
 
-  const lookupMultiHorse = async (backNum) => {
+  const lookupMultiHorse = async (horseId, backNum) => {
     if (!backNum) return;
     const { data } = await supabase
       .from("horses")
@@ -863,7 +870,7 @@ export default function RegisterPage() {
       .eq("back_number", parseInt(backNum, 10))
       .maybeSingle();
     const regRows = registryRegRows(data);
-    setMultiEntry((prev) => ({
+    setMultiHorse(horseId, (prev) => ({
       ...prev,
       horse_name: data ? data.name : prev.horse_name,
       exhibitor: prev.exhibitor || (data?.owner ?? ""),
@@ -906,7 +913,7 @@ export default function RegisterPage() {
       setError(isClinic
         ? "Please select a spot type and enter your name."
         : isMultiMode
-          ? "Please enter the horse details and select at least one class."
+          ? "Please enter each horse's details and select at least one class for it."
           : "Please complete at least one entry — class, back number (or tick “no back number yet”), horse name, and exhibitor are all required.");
       return;
     }
@@ -1221,7 +1228,7 @@ export default function RegisterPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, paddingBottom: 8 }}>
               {[
                 ["single", "One by one"],
-                ["multi", "Same horse, multiple classes"],
+                ["multi", "By horse"],
               ].map(([mode, label]) => (
                 <button
                   key={mode}
@@ -1241,87 +1248,102 @@ export default function RegisterPage() {
                 </button>
               ))}
             </div>
+            <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 10px" }}>
+              <strong>By horse</strong> lets you enter one or more horses, each into as many classes as you like, all in one registration and one payment.
+              <strong> One by one</strong> adds a single class entry at a time.
+            </p>
           </section>
         )}
 
         {/* ---- Spot / class entries ---- */}
         {isMultiMode ? (
-          <section className="card">
+          <>
+          {multiHorses.map((horse, hIdx) => (
+          <section className="card" key={horse._id}>
             <div className="card-head">
-              <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Same horse, multiple classes</div>
-              <span style={{ color: "var(--quiet)", fontSize: 12.5, fontWeight: 700 }}>
-                {multiEntry.class_ids.length} selected
+              <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>
+                {multiHorses.length > 1 ? `Horse ${hIdx + 1}` : "Horse"}
+                {horse.horse_name.trim() ? ` · ${horse.horse_name.trim()}` : ""}
+              </div>
+              <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+                <span style={{ color: "var(--quiet)", fontSize: 12.5, fontWeight: 700 }}>
+                  {horse.class_ids.length} {horse.class_ids.length === 1 ? "class" : "classes"}
+                </span>
+                {multiHorses.length > 1 && (
+                  <button type="button" className="btn-ghost danger" style={{ padding: "4px 10px", fontSize: 12.5 }}
+                    onClick={() => removeMultiHorse(horse._id)}>Remove</button>
+                )}
               </span>
             </div>
             <div style={{ paddingBottom: 8 }}>
               <label className="modal-label">Back number *</label>
-              <input className="field" type="number" min="1" step="1" style={{ width: "100%", fontSize: 16, ...(multiEntry.no_back_number ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
-                value={multiEntry.back_number}
-                disabled={multiEntry.no_back_number}
-                onChange={(e) => updateMultiEntry("back_number", e.target.value)}
-                onBlur={(e) => lookupMultiHorse(e.target.value)}
-                placeholder={multiEntry.no_back_number ? "Assigned once payment is confirmed" : "e.g. 301"} />
-              {!multiEntry.no_back_number && multiEntry.registryChecked && !multiEntry.registryMatched && (
+              <input className="field" type="number" min="1" step="1" style={{ width: "100%", fontSize: 16, ...(horse.no_back_number ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
+                value={horse.back_number}
+                disabled={horse.no_back_number}
+                onChange={(e) => updateMultiEntry(horse._id, "back_number", e.target.value)}
+                onBlur={(e) => lookupMultiHorse(horse._id, e.target.value)}
+                placeholder={horse.no_back_number ? "Assigned once payment is confirmed" : "e.g. 301"} />
+              {!horse.no_back_number && horse.registryChecked && !horse.registryMatched && (
                 <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
                   No horse found with this back number in our registry — double-check the number, or tick the box below if this is a new horse.
                 </p>
               )}
               <NewHorseToggle
-                checked={multiEntry.no_back_number}
-                onChange={(v) => updateMultiEntry("no_back_number", v)}
+                checked={horse.no_back_number}
+                onChange={(v) => updateMultiEntry(horse._id, "no_back_number", v)}
               />
 
               <label className="modal-label">Horse name *</label>
-              <input className="field" style={{ width: "100%", fontSize: 16, ...(multiEntry.registryMatched ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
-                value={multiEntry.horse_name}
-                readOnly={multiEntry.registryMatched}
-                onChange={(e) => updateMultiEntry("horse_name", e.target.value)}
+              <input className="field" style={{ width: "100%", fontSize: 16, ...(horse.registryMatched ? { background: "var(--sand)", color: "var(--quiet)" } : {}) }}
+                value={horse.horse_name}
+                readOnly={horse.registryMatched}
+                onChange={(e) => updateMultiEntry(horse._id, "horse_name", e.target.value)}
                 placeholder="e.g. Machine Made Lady" />
-              {multiEntry.registryMatched && (
+              {horse.registryMatched && (
                 <p style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 4 }}>
-                  Matched from the horse registry for back #{multiEntry.back_number}. Contact the show secretary if this is wrong.
+                  Matched from the horse registry for back #{horse.back_number}. Contact the show secretary if this is wrong.
                 </p>
               )}
 
               <RegNumbersSection
                 title="Horse registration numbers *"
                 hint="Needed for points checking — one per association the horse is registered with (AQHA, PHAA, AAA, …)."
-                rows={multiEntry.horse_regs}
-                notRegistered={multiEntry.horse_not_registered}
+                rows={horse.horse_regs}
+                notRegistered={horse.horse_not_registered}
                 notRegisteredLabel="This horse isn't registered with any association"
-                onRowsChange={(rows) => updateMultiEntry("horse_regs", rows)}
-                onNotRegisteredChange={(v) => updateMultiEntry("horse_not_registered", v)}
+                onRowsChange={(rows) => updateMultiEntry(horse._id, "horse_regs", rows)}
+                onNotRegisteredChange={(v) => updateMultiEntry(horse._id, "horse_not_registered", v)}
               />
 
               <label className="modal-label">Exhibitor name *</label>
               <input className="field" style={{ width: "100%", fontSize: 16 }}
-                value={multiEntry.exhibitor}
-                onChange={(e) => updateMultiEntry("exhibitor", e.target.value)}
-                onBlur={(e) => lookupRiderForMulti(e.target.value)}
+                value={horse.exhibitor}
+                onChange={(e) => updateMultiEntry(horse._id, "exhibitor", e.target.value)}
+                onBlur={(e) => lookupRiderForMulti(horse._id, e.target.value)}
                 placeholder="e.g. S. O'Brien" />
 
               <RegNumbersSection
                 title="Rider/owner association memberships *"
                 hint="The exhibitor's membership number with each association they're a member of."
-                rows={multiEntry.rider_regs}
-                notRegistered={multiEntry.rider_not_registered}
+                rows={horse.rider_regs}
+                notRegistered={horse.rider_not_registered}
                 onNumberBlur={(num) => riderNumberBlurred(num,
-                  () => multiEntry.exhibitor,
-                  (name, rows) => setMultiEntry((prev) => ({
+                  () => horse.exhibitor,
+                  (name, rows) => setMultiHorse(horse._id, (prev) => ({
                     ...prev,
                     exhibitor: prev.exhibitor.trim() ? prev.exhibitor : name,
                     rider_regs: prev.rider_not_registered ? prev.rider_regs : addMissingClubs(prev.rider_regs, rows),
                   })))}
                 notRegisteredLabel="The rider isn't a member of any association"
-                onRowsChange={(rows) => updateMultiEntry("rider_regs", rows)}
-                onNotRegisteredChange={(v) => updateMultiEntry("rider_not_registered", v)}
+                onRowsChange={(rows) => updateMultiEntry(horse._id, "rider_regs", rows)}
+                onNotRegisteredChange={(v) => updateMultiEntry(horse._id, "rider_not_registered", v)}
               />
 
-              <label className="modal-label">Classes *</label>
+              <label className="modal-label">Classes for this horse *</label>
               <MultiClassPicker
-                selectedIds={multiEntry.class_ids}
+                selectedIds={horse.class_ids}
                 classes={classes}
-                onToggle={toggleMultiClass}
+                onToggle={(classId) => toggleMultiClass(horse._id, classId)}
                 classIsFull={classIsFull}
                 spotsLabel={spotsLabel}
               />
@@ -1331,14 +1353,20 @@ export default function RegisterPage() {
                   No upcoming classes have been added yet. Check back soon.
                 </p>
               )}
-
-              {multiDuplicateWarnings.length > 0 && (
-                <p style={{ fontSize: 12.5, color: "var(--clay)", marginTop: 8, fontWeight: 600 }}>
-                  {multiDuplicateWarnings[0]} Please check your details before submitting.
-                </p>
-              )}
             </div>
           </section>
+          ))}
+
+          <button className="btn-ghost" style={{ width: "100%", marginBottom: 16, fontSize: 15 }} onClick={addMultiHorse}>
+            + Add another horse
+          </button>
+
+          {multiDuplicateWarnings.length > 0 && (
+            <p style={{ fontSize: 12.5, color: "var(--clay)", margin: "-6px 0 14px", fontWeight: 600 }}>
+              {multiDuplicateWarnings[0]} Please check your details before submitting.
+            </p>
+          )}
+          </>
         ) : entries.map((entry, idx) => {
           const selectedCls = entry.class_id ? classes.find((c) => c.id === entry.class_id) : null;
           const isFull = selectedCls ? classIsFull(selectedCls) : false;
