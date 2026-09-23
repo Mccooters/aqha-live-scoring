@@ -30,6 +30,7 @@ export default function RegistrationsPage() {
   const [balanceBusy, setBalanceBusy] = useState(null); // reg id mid balance action
   const [balanceAmounts, setBalanceAmounts] = useState({}); // reg id -> typed dollars (record outside Square)
   const [refundAmount, setRefundAmount] = useState({}); // reg id -> typed dollars
+  const [checkingRefunds, setCheckingRefunds] = useState(null); // registration id mid-check
   const [squareStatus, setSquareStatus] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [squareNotice, setSquareNotice] = useState("");
@@ -322,10 +323,45 @@ export default function RegistrationsPage() {
       setRefundAmount((prev) => ({ ...prev, [reg.id]: "" }));
       if (!manual && data.recorded === false) {
         alert("Refunded at Square, but the amount couldn't be recorded in the app — run schema-v36 so it shows here.");
+      } else if (!manual) {
+        const st = data.refund_status ?? "PENDING";
+        alert(
+          `Square accepted the ${fmtMoney(cents)} refund.\n\nSquare refund ID: ${data.refund_id ?? "—"}\nStatus: ${st}` +
+          (st === "COMPLETED"
+            ? "\n\nThe money has been sent back to the card."
+            : "\n\nSquare usually completes card refunds within 1–2 business days (the bank can take up to 10). Press “Check with Square” under the registration any time to confirm it shows COMPLETED.")
+        );
       }
       await load();
     }
     setRefunding(null);
+  };
+
+  // Ask Square for the latest status of this registration's refunds
+  // (schema-v52) — a positive COMPLETED from Square, not just our record.
+  const checkRefunds = async (reg) => {
+    setCheckingRefunds(reg.id);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const res = await fetch("/api/registrations/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}` },
+        body: JSON.stringify({ registration_id: reg.id, check: true }),
+      });
+      const data = await res.json();
+      if (data.error) alert("Couldn't check with Square: " + data.error);
+      await load();
+    } finally {
+      setCheckingRefunds(null);
+    }
+  };
+
+  const REFUND_STATUS_LABEL = {
+    COMPLETED: { text: "COMPLETED — money returned to card", color: "#2D7A52" },
+    PENDING: { text: "PENDING — Square is still processing", color: "#A05000" },
+    REJECTED: { text: "REJECTED by Square — not refunded", color: "var(--clay)" },
+    FAILED: { text: "FAILED — not refunded", color: "var(--clay)" },
+    RECORDED: { text: "recorded (given outside Square)", color: "var(--quiet)" },
   };
 
   // Square connection card: current status, plus the outcome message when
@@ -782,11 +818,47 @@ export default function RegistrationsPage() {
                     const canRefund = refundableCents > 0;
                     return (
                       <div style={{ padding: "12px 0 0", borderTop: "1px solid var(--line)", marginTop: 10 }}>
-                        {refundedCents > 0 && (
-                          <p style={{ fontSize: 12.5, color: "var(--clay)", fontWeight: 700, margin: "0 0 8px" }}>
-                            Refunded so far: {fmtMoney(refundedCents)}{refundableCents > 0 ? ` of ${fmtMoney(reg.total_cents)}` : " (fully refunded)"}.
-                          </p>
-                        )}
+                        {refundedCents > 0 && (() => {
+                          const log = Array.isArray(reg.refund_log) ? reg.refund_log : [];
+                          const loggedCents = log.reduce((sum, r) => sum + (r.amount_cents ?? 0), 0);
+                          const hasSquareRefund = log.some((r) => r.method === "square" && r.refund_id);
+                          const unconfirmed = log.some((r) => r.method === "square" && r.status !== "COMPLETED");
+                          return (
+                            <div style={{ margin: "0 0 10px" }}>
+                              <p style={{ fontSize: 12.5, color: "var(--clay)", fontWeight: 700, margin: "0 0 4px" }}>
+                                Refunded so far: {fmtMoney(refundedCents)}{refundableCents > 0 ? ` of ${fmtMoney(reg.total_cents)}` : " (fully refunded)"}.
+                              </p>
+                              {log.map((r, i) => {
+                                const st = REFUND_STATUS_LABEL[r.status] ?? { text: r.status ?? "—", color: "var(--quiet)" };
+                                return (
+                                  <div key={i} style={{ fontSize: 12, color: "var(--ink)", margin: "2px 0", lineHeight: 1.4 }}>
+                                    <strong>{fmtMoney(r.amount_cents ?? 0)}</strong>
+                                    {" · "}{r.method === "square" ? "Square refund" : "Outside Square"}
+                                    {r.at ? ` · ${new Date(r.at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" })}` : ""}
+                                    {" · "}<span style={{ color: st.color, fontWeight: 700 }}>{st.text}</span>
+                                    {r.refund_id && (
+                                      <span style={{ display: "block", color: "var(--quiet)", fontSize: 11, wordBreak: "break-all" }}>
+                                        Square refund ID {r.refund_id}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {loggedCents < refundedCents && (
+                                <p style={{ fontSize: 11.5, color: "var(--quiet)", margin: "4px 0 0" }}>
+                                  {fmtMoney(refundedCents - loggedCents)} was refunded before Square references were kept — confirm it in your Square dashboard (Transactions → the payment → Refunds).
+                                </p>
+                              )}
+                              {hasSquareRefund && (
+                                <button className="btn-ghost" style={{ marginTop: 6, fontSize: 12.5 }}
+                                  onClick={() => checkRefunds(reg)} disabled={checkingRefunds === reg.id}
+                                  title="Asks Square for the current status of each refund">
+                                  {checkingRefunds === reg.id ? "Checking…" : unconfirmed ? "↻ Check with Square" : "↻ Re-check with Square"}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {canRefund && (
                           <>
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

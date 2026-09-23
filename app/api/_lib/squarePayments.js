@@ -219,6 +219,21 @@ export async function refundSquarePayment(db, { paymentId, amountCents, reason, 
   return { refund: data.refund };
 }
 
+// Look up a refund at Square (GET /v2/refunds/{id}) so staff can confirm it
+// actually COMPLETED — refunds are created PENDING and settle later. Returns
+// { refund } or { error, status }.
+export async function getSquareRefund(db, refundId) {
+  const { token } = await resolveSquareToken(db);
+  if (!token) return { error: "Square isn't connected.", status: 503 };
+  if (!refundId) return { error: "No Square refund id.", status: 400 };
+  const res = await fetch(`${squareBase()}/v2/refunds/${encodeURIComponent(refundId)}`, {
+    headers: { Authorization: `Bearer ${token}`, "Square-Version": SQUARE_VERSION },
+  });
+  const data = await res.json();
+  if (!res.ok) return { error: data.errors?.[0]?.detail ?? "Square lookup failed", status: 502 };
+  return { refund: data.refund };
+}
+
 // Create a Square Payment Link for an order. Applies the developer fee when
 // the OAuth connection is in use. `payload` is the normal CreatePaymentLink
 // body minus authentication. `opts.flatFeeCents` adds a fixed amount to the

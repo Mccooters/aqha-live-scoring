@@ -192,6 +192,13 @@ hasn't been run.
         open, then "Close entries" shuts everything. Without it the menu
         item shows a reminder to run this file.
 
+- [ ] **v52** — `schema-v52-refund-log.sql`
+      → **Square refund confirmation**: keeps Square's refund ID and status
+        (PENDING → COMPLETED) for every refund issued from the Registrations
+        page, with a "Check with Square" button. Without it, only the
+        running refunded total is kept and there's no way to confirm a
+        refund actually went through.
+
 Tick these off once you've run them.
 
 ---
@@ -251,6 +258,7 @@ Tick these off once you've run them.
 | `schema-v49-program-presets.sql` | Shared program presets: saved program layouts every staff login can apply from the Program builder |
 | `schema-v50-partial-balance.sql` | Part payments on clinic balances: payments log, counts down what's owing, auto-marks paid in full |
 | `schema-v51-spot-type-closed.sql` | Close online bookings for a single clinic spot type (`classes.entries_closed`) while others stay open |
+| `schema-v52-refund-log.sql` | Per-refund log with Square's refund id + status (`registrations.refund_log`) so staff can confirm a refund COMPLETED |
 
 ## For whoever updates the code next
 
