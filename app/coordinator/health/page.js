@@ -35,6 +35,7 @@ const MIGRATION_CHECKS = [
   { m: "v49", what: "Shared program presets", probe: () => supabase.from("program_presets").select("id").limit(1) },
   { m: "v50", what: "Clinic balance part payments", probe: () => supabase.from("registrations").select("balance_payments").limit(1) },
   { m: "v51", what: "Close bookings per clinic spot type", probe: () => supabase.from("classes").select("entries_closed").limit(1) },
+  { m: "v52", what: "Square refund IDs + status on registrations", probe: () => supabase.from("registrations").select("refund_log").limit(1) },
 ];
 
 const CONFIG_LABELS = {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
-import { refundSquarePayment } from "../../_lib/squarePayments";
+import { refundSquarePayment, getSquareRefund } from "../../_lib/squarePayments";
 
 // Issuing a refund moves real money, so only signed-in show staff may call it.
 // The dashboard sends the coordinator's login token; we verify it with
@@ -27,7 +27,30 @@ export async function POST(req) {
       return NextResponse.json({ error: "Staff sign-in required" }, { status: 401 });
     }
 
-    const { registration_id, amount_cents, reason, manual } = await req.json();
+    const { registration_id, amount_cents, reason, manual, check } = await req.json();
+    const db = adminClient();
+
+    // "check": re-ask Square for the current status of every Square refund in
+    // this registration's log (schema-v52) — refunds start PENDING and settle
+    // to COMPLETED later, so staff can confirm the money really went back.
+    if (check) {
+      const { data: reg } = await db.from("registrations").select("id, refund_log").eq("id", registration_id).maybeSingle();
+      if (!reg) return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+      const log = Array.isArray(reg.refund_log) ? reg.refund_log : [];
+      let changed = false;
+      let lookupError = null;
+      const next = [];
+      for (const item of log) {
+        if (item.method !== "square" || !item.refund_id || item.status === "COMPLETED") { next.push(item); continue; }
+        const { refund, error } = await getSquareRefund(db, item.refund_id);
+        if (error) { lookupError = error; next.push(item); continue; }
+        const status = refund?.status ?? item.status;
+        if (status !== item.status) changed = true;
+        next.push({ ...item, status, checked_at: new Date().toISOString() });
+      }
+      if (changed) await db.from("registrations").update({ refund_log: next }).eq("id", registration_id);
+      return NextResponse.json({ ok: true, refund_log: next, error: lookupError ?? undefined });
+    }
     // A "manual" refund records money you already returned OUTSIDE Square
     // (cash, bank transfer, etc.) — it never calls Square, it just logs it so
     // the refunded total and revenue are right.
@@ -37,7 +60,6 @@ export async function POST(req) {
       return NextResponse.json({ error: "registration_id and a refund amount are required" }, { status: 400 });
     }
 
-    const db = adminClient();
     if (await isCommitteeViewer(db, staff.id)) {
       return NextResponse.json({ error: "This account has read-only committee access — changes are not permitted." }, { status: 403 });
     }
@@ -93,14 +115,32 @@ export async function POST(req) {
     // Square, so don't fail; just report it couldn't be recorded. A MANUAL
     // record is only useful if it saves, so it treats that as an error.
     const noteReason = reason || (isManual ? "Refunded outside Square" : null);
-    const { error: updErr } = await db
+    const patch = {
+      refunded_cents: alreadyRefunded + amount,
+      last_refund_at: new Date().toISOString(),
+      refund_reason: noteReason ? String(noteReason).slice(0, 500) : reg.refund_reason ?? null,
+    };
+    // One line per refund with Square's own id + status (schema-v52), so the
+    // page can show a positive "COMPLETED" from Square rather than just the
+    // app's running total. Falls back to the v36 columns alone on an older
+    // database (the column is simply left out of the second attempt).
+    const logEntry = {
+      amount_cents: amount,
+      at: new Date().toISOString(),
+      method: isManual ? "manual" : "square",
+      refund_id: refund?.id ?? null,
+      status: isManual ? "RECORDED" : (refund?.status ?? "PENDING"),
+      reason: noteReason ? String(noteReason).slice(0, 200) : null,
+      by: staff.email ?? null,
+    };
+    const prevLog = Array.isArray(reg.refund_log) ? reg.refund_log : [];
+    let { error: updErr } = await db
       .from("registrations")
-      .update({
-        refunded_cents: alreadyRefunded + amount,
-        last_refund_at: new Date().toISOString(),
-        refund_reason: noteReason ? String(noteReason).slice(0, 500) : reg.refund_reason ?? null,
-      })
+      .update({ ...patch, refund_log: [...prevLog, logEntry] })
       .eq("id", registration_id);
+    if (updErr && /refund_log/i.test(updErr.message ?? "")) {
+      ({ error: updErr } = await db.from("registrations").update(patch).eq("id", registration_id));
+    }
     let recorded = true;
     if (updErr) {
       recorded = false;
@@ -121,6 +161,7 @@ export async function POST(req) {
       refunded_cents: amount,
       total_refunded_cents: alreadyRefunded + amount,
       refund_status: refund?.status ?? null,
+      refund_id: refund?.id ?? null,
       recorded,
     });
   } catch (err) {

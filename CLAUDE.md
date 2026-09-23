@@ -115,6 +115,14 @@ PR with a clear plain-English description.
   "Record refund given outside Square" (a `manual` flag on the same route) to
   log a cash/bank-transfer refund without calling Square. Removing the entry
   from a class stays a separate manual step (Delete/Scratch on the dashboard).
+  **Refund confirmation (schema-v52)**: every refund is also appended to
+  `registrations.refund_log` (jsonb {amount_cents, at, method
+  square|manual, refund_id, status, reason, by}); Square refunds are
+  created PENDING and settle to COMPLETED later, so the page lists each
+  refund with Square's id + status and a "↻ Check with Square" button
+  (`check: true` on the same route → `getSquareRefund()` GET
+  /v2/refunds/{id}, updates the log). Pre-v52 refunds have no reference —
+  the page says to confirm those in the Square dashboard.
   `app/api/registrations/create/route.js` creates a
   Square Payment Link (online-checkout) for paid class entry fees; the
   webhook (`app/api/webhooks/square/route.js`) verifies the HMAC signature
