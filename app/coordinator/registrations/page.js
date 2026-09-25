@@ -31,6 +31,7 @@ export default function RegistrationsPage() {
   const [balanceAmounts, setBalanceAmounts] = useState({}); // reg id -> typed dollars (record outside Square)
   const [refundAmount, setRefundAmount] = useState({}); // reg id -> typed dollars
   const [checkingRefunds, setCheckingRefunds] = useState(null); // registration id mid-check
+  const [classById, setClassById] = useState({}); // class id -> { num, name, sort_order }
   const [squareStatus, setSquareStatus] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [squareNotice, setSquareNotice] = useState("");
@@ -56,14 +57,31 @@ export default function RegistrationsPage() {
   const load = useCallback(async () => {
     if (!eventId) return;
     setLoading(true);
-    const { data } = await supabase
-      .from("registrations")
-      .select("*, registration_entries(*)")
-      .eq("event_id", eventId)
-      .order("created_at", { ascending: false });
+    const [{ data }, { data: clsRows }] = await Promise.all([
+      supabase
+        .from("registrations")
+        .select("*, registration_entries(*)")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: false }),
+      // Class number + name for each entry row (owner's request, Sept 2026 —
+      // the entries table showed the horse four times with no way to tell
+      // which class each line was for).
+      supabase.from("classes").select("id, num, name, sort_order").eq("event_id", eventId),
+    ]);
     setRegistrations(data ?? []);
+    setClassById(Object.fromEntries((clsRows ?? []).map((c) => [c.id, c])));
     setLoading(false);
   }, [eventId]);
+
+  const classLabel = (classId) => {
+    const c = classById[classId];
+    if (!c) return "—";
+    return selectedClinic ? c.name : `${c.num != null ? `Class ${c.num} · ` : ""}${c.name}`;
+  };
+  // Show a registration's entries in program order, not insertion order.
+  const orderedEntries = (reg) =>
+    [...(reg.registration_entries ?? [])].sort((a, b) =>
+      (classById[a.class_id]?.sort_order ?? 0) - (classById[b.class_id]?.sort_order ?? 0));
 
   useEffect(() => { load(); }, [load]);
 
@@ -724,6 +742,7 @@ export default function RegistrationsPage() {
                     <table>
                       <thead>
                         <tr>
+                          <th>{selectedClinic ? "Spot type" : "Class"}</th>
                           <th style={{ width: 70 }}>Back #</th>
                           <th>Horse</th>
                           <th>Exhibitor</th>
@@ -731,8 +750,9 @@ export default function RegistrationsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {(reg.registration_entries ?? []).map((e) => (
+                        {orderedEntries(reg).map((e) => (
                           <tr key={e.id}>
+                            <td style={{ fontWeight: 600 }}>{classLabel(e.class_id)}</td>
                             <td className="display" style={{ fontWeight: 700, color: "var(--brass)" }}>
                               {e.back_number != null ? `#${String(e.back_number).padStart(3, "0")}` : "new"}
                             </td>
