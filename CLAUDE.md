@@ -396,10 +396,18 @@ PR with a clear plain-English description.
   is free/covered by membership, each additional new number is $5, paid at
   signup checkout or marked owing when added later in the portal). Staff-only
   read like its parent. Members manage their own via `app/api/account/horses`
-  (schema-v25); these stay separate from the official `horses` registry. The
-  coordinator **New numbers** page (`app/coordinator/numbers/page.js`) lists
-  these plus show-entry new-number requests so staff can see who needs a tag
-  made and who owes the $5.
+  (schema-v25). A member horse issued a BRAND-NEW number (membership
+  application or portal add/edit) is also written into the official
+  `horses` registry by `registerHorseInRegistry()` (`horseNumbers.js`;
+  idempotent, never throws, parses the free-text registrations into
+  `horse_registrations`) — owner's report, Sept 2026: reserved-but-
+  unregistered member numbers read as "numbers skipping" in the Registry
+  and the entry form couldn't match them. The coordinator **New numbers**
+  page (`app/coordinator/numbers/page.js`) lists these plus show-entry
+  new-number requests so staff can see who needs a tag made and who owes
+  the $5, flags member horses whose number is missing from the registry,
+  and offers "Add to registry" (per row / all) to backfill older ones
+  client-side.
 - `club_member_people` — member_id (cascade delete), name, person_type
   (adult|child), sort_order (schema-v25), email (schema-v40 — each person's
   own email; `hasMembershipForEvent`/`hasCurrentMembership` match it too, so a

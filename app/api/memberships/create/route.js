@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { adminClient } from "../../_lib/registrations";
 import { markMembershipPaid } from "../../_lib/memberships";
 import { escapeIlike } from "../../_lib/memberAuth";
-import { assignHorseNumber, cleanHorseFields } from "../../_lib/horseNumbers";
+import { assignHorseNumber, cleanHorseFields, registerHorseInRegistry } from "../../_lib/horseNumbers";
 import { createSquarePaymentLink } from "../../_lib/squarePayments";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
@@ -85,7 +85,7 @@ export async function POST(req) {
         newNumberCount += 1;
         if (newNumberCount > 1) feeCents = ADDITIONAL_NUMBER_CENTS;
       }
-      assignedHorses.push({ fields, feeCents });
+      assignedHorses.push({ fields, feeCents, isNew: !suggestion.matched_registry });
       if (fields.back_number != null) reservedBackNumbers.push(fields.back_number);
     }
     const additionalNumbersCents = assignedHorses.reduce((s, h) => s + h.feeCents, 0);
@@ -177,6 +177,16 @@ export async function POST(req) {
         ({ error: horseErr } = await db.from("club_member_horses").insert(bare));
       }
       if (horseErr) return NextResponse.json({ error: horseErr.message }, { status: 500 });
+      // A brand-new number is taken from this moment — put the horse in the
+      // public registry so the number shows there (and can't be skipped).
+      for (const h of assignedHorses) {
+        if (h.isNew) {
+          await registerHorseInRegistry(db, {
+            back_number: h.fields.back_number, name: h.fields.horse_name,
+            owner: member.member_name, registrations: h.fields.registrations,
+          });
+        }
+      }
     }
 
     // Extra people covered by the membership (e.g. the rest of a family).

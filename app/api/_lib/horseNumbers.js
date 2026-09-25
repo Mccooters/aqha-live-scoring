@@ -69,6 +69,54 @@ async function nextAvailableBackNumber(db, ignoreMemberHorseId = null, reservedB
   return highest + 1;
 }
 
+// "AQHA Q-12345, PHAA 678" → [{club:"AQHA", registration_number:"Q-12345"}, …]
+// Best-effort parse of the free-text registrations a member types.
+export function parseRegistrationsText(text) {
+  return String(text ?? "")
+    .split(/[,;\n]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => {
+      const m = t.match(/^([A-Za-z]{2,10})[\s:#-]*([A-Za-z0-9-]+)$/);
+      return m ? { club: m[1].toUpperCase(), registration_number: m[2] } : null;
+    })
+    .filter(Boolean);
+}
+
+// Back numbers are permanent and the registry is the record of who holds
+// them — so the moment a member horse is issued a BRAND-NEW number it is
+// also written into the public `horses` registry (owner's report, Sept 2026:
+// member-portal horses were reserving numbers without appearing in the
+// registry, which read as "numbers skipping"). Idempotent: a number already
+// in the registry is left alone. Never throws — a registry hiccup must not
+// break a membership or portal save; the number is still reserved either way.
+export async function registerHorseInRegistry(db, { back_number, name, owner, registrations }) {
+  if (!Number.isInteger(back_number) || !String(name ?? "").trim()) return { added: false };
+  try {
+    const { data: existing } = await db.from("horses").select("id").eq("back_number", back_number).maybeSingle();
+    if (existing) return { added: false, horse_id: existing.id };
+    const { data: horse, error } = await db
+      .from("horses")
+      .insert({ back_number, name: String(name).trim().replace(/\s+/g, " "), owner: owner || null })
+      .select("id")
+      .single();
+    if (error) {
+      if (!/23505|duplicate/i.test(`${error.code ?? ""} ${error.message ?? ""}`)) {
+        console.error("registerHorseInRegistry:", error.message);
+      }
+      return { added: false };
+    }
+    const regs = parseRegistrationsText(registrations);
+    if (regs.length) {
+      await db.from("horse_registrations").insert(regs.map((r) => ({ horse_id: horse.id, ...r })));
+    }
+    return { added: true, horse_id: horse.id };
+  } catch (err) {
+    console.error("registerHorseInRegistry:", err?.message ?? err);
+    return { added: false };
+  }
+}
+
 export async function assignHorseNumber(db, fields, existingRow = null, reservedBackNumbers = []) {
   const registryHorse = await findRegistryHorse(db, fields.horse_name);
   const registryRegistrations = formatRegistryRegistrations(registryHorse?.horse_registrations);
