@@ -84,3 +84,15 @@ td { padding: 9px 12px; border-top: 1px solid var(--line); }
 .modal-title { font-size: 20px; font-weight: 700; margin: 0 0 16px; }
 .modal-label { display: block; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--quiet); margin: 14px 0 5px; }
 .modal-error { color: var(--clay); font-size: 13px; font-weight: 600; margin: 8px 0 0; }
+
+/* High Points: season list down the left, main content on the right;
+   on phones the list becomes a wrapping chip row above the content. */
+.hp-layout { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 22px; align-items: start; }
+.hp-seasons { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 12px; }
+.hp-season-btn { text-align: left; border-radius: 10px; padding: 8px 12px; cursor: pointer; font-family: inherit; min-height: 44px; }
+@media (max-width: 720px) {
+  .hp-layout { grid-template-columns: 1fr; gap: 12px; }
+  .hp-seasons { position: static; flex-direction: row; flex-wrap: wrap; }
+  .hp-seasons > div:first-child { width: 100%; margin-bottom: 2px; }
+  .hp-season-btn { flex: 0 0 auto; }
+}
