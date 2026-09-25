@@ -15,6 +15,8 @@ export default function NewNumbersPage() {
   const [showEntries, setShowEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [owingOnly, setOwingOnly] = useState(false);
+  const [registryNumbers, setRegistryNumbers] = useState(null); // Set of back numbers in `horses`
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -33,6 +35,12 @@ export default function NewNumbersPage() {
       .select("*, club_members(member_name, email, season, status)")
       .order("created_at", { ascending: false });
     setMemberHorses((horses ?? []).filter((h) => h.club_members));
+
+    // Which of those numbers are actually in the public registry? Member
+    // horses used to reserve a number without a registry row, which left
+    // gaps in the Horses tab — the "Add to registry" button below fixes them.
+    const { data: reg } = await supabase.from("horses").select("back_number");
+    setRegistryNumbers(new Set((reg ?? []).map((h) => h.back_number)));
 
     // Show-entry new-number requests (schema-v39 flag). Guarded: on an older
     // database the column doesn't exist and there simply are none.
@@ -65,6 +73,39 @@ export default function NewNumbersPage() {
       </main>
     );
   }
+
+  const missingFromRegistry = registryNumbers
+    ? memberHorses.filter((h) => h.back_number != null && !registryNumbers.has(h.back_number))
+    : [];
+
+  // "AQHA Q-12345, PHAA 678" → rows for horse_registrations (best effort).
+  const parseRegs = (text) => String(text ?? "").split(/[,;\n]+/).map((t) => t.trim()).filter(Boolean)
+    .map((t) => { const m = t.match(/^([A-Za-z]{2,10})[\s:#-]*([A-Za-z0-9-]+)$/); return m ? { club: m[1].toUpperCase(), registration_number: m[2] } : null; })
+    .filter(Boolean);
+
+  const addToRegistry = async (list) => {
+    if (!list.length) return;
+    if (!window.confirm(`Add ${list.length} member ${list.length === 1 ? "horse" : "horses"} to the Horses registry with the number${list.length === 1 ? "" : "s"} already assigned?\n\nNumbers are kept exactly as they are — this only fills in the missing registry rows.`)) return;
+    setSyncing(true);
+    let added = 0; const failed = [];
+    // Dedupe by number: two member rows can share one horse (e.g. renewals).
+    const seen = new Set();
+    for (const h of list) {
+      if (seen.has(h.back_number)) continue;
+      seen.add(h.back_number);
+      const { data: horse, error } = await supabase
+        .from("horses")
+        .insert({ back_number: h.back_number, name: h.horse_name, owner: h.club_members?.member_name ?? null })
+        .select("id").single();
+      if (error) { if (!/duplicate|23505/i.test(error.message ?? "")) failed.push(`${fmtBack(h.back_number)} ${h.horse_name}: ${error.message}`); continue; }
+      added += 1;
+      const regs = parseRegs(h.registrations);
+      if (regs.length) await supabase.from("horse_registrations").insert(regs.map((r) => ({ horse_id: horse.id, ...r })));
+    }
+    setSyncing(false);
+    if (failed.length) window.alert(`Added ${added}. Could not add:\n${failed.join("\n")}`);
+    await load();
+  };
 
   // A member horse "owes" when its additional-number fee isn't paid.
   const horseOwes = (h) => (h.number_fee_cents ?? 0) > 0 && !h.number_fee_paid;
@@ -128,6 +169,21 @@ export default function NewNumbersPage() {
 
         {loading && <p style={{ color: "var(--quiet)" }}>Loading…</p>}
 
+        {!loading && missingFromRegistry.length > 0 && (
+          <div className="card" style={{ borderColor: "var(--clay)", marginBottom: 18, padding: "12px 16px" }}>
+            <div style={{ fontWeight: 700, color: "var(--clay)", marginBottom: 4 }}>
+              ⚠ {missingFromRegistry.length} member {missingFromRegistry.length === 1 ? "horse has" : "horses have"} a number but {missingFromRegistry.length === 1 ? "isn't" : "aren't"} in the Horses registry
+            </div>
+            <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 8px" }}>
+              Their numbers are reserved, which is why the registry looks like it skips them. Add them so the
+              registry is complete and the entry form recognises the horse by its number. (Rows marked "Missing" below.)
+            </p>
+            <button className="btn" style={{ background: "var(--leather)" }} onClick={() => addToRegistry(missingFromRegistry)} disabled={syncing}>
+              {syncing ? "Adding…" : `Add ${missingFromRegistry.length === 1 ? "it" : "all " + missingFromRegistry.length} to the registry`}
+            </button>
+          </div>
+        )}
+
         {/* Member horses */}
         <section className="card" style={{ marginBottom: 18 }}>
           <div className="card-head">
@@ -147,6 +203,7 @@ export default function NewNumbersPage() {
                     <th style={{ width: 70 }}>Number</th>
                     <th>Season</th>
                     <th>Number fee</th>
+                    <th>Registry</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -168,6 +225,14 @@ export default function NewNumbersPage() {
                           <span style={{ display: "inline-block", fontSize: 11, fontWeight: 800, padding: "2px 8px", borderRadius: 999, background: b.bg, color: "#fff" }}>
                             {b.label}
                           </span>
+                        </td>
+                        <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+                          {h.back_number == null || !registryNumbers ? "—"
+                            : registryNumbers.has(h.back_number) ? <span style={{ color: "#2D7A52", fontWeight: 700 }}>✓ In registry</span>
+                            : (
+                              <button className="btn-ghost" style={{ padding: "2px 8px", fontSize: 11.5, borderColor: "var(--clay)", color: "var(--clay)" }}
+                                onClick={() => addToRegistry([h])} disabled={syncing}>Missing — add</button>
+                            )}
                         </td>
                       </tr>
                     );

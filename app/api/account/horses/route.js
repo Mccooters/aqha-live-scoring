@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { adminClient } from "../../_lib/registrations";
 import { getMemberAccount, assertOwnsMember, ownedChildRow, notSignedIn } from "../../_lib/memberAuth";
-import { assignHorseNumber, cleanHorseFields } from "../../_lib/horseNumbers";
+import { assignHorseNumber, cleanHorseFields, registerHorseInRegistry } from "../../_lib/horseNumbers";
 
 // A member's horses (the same club_member_horses rows the committee sees on
-// their application). Adding here doesn't touch the official registry —
-// staff still add horses to the Registry page themselves.
+// their application). A horse issued a brand-new number here is also written
+// into the official `horses` registry (back numbers are permanent, and the
+// registry is the record of who holds each one).
 
 const MAX_HORSES = 20;
 const REJECTED_MSG = "This application was not approved — contact the club.";
@@ -83,6 +84,12 @@ export async function POST(req) {
       ({ data: horse, error } = await db.from("club_member_horses").insert(bare).select().single());
     }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!suggestion.matched_registry) {
+      await registerHorseInRegistry(db, {
+        back_number: assignedFields.back_number, name: assignedFields.horse_name,
+        owner: member.member_name, registrations: assignedFields.registrations,
+      });
+    }
 
     return NextResponse.json({ ok: true, horse, number_fee_cents: feeCents });
   } catch (err) {
@@ -118,6 +125,10 @@ export async function PATCH(req) {
       .select()
       .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await registerHorseInRegistry(db, {
+      back_number: assignedFields.back_number, name: assignedFields.horse_name,
+      owner: owned.member.member_name, registrations: assignedFields.registrations,
+    });
 
     return NextResponse.json({ ok: true, horse });
   } catch (err) {
