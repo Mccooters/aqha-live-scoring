@@ -295,6 +295,12 @@ function blankEntry() {
     horse_not_registered: false,
     rider_regs: [blankRegRow()],
     rider_not_registered: false,
+    // true once the registry filled the numbers in — the section then shows
+    // as a one-line summary with an Edit button instead of the full form
+    // (owner's rule, Sept 2026: the form was too cluttered when there was
+    // nothing left to type).
+    horse_regs_auto: false,
+    rider_regs_auto: false,
   };
 }
 
@@ -308,11 +314,28 @@ function blankMultiHorse() {
 // Structured "association + number" rows used for both the horse's
 // registration numbers and the rider's association memberships. Points are
 // checked against each association, so the office needs these with the entry.
-function RegNumbersSection({ title, hint, rows, notRegistered, notRegisteredLabel, onRowsChange, onNotRegisteredChange, onNumberBlur }) {
+function RegNumbersSection({ title, hint, rows, notRegistered, notRegisteredLabel, onRowsChange, onNotRegisteredChange, onNumberBlur, collapsed, onExpand }) {
   const updateRow = (id, field, value) =>
     onRowsChange(rows.map((r) => (r._id === id ? { ...r, [field]: value } : r)));
   const removeRow = (id) =>
     onRowsChange(rows.length > 1 ? rows.filter((r) => r._id !== id) : rows.map((r) => ({ ...r, club: "", number: "" })));
+  const filled = rows.filter((r) => r.club.trim() || r.number.trim());
+  // Numbers came from the registry: nothing to type, so show them on one
+  // line with an Edit button rather than the whole form.
+  if (collapsed && !notRegistered && filled.length) {
+    return (
+      <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "8px 12px", marginTop: 10, background: "#FDFBF7", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "var(--leather)" }}>{title.replace(/\s*\*$/, "")}</div>
+          <div style={{ fontSize: 13, color: "var(--ink)", marginTop: 1 }}>
+            {filled.map((r) => `${r.club.trim()} ${r.number.trim()}`.trim()).join(" · ")}
+            <span style={{ color: "var(--quiet)", fontSize: 12 }}> · filled from the registry</span>
+          </div>
+        </div>
+        <button type="button" className="btn-ghost" style={{ padding: "5px 10px", fontSize: 12 }} onClick={onExpand}>Edit</button>
+      </div>
+    );
+  }
   return (
     <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 10, background: "#FDFBF7" }}>
       <div style={{ fontSize: 13, fontWeight: 800, color: "var(--leather)" }}>{title}</div>
@@ -710,9 +733,10 @@ export default function RegisterPage() {
       if (e._id !== id) return e;
       // Back number changed — the previous registry match (if any) no longer applies
       // until the field is re-checked on blur.
-      if (field === "back_number") return { ...e, back_number: value, registryChecked: false, registryMatched: false };
+      if (field === "back_number") return { ...e, back_number: value, registryChecked: false, registryMatched: false, horse_regs_auto: false };
       // "New horse" ticked — the back number is assigned at payment instead.
-      if (field === "no_back_number") return { ...e, no_back_number: value, back_number: "", registryChecked: false, registryMatched: false };
+      if (field === "no_back_number") return { ...e, no_back_number: value, back_number: "", registryChecked: false, registryMatched: false, horse_regs_auto: false };
+      if (field === "exhibitor") return { ...e, exhibitor: value, rider_regs_auto: false };
       return { ...e, [field]: value };
     }));
 
@@ -722,11 +746,12 @@ export default function RegisterPage() {
   const updateMultiEntry = (horseId, field, value) =>
     setMultiHorse(horseId, (prev) => {
       if (field === "back_number") {
-        return { ...prev, back_number: value, registryChecked: false, registryMatched: false };
+        return { ...prev, back_number: value, registryChecked: false, registryMatched: false, horse_regs_auto: false };
       }
       if (field === "no_back_number") {
-        return { ...prev, no_back_number: value, back_number: "", registryChecked: false, registryMatched: false };
+        return { ...prev, no_back_number: value, back_number: "", registryChecked: false, registryMatched: false, horse_regs_auto: false };
       }
+      if (field === "exhibitor") return { ...prev, exhibitor: value, rider_regs_auto: false };
       return { ...prev, [field]: value };
     });
 
@@ -815,7 +840,7 @@ export default function RegisterPage() {
     if (!rows.length) return;
     setEntries((prev) => prev.map((e) =>
       e._id === entryId && untouchedRegs(e.rider_regs) && !e.rider_not_registered
-        ? { ...e, rider_regs: rows }
+        ? { ...e, rider_regs: rows, rider_regs_auto: true }
         : e));
   };
 
@@ -825,7 +850,7 @@ export default function RegisterPage() {
     if (!rows.length) return;
     setMultiHorse(horseId, (prev) =>
       untouchedRegs(prev.rider_regs) && !prev.rider_not_registered
-        ? { ...prev, rider_regs: rows }
+        ? { ...prev, rider_regs: rows, rider_regs_auto: true }
         : prev);
   };
 
@@ -856,6 +881,7 @@ export default function RegisterPage() {
               registryMatched: !!data,
               horse_regs: mergeRegRows(e.horse_regs, regRows),
               horse_not_registered: regRows.length ? false : e.horse_not_registered,
+              horse_regs_auto: regRows.length > 0 && untouchedRegs(e.horse_regs),
             }
           : e
       )
@@ -878,6 +904,7 @@ export default function RegisterPage() {
       registryMatched: !!data,
       horse_regs: mergeRegRows(prev.horse_regs, regRows),
       horse_not_registered: regRows.length ? false : prev.horse_not_registered,
+      horse_regs_auto: regRows.length > 0 && untouchedRegs(prev.horse_regs),
     }));
   };
 
@@ -1313,6 +1340,8 @@ export default function RegisterPage() {
                 notRegisteredLabel="This horse isn't registered with any association"
                 onRowsChange={(rows) => updateMultiEntry(horse._id, "horse_regs", rows)}
                 onNotRegisteredChange={(v) => updateMultiEntry(horse._id, "horse_not_registered", v)}
+                collapsed={horse.horse_regs_auto}
+                onExpand={() => updateMultiEntry(horse._id, "horse_regs_auto", false)}
               />
 
               <label className="modal-label">Exhibitor name *</label>
@@ -1337,6 +1366,8 @@ export default function RegisterPage() {
                 notRegisteredLabel="The rider isn't a member of any association"
                 onRowsChange={(rows) => updateMultiEntry(horse._id, "rider_regs", rows)}
                 onNotRegisteredChange={(v) => updateMultiEntry(horse._id, "rider_not_registered", v)}
+                collapsed={horse.rider_regs_auto}
+                onExpand={() => updateMultiEntry(horse._id, "rider_regs_auto", false)}
               />
 
               <label className="modal-label">Classes for this horse *</label>
@@ -1452,6 +1483,8 @@ export default function RegisterPage() {
                     notRegisteredLabel="This horse isn't registered with any association"
                     onRowsChange={(rows) => updateEntry(entry._id, "horse_regs", rows)}
                     onNotRegisteredChange={(v) => updateEntry(entry._id, "horse_not_registered", v)}
+                    collapsed={entry.horse_regs_auto}
+                    onExpand={() => updateEntry(entry._id, "horse_regs_auto", false)}
                   />
                 )}
 
@@ -1486,6 +1519,8 @@ export default function RegisterPage() {
                     notRegisteredLabel="The rider isn't a member of any association"
                     onRowsChange={(rows) => updateEntry(entry._id, "rider_regs", rows)}
                     onNotRegisteredChange={(v) => updateEntry(entry._id, "rider_not_registered", v)}
+                    collapsed={entry.rider_regs_auto}
+                    onExpand={() => updateEntry(entry._id, "rider_regs_auto", false)}
                   />
                 )}
               </div>

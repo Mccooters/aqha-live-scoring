@@ -193,6 +193,12 @@ PR with a clear plain-English description.
   "+ Add another horse"; owner's rule, Sept 2026 — families with several
   horses used to need one registration and one checkout per horse). Both
   flatten to the same per-class entry list the server has always taken.
+  The horse / rider association-number sections COLLAPSE to a one-line
+  "AQHA Q96424 · PHAA 19752 · filled from the registry — Edit" summary when
+  the registry auto-filled them (`horse_regs_auto` / `rider_regs_auto` on
+  the entry, cleared when the back number or exhibitor changes; owner's
+  rule, Sept 2026 — the full form only shows when there's something to
+  type: unknown number, or no numbers on file).
 - `app/event/[id]/register/success/page.js` — post-checkout confirmation;
   polls the registration every 2s (up to 15 times) until the Square webhook
   marks it paid, then shows the confirmed entries.
