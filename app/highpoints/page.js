@@ -496,19 +496,15 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
   return (
     <>
       <header className="header">
-        <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ maxWidth: 1060, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
           <div>
               <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", margin: "0 0 2px", color: "#F2EADB" }}>
               High Points
-              {seasons.length > 1 ? (
-                <select value={season} onChange={e => { setSeason(e.target.value); setActiveCategory(""); }}
-                  style={{ marginLeft: 10, background: "transparent", border: "none", color: "var(--brass-soft)", fontSize: 18, fontFamily: "inherit", cursor: "pointer" }}>
-                  {seasons.map(s => {
-                    const isCurrent = s === currentSeasonFromDate();
-                    return <option key={s} value={s} style={{ color: "#241A12" }}>{s}{isCurrent ? " (current)" : " (archived)"}</option>;
-                  })}
-                </select>
-              ) : season ? <span style={{ color: "var(--brass-soft)", fontSize: 18, marginLeft: 10 }}>{season}</span> : null}
+              {season && (
+                <span style={{ color: "var(--brass-soft)", fontSize: 18, marginLeft: 10, fontWeight: 400 }}>
+                  {season}{season === currentSeasonFromDate() ? "" : " (archived)"}
+                </span>
+              )}
             </h1>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -531,7 +527,33 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
         </div>
       </header>
 
-      <main className="wrap">
+      <main className="wrap" style={{ maxWidth: 1060 }}>
+        <div className="hp-layout">
+        {/* Season list — always expanded down the left (owner's rule, Sept
+            2026: the header dropdown hid which seasons existed). Stacks into
+            a chip row on phones. */}
+        <aside className="hp-seasons">
+          <div style={{ fontSize: 11, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 700, margin: "4px 0 8px" }}>Seasons</div>
+          {seasons.map((s) => {
+            const isCurrent = s === currentSeasonFromDate();
+            const active = s === season;
+            return (
+              <button key={s} type="button" className="hp-season-btn"
+                onClick={() => { setSeason(s); setActiveCategory(""); }}
+                style={{
+                  border: `2px solid ${active ? "var(--leather)" : "var(--line)"}`,
+                  background: active ? "var(--leather)" : "#fff",
+                  color: active ? "#F2EADB" : "var(--ink)",
+                }}>
+                <span className="display" style={{ fontWeight: 700, fontSize: 15 }}>{s}</span>
+                <span style={{ display: "block", fontSize: 11, color: active ? "var(--brass-soft)" : "var(--quiet)", marginTop: 1 }}>
+                  {isCurrent ? "current season" : "archived"}
+                </span>
+              </button>
+            );
+          })}
+        </aside>
+        <div style={{ minWidth: 0 }}>
         {noticeEnabled && (
           <div className="card" style={{ padding: "12px 14px", borderColor: "#E0B15A", background: "#FFF7D6", marginBottom: 14 }}>
             <p style={{ margin: 0, color: "var(--leather)", fontSize: 14, fontWeight: 800 }}>
@@ -668,6 +690,8 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
             </section>
           </>
         )}
+        </div>
+        </div>
       </main>
 
       {modal && (

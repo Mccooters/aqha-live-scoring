@@ -241,7 +241,10 @@ PR with a clear plain-English description.
   bulk import) and **Riders** (public read, staff edit — name, member number,
   category, notes).
 - `app/highpoints/page.js` — season high-points leaderboard, separate for
-  horses and riders, category tabs, CSV import matching the club's existing
+  horses and riders, category tabs (seasons are an always-expanded list
+  down the LEFT of the page — `.hp-layout`/`.hp-seasons` in globals.css,
+  chip row on phones — owner's rule, Sept 2026: the old header dropdown
+  hid which seasons existed), CSV import matching the club's existing
   spreadsheet format (season detected from the title row), manual add/edit/
   delete for staff. Self-service "create this table" instructions shown if
   the `high_points` table/migration hasn't been run yet. There is ONE
