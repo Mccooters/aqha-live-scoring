@@ -36,6 +36,7 @@ const MIGRATION_CHECKS = [
   { m: "v50", what: "Clinic balance part payments", probe: () => supabase.from("registrations").select("balance_payments").limit(1) },
   { m: "v51", what: "Close bookings per clinic spot type", probe: () => supabase.from("classes").select("entries_closed").limit(1) },
   { m: "v52", what: "Square refund IDs + status on registrations", probe: () => supabase.from("registrations").select("refund_log").limit(1) },
+  { m: "v53", what: "Break timer on the live page", probe: () => supabase.from("events").select("break_until").limit(1) },
 ];
 
 const CONFIG_LABELS = {

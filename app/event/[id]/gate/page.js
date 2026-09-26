@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
 import { normaliseBreakLabel, withoutHiddenClasses } from "../../../../lib/classCategories";
+import { BREAK_PRESETS, breakState, fmtClock, suggestedBreakLabel } from "../../../../lib/breakTimer";
 
 // Gate marshal view (schema-v44). Opened via the link the coordinator shares
 // (…/gate?code=123456). Shows the live class and the draw, with just the
@@ -29,6 +30,9 @@ export default function GatePage() {
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const [breakLabel, setBreakLabel] = useState("");
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
 
   const storageKey = `gate-code-${id}`;
 
@@ -92,14 +96,14 @@ export default function GatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const act = async (action, entryId, classId) => {
+  const act = async (action, entryId, classId, extra = {}) => {
     setBusy(true);
     setError("");
     try {
       const res = await fetch("/api/gate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event_id: id, code, action, entry_id: entryId, class_id: classId }),
+        body: JSON.stringify({ event_id: id, code, action, entry_id: entryId, class_id: classId, ...extra }),
       });
       const data = await res.json();
       if (!data.ok) setError(data.error ?? "That didn't work — try again.");
@@ -216,6 +220,58 @@ export default function GatePage() {
       </header>
       <main className="wrap">
         {error && <p style={{ color: "var(--clay)", fontWeight: 700, fontSize: 13.5 }}>{error}</p>}
+
+        {/* Break timer (schema-v53) — shows on the public live page as a
+            countdown with the return time. */}
+        {(() => {
+          const br = breakState(event, now);
+          const nextCls = upcoming[0] ?? null;
+          const suggested = suggestedBreakLabel(liveClass, nextCls, normaliseBreakLabel);
+          return (
+            <section className="card" style={{ borderColor: br.active ? "#E0B15A" : "var(--line)", background: br.active ? "#FFF7D6" : undefined }}>
+              <div style={{ padding: "12px 16px" }}>
+                {br.active ? (
+                  <>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "#A05000" }}>⏸ On a break</div>
+                    <div className="display" style={{ fontWeight: 700, fontSize: 18, margin: "2px 0 2px" }}>{br.label}</div>
+                    <div style={{ fontSize: 14, color: "var(--leather)", marginBottom: 10 }}>
+                      Back at about <strong>{fmtClock(br.until)}</strong> · {br.minutesLeft} min to go
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {[5, 10].map((m) => (
+                        <button key={m} className="btn-ghost" style={{ fontSize: 13 }} disabled={busy}
+                          onClick={() => act("start_break", null, null, { minutes: br.minutesLeft + m, label: br.label })}>
+                          + {m} min
+                        </button>
+                      ))}
+                      <button className="btn" style={{ background: "var(--leather)", fontSize: 13, padding: "8px 14px" }} disabled={busy}
+                        onClick={() => act("end_break")}>
+                        ▶ Back on — end break
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)" }}>Start a break</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
+                      <input className="field" style={{ flex: "1 1 160px", fontSize: 14 }} value={breakLabel} placeholder={suggested}
+                        onChange={(e) => setBreakLabel(e.target.value)} />
+                      {BREAK_PRESETS.map((m) => (
+                        <button key={m} className="btn-ghost" style={{ fontSize: 13 }} disabled={busy}
+                          onClick={() => act("start_break", null, null, { minutes: m, label: breakLabel.trim() || suggested })}>
+                          ⏸ {m} min
+                        </button>
+                      ))}
+                    </div>
+                    <p style={{ fontSize: 12, color: "var(--quiet)", margin: "6px 0 0" }}>
+                      Spectators see the break and the time you&apos;ll be back on the live page.
+                    </p>
+                  </>
+                )}
+              </div>
+            </section>
+          );
+        })()}
 
         {liveClass ? (
           <section className="card" style={{ borderColor: "var(--brass)" }}>

@@ -199,6 +199,12 @@ hasn't been run.
         running refunded total is kept and there's no way to confirm a
         refund actually went through.
 
+- [ ] **v53** — `schema-v53-break-timer.sql`
+      → **break timer**: staff (dashboard) or the gate marshal can start a
+        10/15/30-minute break; the public live page shows the break name,
+        "back at about 10:15" and a countdown. Without it the break buttons
+        show a reminder to run this file.
+
 Tick these off once you've run them.
 
 ---
@@ -259,6 +265,7 @@ Tick these off once you've run them.
 | `schema-v50-partial-balance.sql` | Part payments on clinic balances: payments log, counts down what's owing, auto-marks paid in full |
 | `schema-v51-spot-type-closed.sql` | Close online bookings for a single clinic spot type (`classes.entries_closed`) while others stay open |
 | `schema-v52-refund-log.sql` | Per-refund log with Square's refund id + status (`registrations.refund_log`) so staff can confirm a refund COMPLETED |
+| `schema-v53-break-timer.sql` | Break timer (`events.break_until` / `break_label`) — countdown + return time on the live page, started from the dashboard or gate |
 
 ## For whoever updates the code next
 

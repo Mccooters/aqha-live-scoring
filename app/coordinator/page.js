@@ -3,9 +3,10 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import ReadOnlyBanner from "../components/ReadOnlyBanner";
-import { categoryKey, programDisplayRows } from "../../lib/classCategories";
+import { categoryKey, normaliseBreakLabel, programDisplayRows } from "../../lib/classCategories";
 import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQualifiers, championshipTitles, suggestFeederIds } from "../../lib/championship";
 import { hasResult, resultOrder, scoreRank } from "../../lib/showPrint";
+import { BREAK_PRESETS, breakState, fmtClock, suggestedBreakLabel } from "../../lib/breakTimer";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 import ImportResults from "./ImportResults";
@@ -370,6 +371,9 @@ export default function Coordinator() {
 
   const liveClass = classes.find((c) => c.status === "live");
   const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
+  const [nowTick, setNowTick] = useState(() => new Date());
+  const [breakLabelInput, setBreakLabelInput] = useState("");
+  useEffect(() => { const t = setInterval(() => setNowTick(new Date()), 15000); return () => clearInterval(t); }, []);
   // Same "now in the ring" header the gate page shows (owner's request,
   // Sept 2026 — the scoring card only had a one-line caption): class name,
   // the horse in big type, exhibitor, draw position and who's next.
@@ -399,6 +403,32 @@ export default function Coordinator() {
     );
   };
   const currentEvent = events.find((e) => e.id === eventId);
+  // Break timer (schema-v53): a timed break everyone sees on the live page
+  // ("Break for gear change — back at about 10:15 · 12 min"). Also startable
+  // from the gate page.
+  const breakInfo = breakState(currentEvent, nowTick);
+  const nextUpcomingClass = [...classes]
+    .filter((c) => c.status === "upcoming" && !c.hidden)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0] ?? null;
+  const suggestedBreak = suggestedBreakLabel(liveClass, nextUpcomingClass, normaliseBreakLabel);
+  const setBreak = async (minutes, label) => {
+    if (!eventId) return;
+    const patch = minutes == null
+      ? { break_until: null, break_label: null }
+      : { break_until: new Date(Date.now() + minutes * 60000).toISOString(), break_label: (label || "Break").slice(0, 80) };
+    const { error } = await supabase.from("events").update(patch).eq("id", eventId);
+    if (error) {
+      window.alert(/break_until|break_label|schema cache/i.test(error.message ?? "")
+        ? 'Break timers need a database update — run "schema-v53-break-timer.sql" in Supabase first.'
+        : error.message);
+      return;
+    }
+    if (minutes != null && currentEvent?.status === "live") {
+      triggerPush(`⏸ ${label || "Break"}`, `Back at about ${fmtClock(new Date(Date.now() + minutes * 60000))}`, "break");
+    }
+    await loadEvents();
+  };
+
   const isClinic = currentEvent?.event_type === "clinic";
   const uploadedPdfFiles = patternFiles.filter((file) => isPdfFile(file.name) || isPdfFile(file.url));
 
@@ -2672,6 +2702,40 @@ export default function Coordinator() {
             })()}
           </div>
         </div>
+
+        {!isClinic && currentEvent && (currentEvent.status === "live" || breakInfo.active) && (
+          <section className="card" style={{ padding: "14px 20px", borderColor: breakInfo.active ? "#E0B15A" : "var(--line)", background: breakInfo.active ? "#FFF7D6" : undefined }}>
+            {breakInfo.active ? (
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "#A05000" }}>⏸ On a break — {breakInfo.label}</div>
+                  <div style={{ fontSize: 14, color: "var(--leather)", marginTop: 2 }}>
+                    Back at about <strong>{fmtClock(breakInfo.until)}</strong> · {breakInfo.minutesLeft} min to go · showing on the live page
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {[5, 10].map((m) => (
+                    <button key={m} className="btn-ghost" style={{ fontSize: 13 }} disabled={busy} onClick={() => setBreak(breakInfo.minutesLeft + m, breakInfo.label)}>+ {m} min</button>
+                  ))}
+                  <button className="btn" style={{ background: "var(--leather)", fontSize: 13, padding: "8px 14px" }} disabled={busy} onClick={() => setBreak(null)}>▶ Back on — end break</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)", marginRight: 4 }}>Break</span>
+                <input className="field" style={{ flex: "1 1 180px", fontSize: 14 }} value={breakLabelInput} placeholder={suggestedBreak}
+                  onChange={(e) => setBreakLabelInput(e.target.value)} />
+                {BREAK_PRESETS.map((m) => (
+                  <button key={m} className="btn-ghost" style={{ fontSize: 13 }} disabled={busy}
+                    onClick={() => setBreak(m, breakLabelInput.trim() || suggestedBreak)}
+                    title="Starts a countdown on the public live page with the time you'll be back">
+                    ⏸ {m} min
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {liveClass && current && liveClass.scoring_mode !== "class_only" && liveClass.scoring_mode !== "tbc_class" && liveClass.scoring_mode !== "tbc" && (
           <section className="card" style={{ padding: 20, borderColor: "var(--brass)" }}>
