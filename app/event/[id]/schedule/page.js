@@ -130,11 +130,11 @@ export default function SchedulePage() {
                     }
                     const cls = row.cls;
                         const competing = (cls.entries ?? []).filter((e) => !e.scratched).length;
-                        // TBC draw classes advance by marking entries "called" —
-                        // scores only come later from paperwork.
+                        // "called" = been through the ring (gate tick), any mode;
+                        // a result from either judge counts too.
                         const isTbcDraw = cls.scoring_mode === "tbc";
                         const scored = (cls.entries ?? []).filter(
-                          (e) => !e.scratched && (isTbcDraw ? e.called || e.score != null || e.score2 != null : e.score != null || e.score2 != null)
+                          (e) => !e.scratched && (e.called || e.score != null || e.score2 != null)
                         ).length;
                         const isLive = cls.status === "live";
                         return (

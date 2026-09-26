@@ -91,8 +91,10 @@ export async function POST(req) {
     }
 
     if (action === "called") {
-      if ((entry.classes?.scoring_mode ?? "score") !== "tbc") {
-        return NextResponse.json({ error: "Only TBC-draw classes advance from the gate." }, { status: 400 });
+      // Any one-at-a-time class advances from the gate: "called" means the
+      // horse has been through; the coordinator enters its score later.
+      if (["class_only", "tbc_class"].includes(entry.classes?.scoring_mode ?? "score")) {
+        return NextResponse.json({ error: "This class goes in all together — use “Class finished” instead." }, { status: 400 });
       }
       const { error } = await db.from("entries").update({ called: true }).eq("id", entry_id);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -104,13 +106,12 @@ export async function POST(req) {
       // PENDING draw only — horses already through (called/scored) and
       // scratches keep their spots.
       const dir = action === "move_earlier" ? -1 : 1;
-      const mode = entry.classes?.scoring_mode ?? "score";
       const { data: all } = await db
         .from("entries")
         .select("id, draw_order, called, scratched, score")
         .eq("class_id", entry.class_id);
       const pending = (all ?? [])
-        .filter((x) => !x.scratched && (mode === "tbc" ? !x.called && x.score == null : x.score == null))
+        .filter((x) => !x.scratched && !x.called && x.score == null)
         .sort((a, b) => (a.draw_order ?? 0) - (b.draw_order ?? 0));
       const idx = pending.findIndex((x) => x.id === entry_id);
       if (idx === -1) {
