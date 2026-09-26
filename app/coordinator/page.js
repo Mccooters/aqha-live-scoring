@@ -1222,14 +1222,19 @@ export default function Coordinator() {
   // fed by live championships, and a Supreme fed by live Grands, stay too
   // (owner's report, Sept 2026: Champ & Reserve / Grand / Supreme vanished
   // from the printed draw after Close entries hid the "empty" classes).
+  // A class is championship-like if it has feeder links OR its name says so
+  // (imported programs often haven't had their feeders confirmed yet).
+  const isChampLike = (c) => isChampionship(c) || looksLikeChampionship(c?.name);
   const closableEmptyClasses = (list) => {
     const live = new Set(list.filter((c) => c.entries.length > 0).map((c) => c.id));
     let changed = true;
     while (changed) {
       changed = false;
       for (const c of list) {
-        if (live.has(c.id) || !isChampionship(c)) continue;
-        if ((c.champ_feeder_ids ?? []).some((id) => live.has(id))) { live.add(c.id); changed = true; }
+        if (live.has(c.id) || !isChampLike(c)) continue;
+        const feeders = c.champ_feeder_ids ?? [];
+        // No feeder links yet → can't tell, so keep it (staff fill it by hand).
+        if (!feeders.length || feeders.some((id) => live.has(id))) { live.add(c.id); changed = true; }
       }
     }
     return list.filter((c) => !live.has(c.id));
@@ -1356,7 +1361,7 @@ export default function Coordinator() {
   const hiddenChampsWithLiveFeeders = () => {
     const visible = classes.filter((c) => !c.hidden);
     const keep = new Set(visible.filter((c) => !closableEmptyClasses(visible).includes(c)).map((c) => c.id));
-    const hidden = classes.filter((c) => c.hidden && isChampionship(c));
+    const hidden = classes.filter((c) => c.hidden && isChampLike(c));
     // Same chain walk, but over hidden championships too.
     let changed = true;
     const out = new Set();
@@ -1364,7 +1369,8 @@ export default function Coordinator() {
       changed = false;
       for (const c of hidden) {
         if (out.has(c.id)) continue;
-        if ((c.champ_feeder_ids ?? []).some((id) => keep.has(id) || out.has(id))) { out.add(c.id); changed = true; }
+        const feeders = c.champ_feeder_ids ?? [];
+        if (!feeders.length || feeders.some((id) => keep.has(id) || out.has(id))) { out.add(c.id); changed = true; }
       }
     }
     return hidden.filter((c) => out.has(c.id));
@@ -2506,6 +2512,13 @@ export default function Coordinator() {
               title="If horses ended up entered twice in the same class (e.g. entries and results imported separately), this keeps the copy with the result and removes the spare">
               🧹 Remove duplicates
             </button>
+            {!isClinic && hiddenChampsWithLiveFeeders().length > 0 && (
+              <button className="btn-ghost" onClick={unhideChampionships} disabled={busy}
+                style={{ borderColor: "#7A5C10", color: "#7A5C10", fontWeight: 700 }}
+                title="Championship classes were hidden by Close entries because they had no entries yet — bring them back onto the draw and program">
+                🏆 Restore hidden championships ({hiddenChampsWithLiveFeeders().length})
+              </button>
+            )}
             {!isClinic && (
               <button className="btn-ghost" onClick={() => openModal("bulkJudges")} disabled={!eventId || classes.length === 0}
                 title="Set Judge 1 and Judge 2 across every class in this event at once — leave Judge 2 blank for a single-judge show">
