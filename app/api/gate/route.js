@@ -13,7 +13,7 @@ import { adminClient } from "../_lib/registrations";
 // read out of the database by spectators or guessed by brute force.
 export async function POST(req) {
   try {
-    const { event_id, code, action, entry_id, class_id } = await req.json();
+    const { event_id, code, action, entry_id, class_id, minutes, label } = await req.json();
     if (!event_id || !code || !action) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
@@ -37,6 +37,27 @@ export async function POST(req) {
 
     // The gate page uses this to verify the code before showing controls.
     if (action === "check") return NextResponse.json({ ok: true });
+
+    // Break timer (schema-v53): the marshal can start/end a timed break so the
+    // live page shows "back at 10:15" — no scores, no entries touched.
+    if (action === "start_break" || action === "end_break") {
+      const mins = Math.round(Number(minutes));
+      const patch = action === "end_break"
+        ? { break_until: null, break_label: null }
+        : { break_until: new Date(Date.now() + mins * 60000).toISOString(), break_label: String(label ?? "").trim().slice(0, 80) || "Break" };
+      if (action === "start_break" && !(mins >= 1 && mins <= 240)) {
+        return NextResponse.json({ error: "Break length must be between 1 and 240 minutes." }, { status: 400 });
+      }
+      const { error } = await db.from("events").update(patch).eq("id", event_id);
+      if (error) {
+        const missing = /break_until|break_label|schema cache/i.test(error.message ?? "");
+        return NextResponse.json(
+          { error: missing ? 'Break timers need a database update — the coordinator must run "schema-v53-break-timer.sql".' : error.message },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
 
     // Finish the current live class and start the next one in running order.
     // Needed on all-TBC days: results come from paperwork later, so classes

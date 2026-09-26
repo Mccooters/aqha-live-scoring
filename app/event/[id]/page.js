@@ -6,6 +6,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import { normaliseBreakLabel, normaliseCategoryLabel, programDisplayRows, withoutHiddenClasses } from "../../../lib/classCategories";
 import { hasResult, resultOrder } from "../../../lib/showPrint";
 import { championshipTitles } from "../../../lib/championship";
+import { breakState, fmtClock } from "../../../lib/breakTimer";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -80,6 +81,8 @@ function urlBase64ToUint8Array(base64) {
 export default function EventPage() {
   const { id } = useParams();
   const [event, setEvent] = useState(null);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
   const [classes, setClasses] = useState([]);
   const [notifStatus, setNotifStatus] = useState("idle"); // idle | loading | subscribed | denied
   const [notifError, setNotifError] = useState("");
@@ -543,6 +546,28 @@ export default function EventPage() {
       )}
 
       <main className="wrap event-page-wrap">
+        {/* ---- Break timer (schema-v53): started by staff or the gate ---- */}
+        {(() => {
+          const br = breakState(event, now);
+          if (!br.active) return null;
+          return (
+            <section className="card" style={{ background: "#FFF7D6", border: "1px solid #E0B15A", padding: "16px 20px" }}>
+              <div style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "#A05000", fontWeight: 800 }}>⏸ Break</div>
+              <div className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,26px)", lineHeight: 1.2, color: "var(--leather)", marginTop: 2 }}>
+                {br.label}
+              </div>
+              <div style={{ display: "flex", gap: 18, alignItems: "baseline", flexWrap: "wrap", marginTop: 6 }}>
+                <div style={{ fontSize: 15, color: "var(--leather)" }}>
+                  Back at about <strong style={{ fontSize: 20 }}>{fmtClock(br.until)}</strong>
+                </div>
+                <div style={{ fontSize: 13.5, color: "#7A5C10", fontWeight: 700 }}>
+                  {br.minutesLeft} min to go
+                </div>
+              </div>
+            </section>
+          );
+        })()}
+
         {/* ---- Live banner / completed summary / idle ---- */}
         {liveClass && liveClass.scoring_mode === "tbc_class" ? (
           <section className="card" style={{ background: "var(--leather-deep)", color: "#F5EFE4", border: "1px solid var(--brass)", padding: "18px 20px" }}>

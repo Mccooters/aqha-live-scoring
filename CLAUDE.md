@@ -337,6 +337,15 @@ PR with a clear plain-English description.
   the entry form checks via `app/api/registrations/fees-status`),
   event_type: `show` | `clinic`, entries_open (legacy boolean, superseded by
   status, kept for backwards compatibility but unused).
+- `events.break_until` + `break_label` (schema-v53) — **break timer**:
+  staff (dashboard card above the scoring card, writes `events` directly)
+  or the gate marshal (`/api/gate` actions `start_break` {minutes 1–240,
+  label} / `end_break`) start a timed break; `lib/breakTimer.js`
+  (`breakState`, `fmtClock`, `suggestedBreakLabel` — defaults to the
+  program's next break heading) drives the yellow "⏸ Break — back at about
+  10:15 · 12 min to go" banner at the top of the public event page, the
+  gate page and the dashboard (all tick every 15 s; a past `break_until`
+  is simply over). Starting one on a live show also sends a push.
 - `gate_codes` — event_id (pk, cascade delete), code (schema-v44). Per-event
   gate-marshal access: the dashboard's "🚪 Gate access" button generates a
   long crypto-random token (NEVER stored on the publicly readable `events`
