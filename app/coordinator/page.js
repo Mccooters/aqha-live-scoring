@@ -540,6 +540,33 @@ export default function Coordinator() {
     await loadClasses();
   };
 
+  // "Skip for now": no score yet (rider not ready, judge still deciding) —
+  // move the current horse to the END of the pending draw so the next one
+  // comes up and this one returns later (owner's request, Sept 2026: the
+  // scoring card had no way past a horse without a score).
+  const skipCurrent = async () => {
+    if (!current || !liveClass || busy) return;
+    const pending = liveClass.entries.filter((e) => e.score == null && !e.scratched);
+    if (pending.length < 2) return;
+    setBusy(true);
+    try {
+      const maxDraw = Math.max(0, ...liveClass.entries.map((e) => e.draw_order ?? 0));
+      const ok = await saveOrWarn(
+        supabase.from("entries").update({ draw_order: maxDraw + 1 }).eq("id", current.id),
+        `#${fmtBack(current.back_number)} ${current.horse} could not be moved to the end of the draw.`
+      );
+      if (ok) {
+        const next = pending.find((e) => e.id !== current.id);
+        if (next && currentEvent?.status === "live") {
+          triggerPush(`Now showing: #${fmtBack(next.back_number)} ${next.horse}`, `Class ${liveClass.num} · ${liveClass.name}`, "now-showing");
+        }
+      }
+      await loadClasses();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const movePending = async (cls, entry, dir) => {
     const clsMode = cls.scoring_mode ?? "score";
     const pending = clsMode === "tbc"
@@ -2708,6 +2735,22 @@ export default function Coordinator() {
               </button>
               <button className="btn-ghost danger" style={{ padding: "10px 16px", fontSize: 14, borderRadius: 10, alignSelf: "flex-end" }} onClick={() => toggleScratch(current)}>
                 Scratch this entry
+              </button>
+            </div>
+            {/* Ways past a horse / class WITHOUT a score — results can always
+                be typed in later from the judge's paperwork. */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
+              <button className="btn-ghost" style={{ fontSize: 13 }} disabled={busy || liveClass.entries.filter((e) => e.score == null && !e.scratched).length < 2}
+                onClick={skipCurrent}
+                title="No score yet — moves this horse to the end of the draw and calls the next one; it comes back around later">
+                ↷ Skip for now — next horse
+              </button>
+              <button className="btn-ghost" style={{ fontSize: 13 }} disabled={busy}
+                onClick={() => {
+                  if (window.confirm(`Finish Class ${liveClass.num} · ${liveClass.name} now and start the next class?\n\nHorses without a score stay in the class — enter their results later with Edit (or Import results).`)) completeClassManual(liveClass);
+                }}
+                title="Finish this class without entering scores here — results go in later from the judge's paperwork">
+                ✓ Finish class — scores later
               </button>
             </div>
           </section>
