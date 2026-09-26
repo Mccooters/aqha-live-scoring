@@ -369,6 +369,34 @@ export default function Coordinator() {
 
   const liveClass = classes.find((c) => c.status === "live");
   const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
+  // Same "now in the ring" header the gate page shows (owner's request,
+  // Sept 2026 — the scoring card only had a one-line caption): class name,
+  // the horse in big type, exhibitor, draw position and who's next.
+  const liveHeader = (label) => {
+    if (!liveClass || !current) return null;
+    const mode = liveClass.scoring_mode ?? "score";
+    const active = liveClass.entries.filter((e) => !e.scratched);
+    const pending = active.filter((e) => (mode === "tbc" ? !e.called && e.score == null : e.score == null));
+    const position = active.length - pending.length + 1;
+    const next = pending[1] ?? null;
+    return (
+      <>
+        <div style={{ fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--clay)", fontWeight: 800 }}>
+          Now in the ring · {label}
+        </div>
+        <div className="display" style={{ fontWeight: 700, fontSize: 18, margin: "2px 0 6px" }}>
+          Class {liveClass.num} · {liveClass.name}
+        </div>
+        <div className="display" style={{ fontWeight: 800, fontSize: 26, color: "var(--leather)", lineHeight: 1.15 }}>
+          #{fmtBack(current.back_number)} {current.horse}
+        </div>
+        <div style={{ color: "var(--quiet)", fontSize: 13.5, margin: "2px 0 12px" }}>
+          {current.exhibitor || "—"} · {position} of {active.length}
+          {next ? <> · Next: <strong style={{ color: "var(--ink)" }}>#{fmtBack(next.back_number)} {next.horse}</strong>{next.exhibitor ? ` (${next.exhibitor})` : ""}</> : " · last to go"}
+        </div>
+      </>
+    );
+  };
   const currentEvent = events.find((e) => e.id === eventId);
   const isClinic = currentEvent?.event_type === "clinic";
   const uploadedPdfFiles = patternFiles.filter((file) => isPdfFile(file.name) || isPdfFile(file.url));
@@ -2627,9 +2655,7 @@ export default function Coordinator() {
 
         {liveClass && current && liveClass.scoring_mode !== "class_only" && liveClass.scoring_mode !== "tbc_class" && liveClass.scoring_mode !== "tbc" && (
           <section className="card" style={{ padding: 20, borderColor: "var(--brass)" }}>
-            <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 10 }}>
-              Class {liveClass.num} · {liveClass.scoring_mode === "placing" ? "Set placing" : "Enter score"} — #{fmtBack(current.back_number)} {current.horse}
-            </div>
+            {liveHeader(liveClass.scoring_mode === "placing" ? "set placing" : "enter score")}
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {/* Judge 1 input */}
               <div style={{ flex: "1 1 140px" }}>
@@ -2703,9 +2729,7 @@ export default function Coordinator() {
 
         {liveClass && current && liveClass.scoring_mode === "tbc" && (
           <section className="card" style={{ padding: 20, borderColor: "var(--brass)" }}>
-            <div style={{ fontSize: 11.5, letterSpacing: ".16em", textTransform: "uppercase", color: "var(--quiet)", fontWeight: 600, marginBottom: 10 }}>
-              Class {liveClass.num} · TBC draw — #{fmtBack(current.back_number)} {current.horse}
-            </div>
+            {liveHeader("TBC draw")}
             <p style={{ margin: "0 0 12px", fontSize: 13.5, color: "var(--quiet)" }}>
               Tap <strong>Next entry →</strong> as each horse enters the ring. Results will be entered later from the judge's paperwork.
             </p>
