@@ -504,15 +504,21 @@ entries) or `live` (start the show) without reverting.
   draw, AND results come from paperwork later (the original single `tbc`
   mode before it was split).
 
-`firstPending(entries, mode)` is mode-aware: `tbc` checks `!called` AND
-`score == null` (a horse with a result has plainly been through — results
-typed in or imported after the show never get the gate's `called` tick, and
-treating them as pending made every placed horse show twice), every other
-mode checks `score == null`. This logic is duplicated (intentionally,
-no shared package) across `app/coordinator/page.js`,
-`app/event/[id]/page.js` and `app/event/[id]/gate/page.js` (plus the
-pending-draw filters in `app/api/gate/route.js` and the schedule page) —
-keep them all in sync when changing it. Separately, a horse counts as
+`firstPending(entries, mode)` treats `entries.called` as "been through the
+ring" in EVERY one-at-a-time mode (owner's rule, Sept 2026 — the gate
+marshal calls the next horse on scored classes too; the coordinator types
+the score in later): pending = `!called && score == null && !scratched`,
+and a horse with a result has plainly been through as well (results typed
+in or imported after the show never get the gate's tick). Rows that are
+called-but-unscored show as "GONE · result pending" on the dashboard and
+public page. The `mode` parameter is kept only for call-site
+compatibility. This logic is duplicated (intentionally, no shared package)
+across `app/coordinator/page.js`, `app/event/[id]/page.js` and
+`app/event/[id]/gate/page.js` (plus the pending-draw filters in
+`app/api/gate/route.js` and the schedule page) — keep them all in sync
+when changing it. The dashboard scoring card has "✓ Been through — score
+later" (marks called, same as the gate) and "↷ Skip for now" (moves the
+horse to the end of the pending draw so it comes back). Separately, a horse counts as
 **placed** (results list, not the pending draw) when EITHER judge gave it a
 result — `hasResult`/`resultOrder` in `lib/showPrint.js` (owner's rule,
 Sept 2026: judge 2 may place a horse judge 1 didn't, e.g. a Reserve from

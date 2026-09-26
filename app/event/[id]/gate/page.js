@@ -11,12 +11,13 @@ import { normaliseBreakLabel, withoutHiddenClasses } from "../../../../lib/class
 // actions go through /api/gate with the event's code. No staff login.
 
 const fmtBack = (n) => String(n ?? "").padStart(3, "0");
-const firstPending = (entries, mode) =>
-  mode === "tbc"
-    // A horse with a result has plainly been through — results typed in or
-    // imported after the show never get the gate's "called" tick.
-    ? entries.find((e) => !e.called && e.score == null && !e.scratched) ?? null
-    : entries.find((e) => e.score == null && !e.scratched) ?? null;
+// "called" = been through the ring, in EVERY mode (owner's rule, Sept 2026:
+// the gate marshal must be able to call the next horse on a scored class
+// too — the coordinator enters the score later). A horse with a result has
+// plainly been through as well (results typed in or imported after the show
+// never get the gate's tick). `mode` is kept for call-site compatibility.
+const firstPending = (entries, mode) => // eslint-disable-line no-unused-vars
+  entries.find((e) => !e.called && e.score == null && !e.scratched) ?? null;
 
 export default function GatePage() {
   const { id } = useParams();
@@ -138,13 +139,13 @@ export default function GatePage() {
   const isTbc = (liveClass?.scoring_mode ?? "score") === "tbc";
   // How many are still to go through — with one horse left, the button must
   // not promise a "next horse" that doesn't exist.
-  const stillToGo = isTbc && liveClass
+  const stillToGo = liveClass
     ? liveClass.entries.filter((e) => !e.called && e.score == null && !e.scratched).length
     : 0;
   // Highlight who's in the ring (green) and who's on deck (orange) in the
   // live class's list; horses already through fade back.
   const livePending = liveClass
-    ? liveClass.entries.filter((x) => !x.scratched && (isTbc ? !x.called && x.score == null : x.score == null))
+    ? liveClass.entries.filter((x) => !x.scratched && !x.called && x.score == null)
     : [];
   // class_only / tbc_class: the WHOLE class is in the ring together — no
   // one-at-a-time order, so every active horse highlights green.
@@ -156,9 +157,8 @@ export default function GatePage() {
   const entryRow = (e, cls, ids = {}) => {
     // Still to go through the ring — these can be reordered for last-second
     // gate changes (horses already through, and scratches, keep their spots).
-    const isTbcCls = cls.scoring_mode === "tbc";
-    const movable = !e.scratched && (isTbcCls ? !e.called && e.score == null : e.score == null);
-    const done = !e.scratched && (isTbcCls ? e.called || e.score != null : e.score != null);
+    const movable = !e.scratched && !e.called && e.score == null;
+    const done = !e.scratched && (e.called || e.score != null);
     const isCurrent = ids.allIn ? movable : e.id === ids.currentId;
     const isNext = !ids.allIn && e.id === ids.nextId;
     const showChips = !ids.allIn;
@@ -185,7 +185,7 @@ export default function GatePage() {
           )}
           {e.scratched ? (
             <button className="btn-ghost" style={{ fontSize: 12 }} disabled={busy} onClick={() => act("restore", e.id)}>Restore</button>
-          ) : (e.score == null && !(cls.scoring_mode === "tbc" && e.called)) ? (
+          ) : (e.score == null && !e.called) ? (
             <button className="btn-ghost" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }} disabled={busy} onClick={() => act("scratch", e.id)}>Scratch</button>
           ) : null}
         </span>
@@ -234,14 +234,13 @@ export default function GatePage() {
                     #{fmtBack(current.back_number)} {current.horse}
                   </div>
                   <div style={{ color: "var(--quiet)", marginBottom: 12 }}>{current.exhibitor}</div>
-                  {isTbc ? (
-                    <button className="btn" style={{ width: "100%", fontSize: 17, padding: 14, background: "var(--leather)" }}
-                      disabled={busy} onClick={() => act("called", current.id)}>
-                      {busy ? "Saving…" : stillToGo <= 1 ? "✓ Finished run — that's everyone" : "✓ Finished run — next horse"}
-                    </button>
-                  ) : (
-                    <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: 0 }}>
-                      The coordinator advances this class as scores are entered — you can scratch from the lists below.
+                  <button className="btn" style={{ width: "100%", fontSize: 17, padding: 14, background: "var(--leather)" }}
+                    disabled={busy} onClick={() => act("called", current.id)}>
+                    {busy ? "Saving…" : stillToGo <= 1 ? "✓ Finished run — that's everyone" : "✓ Finished run — next horse"}
+                  </button>
+                  {!isTbc && (
+                    <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "8px 0 0" }}>
+                      The coordinator also moves this class on as each score is saved — press the button only if they haven&apos;t.
                     </p>
                   )}
                 </>

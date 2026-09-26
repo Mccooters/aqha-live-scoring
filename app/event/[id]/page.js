@@ -9,12 +9,13 @@ import { championshipTitles } from "../../../lib/championship";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
-const firstPending = (entries, mode) =>
-  mode === "tbc"
-    // A horse with a result has plainly been through — results typed in or
-    // imported after the show never get the gate's "called" tick.
-    ? entries.find((e) => !e.called && e.score == null && !e.scratched) ?? null
-    : entries.find((e) => e.score == null && !e.scratched) ?? null;
+// "called" = been through the ring, in EVERY mode (owner's rule, Sept 2026:
+// the gate marshal must be able to call the next horse on a scored class
+// too — the coordinator enters the score later). A horse with a result has
+// plainly been through as well (results typed in or imported after the show
+// never get the gate's tick). `mode` is kept for call-site compatibility.
+const firstPending = (entries, mode) => // eslint-disable-line no-unused-vars
+  entries.find((e) => !e.called && e.score == null && !e.scratched) ?? null;
 
 const fmtBack = (n) => String(n).padStart(3, "0");
 
@@ -206,11 +207,11 @@ export default function EventPage() {
   const active = liveClass ? liveClass.entries.filter((e) => !e.scratched) : [];
   // The horse on deck (second in the pending draw) for one-at-a-time classes.
   const livePending = liveClass
-    ? liveClass.entries.filter((e) => !e.scratched && (liveClass.scoring_mode === "tbc" ? !e.called && e.score == null : e.score == null))
+    ? liveClass.entries.filter((e) => !e.scratched && !e.called && e.score == null)
     : [];
   const nextEntry = current ? livePending[1] ?? null : null;
   const drawPos = current ? active.findIndex((e) => e.id === current.id) + 1 : 0;
-  const scored = active.filter((e) => liveClass?.scoring_mode === "tbc" ? e.called || e.score != null : e.score != null).length;
+  const scored = active.filter((e) => e.called || e.score != null).length;
 
   if (!event) return <main className="wrap"><p style={{ color: "var(--quiet)" }}>Loading…</p></main>;
 
@@ -346,10 +347,9 @@ export default function EventPage() {
             // A result from EITHER judge places a horse (judge 2 may place
             // one judge 1 didn't) — only horses neither judge placed stay pending.
             const placed = cls.entries.filter((e) => hasResult(e) && !e.scratched).sort(resultOrder(cls));
-            const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && !hasResult(e) && !e.scratched) : [];
-            const pending = isTbcDraw
-              ? cls.entries.filter((e) => !e.called && !hasResult(e) && !e.scratched)
-              : cls.entries.filter((e) => !hasResult(e) && !e.scratched);
+            // Been through the ring (gate tick) but no result yet — any mode.
+            const calledRows = cls.entries.filter((e) => e.called && !hasResult(e) && !e.scratched);
+            const pending = cls.entries.filter((e) => !e.called && !hasResult(e) && !e.scratched);
             const scratchedRows = cls.entries.filter((e) => e.scratched);
             const isLive = cls.status === "live";
             const isClassOnly = mode === "class_only";
@@ -425,7 +425,7 @@ export default function EventPage() {
                     ))}
                     {calledRows.map((e) => (
                       <tr key={e.id} style={{ opacity: 0.75 }}>
-                        <td style={{ color: "var(--quiet)", fontStyle: "italic", fontSize: 11, fontWeight: 600 }}>TBC</td>
+                        <td style={{ color: "var(--quiet)", fontStyle: "italic", fontSize: 11, fontWeight: 600 }}>GONE</td>
                         <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse}</td>
                         <td style={{ color: "var(--quiet)" }}>{e.exhibitor}</td>
                         <td style={{ textAlign: "right", color: "var(--quiet)", fontStyle: "italic", fontSize: 12 }}>result pending</td>

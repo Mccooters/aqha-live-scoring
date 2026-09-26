@@ -10,12 +10,13 @@ import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 import ImportResults from "./ImportResults";
 
-const firstPending = (entries, mode) =>
-  mode === "tbc"
-    // A horse with a result has plainly been through — results typed in or
-    // imported after the show never get the gate's "called" tick.
-    ? entries.find((e) => !e.called && e.score == null && !e.scratched) ?? null
-    : entries.find((e) => e.score == null && !e.scratched) ?? null;
+// "called" = been through the ring, in EVERY mode (owner's rule, Sept 2026:
+// the gate marshal must be able to call the next horse on a scored class
+// too — the coordinator enters the score later). A horse with a result has
+// plainly been through as well (results typed in or imported after the show
+// never get the gate's tick). `mode` is kept for call-site compatibility.
+const firstPending = (entries, mode) => // eslint-disable-line no-unused-vars
+  entries.find((e) => !e.called && e.score == null && !e.scratched) ?? null;
 
 // All valid high-points categories in display order.
 const HP_CATEGORIES = [
@@ -183,7 +184,7 @@ const isPdfFile = (value) => {
 function liveActivityState(cls) {
   const mode = cls.scoring_mode ?? "score";
   const active = (cls.entries ?? []).filter((e) => !e.scratched).sort((a, b) => a.draw_order - b.draw_order);
-  const cur = mode === "tbc" ? active.find((e) => !e.called && e.score == null) : active.find((e) => e.score == null);
+  const cur = active.find((e) => !e.called && e.score == null);
   const pos = cur ? active.findIndex((e) => e.id === cur.id) + 1 : active.length;
   const lastScored = [...active].reverse().find((e) => e.score != null);
   return {
@@ -376,7 +377,7 @@ export default function Coordinator() {
     if (!liveClass || !current) return null;
     const mode = liveClass.scoring_mode ?? "score";
     const active = liveClass.entries.filter((e) => !e.scratched);
-    const pending = active.filter((e) => (mode === "tbc" ? !e.called && e.score == null : e.score == null));
+    const pending = active.filter((e) => !e.called && e.score == null);
     const position = active.length - pending.length + 1;
     const next = pending[1] ?? null;
     return (
@@ -530,10 +531,7 @@ export default function Coordinator() {
         triggerPush(`Scratch: #${entry.back_number} ${entry.horse}`, "This entry has been scratched.", "scratch");
       }
       if (liveClass) {
-        const liveMode = liveClass.scoring_mode ?? "score";
-        const remaining = liveMode === "tbc"
-          ? liveClass.entries.filter((e) => e.id !== entry.id && !e.called && e.score == null && !e.scratched)
-          : liveClass.entries.filter((e) => e.id !== entry.id && e.score == null && !e.scratched);
+        const remaining = liveClass.entries.filter((e) => e.id !== entry.id && !e.called && e.score == null && !e.scratched);
         if (remaining.length === 0) await completeClass(liveClass);
       }
     }
@@ -546,7 +544,7 @@ export default function Coordinator() {
   // scoring card had no way past a horse without a score).
   const skipCurrent = async () => {
     if (!current || !liveClass || busy) return;
-    const pending = liveClass.entries.filter((e) => e.score == null && !e.scratched);
+    const pending = liveClass.entries.filter((e) => !e.called && e.score == null && !e.scratched);
     if (pending.length < 2) return;
     setBusy(true);
     try {
@@ -568,10 +566,7 @@ export default function Coordinator() {
   };
 
   const movePending = async (cls, entry, dir) => {
-    const clsMode = cls.scoring_mode ?? "score";
-    const pending = clsMode === "tbc"
-      ? cls.entries.filter((e) => !e.called && e.score == null && !e.scratched)
-      : cls.entries.filter((e) => e.score == null && !e.scratched);
+    const pending = cls.entries.filter((e) => !e.called && e.score == null && !e.scratched);
     const pos = pending.findIndex((e) => e.id === entry.id);
     const other = pending[pos + dir];
     if (!other) return;
@@ -604,7 +599,7 @@ export default function Coordinator() {
     // warn if it has entries that haven't been scored yet.
     if (liveClass && liveClass.id !== cls.id) {
       const mode = liveClass.scoring_mode ?? "score";
-      const unscored = liveClass.entries.filter((e) => !e.scratched && (mode === "tbc" ? !e.called && e.score == null : e.score == null)).length;
+      const unscored = liveClass.entries.filter((e) => !e.scratched && !e.called && e.score == null).length;
       const msg = unscored > 0
         ? `Class ${liveClass.num} (${liveClass.name}) is still live with ${unscored} ${unscored === 1 ? "entry" : "entries"} not yet ${mode === "tbc" ? "shown" : "scored"}.\n\nStarting "${cls.name}" will mark that class complete. Continue?`
         : `Class ${liveClass.num} is still live and will be marked complete. Continue?`;
@@ -1336,8 +1331,7 @@ export default function Coordinator() {
 
   const randomiseDraw = async () => {
     const pending = classes.flatMap((c) => {
-      const m = c.scoring_mode ?? "score";
-      return c.entries.filter((e) => !e.scratched && (m === "tbc" ? !e.called && e.score == null : e.score == null));
+      return c.entries.filter((e) => !e.scratched && !e.called && e.score == null);
     });
     if (!pending.length) { window.alert("No pending entries to randomise."); return; }
     if (!window.confirm(
@@ -1346,8 +1340,7 @@ export default function Coordinator() {
     setBusy(true);
     try {
       for (const cls of classes) {
-        const m = cls.scoring_mode ?? "score";
-        const pendingInClass = cls.entries.filter((e) => !e.scratched && (m === "tbc" ? !e.called && e.score == null : e.score == null));
+        const pendingInClass = cls.entries.filter((e) => !e.scratched && !e.called && e.score == null);
         if (pendingInClass.length < 2) continue;
         const orders = pendingInClass.map((e) => e.draw_order);
         for (let i = orders.length - 1; i > 0; i--) {
@@ -2740,10 +2733,14 @@ export default function Coordinator() {
             {/* Ways past a horse / class WITHOUT a score — results can always
                 be typed in later from the judge's paperwork. */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
-              <button className="btn-ghost" style={{ fontSize: 13 }} disabled={busy || liveClass.entries.filter((e) => e.score == null && !e.scratched).length < 2}
+              <button className="btn-ghost" style={{ fontSize: 13 }} disabled={busy} onClick={callNext}
+                title="This horse has been through — call the next one now and type the score in later (Edit on the class list)">
+                ✓ Been through — score later
+              </button>
+              <button className="btn-ghost" style={{ fontSize: 13 }} disabled={busy || liveClass.entries.filter((e) => !e.called && e.score == null && !e.scratched).length < 2}
                 onClick={skipCurrent}
-                title="No score yet — moves this horse to the end of the draw and calls the next one; it comes back around later">
-                ↷ Skip for now — next horse
+                title="Not ready yet — moves this horse to the end of the draw and calls the next one; it comes back around later">
+                ↷ Skip for now — comes back later
               </button>
               <button className="btn-ghost" style={{ fontSize: 13 }} disabled={busy}
                 onClick={() => {
@@ -2845,10 +2842,9 @@ export default function Coordinator() {
           // A result from EITHER judge places a horse (judge 2 may place one
           // judge 1 didn't) — only horses neither judge placed stay pending.
           const placed = cls.entries.filter((e) => hasResult(e) && !e.scratched).sort(resultOrder(cls));
-          const calledRows = isTbcDraw ? cls.entries.filter((e) => e.called && !hasResult(e) && !e.scratched) : [];
-          const pending = isTbcDraw
-            ? cls.entries.filter((e) => !e.called && !hasResult(e) && !e.scratched)
-            : cls.entries.filter((e) => !hasResult(e) && !e.scratched);
+          // Been through the ring (gate tick) but no result yet — any mode.
+          const calledRows = cls.entries.filter((e) => e.called && !hasResult(e) && !e.scratched);
+          const pending = cls.entries.filter((e) => !e.called && !hasResult(e) && !e.scratched);
           const scratchedRows = cls.entries.filter((e) => e.scratched);
           const isLive = cls.status === "live";
           const confirmedSpots = cls.entries.filter((e) => !e.scratched).length;
@@ -3050,7 +3046,7 @@ export default function Coordinator() {
                   ))}
                   {calledRows.map((e, i) => (
                     <tr key={e.id} style={{ opacity: 0.75 }}>
-                      <td style={{ width: 50, color: "var(--quiet)", fontStyle: "italic", fontSize: 11, fontWeight: 600 }}>TBC</td>
+                      <td style={{ width: 50, color: "var(--quiet)", fontStyle: "italic", fontSize: 11, fontWeight: 600 }} title="Been through the ring — result not entered yet">GONE</td>
                       <td style={{ fontWeight: 600 }}>#{fmtBack(e.back_number)} {e.horse} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>· {e.exhibitor}</span></td>
                       <td colSpan={2} style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                         <span style={{ display: "inline-flex", gap: 5 }}>
