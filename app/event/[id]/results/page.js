@@ -35,7 +35,9 @@ function PrintStyles() {
         .header, .print-toolbar, .bottom-nav { display: none !important; }
         .program-sheet { width: auto; min-height: auto; margin: 0; padding: 0; box-shadow: none; }
       }
-      @media (max-width: 760px) {
+      /* Phone preview only — never in print (a narrow print layout used to
+         collapse the sheet to one column). */
+      @media screen and (max-width: 760px) {
         .program-sheet { width: calc(100vw - 24px); padding: 24px 18px; overflow-x: auto; }
         .program-columns { column-count: 1; }
       }

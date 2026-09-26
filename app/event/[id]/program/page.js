@@ -21,8 +21,15 @@ function PrintStyles() {
 
       .program-shell { padding-bottom: 40px; }
       .program-page { width: 210mm; min-height: 297mm; box-sizing: border-box; margin: 18px auto; padding: 12mm 10mm; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 12px 30px rgba(42, 30, 18, .14); }
-      .program-page-body { display: flex; gap: 6mm; align-items: flex-start; }
-      .program-col { width: calc((190mm - 12mm) / 3); }
+      /* Three floated columns rather than a flex row: floats print reliably
+         in every engine (some phone/print pipelines dropped the flex row and
+         stacked the three narrow columns down the left of the sheet — owner's
+         report, Sept 2026). The columns are packed by measurement, so nothing
+         depends on the browser balancing them. */
+      .program-page-body { display: block; }
+      .program-page-body::after { content: ""; display: block; clear: both; }
+      .program-col { float: left; width: calc((190mm - 12mm) / 3); margin-right: 6mm; }
+      .program-col:last-child { margin-right: 0; }
       .prog-item { display: flow-root; }
 
       .program-title { margin: 0 0 6px; text-align: center; font-size: 14px; line-height: 1.25; font-weight: 800; }
@@ -54,13 +61,13 @@ function PrintStyles() {
            inside A4 with slack) and let the forced break do the paging.
            Forcing min-height: 297mm here makes Safari spill each sheet a
            fraction onto a second, doubling the page count. */
-        .program-page { margin: 0; box-shadow: none; min-height: 0; height: auto; break-after: page; page-break-after: always; }
+        .program-page { width: 210mm; margin: 0; box-shadow: none; min-height: 0; height: auto; break-after: page; page-break-after: always; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .program-page:last-child { break-after: auto; page-break-after: auto; }
       }
-      @media (max-width: 760px) {
+      /* Phone preview only — never in print, where the sheet is always A4. */
+      @media screen and (max-width: 760px) {
         .program-page { width: 100%; min-height: 0; padding: 18px; }
-        .program-page-body { flex-direction: column; gap: 0; }
-        .program-col { width: 100%; }
+        .program-col { float: none; width: 100%; margin-right: 0; }
       }
     `}</style>
   );
