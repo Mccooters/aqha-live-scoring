@@ -541,7 +541,14 @@ coordinator page auto-fills. Rules:
   adds are never touched; the "↻ Qualifiers" button re-syncs (also removing
   unscored no-longer-qualified horses) after result corrections.
 - **Qualification-only**: championship classes are excluded from the online
-  entry form and rejected server-side in `registrations/create`.
+  entry form and rejected server-side in `registrations/create`. Because
+  they have NO entries until their feeders finish, "Close entries" never
+  treats a championship as empty when any feeder (or, down the chain, any
+  feeder's feeder) has entries — `closableEmptyClasses()` on the
+  dashboard (owner's report, Sept 2026: Champ & Reserve / Grand / Supreme
+  vanished from the printed draw after the hide-empty step). The Hidden
+  classes section offers "🏆 Reactivate championships" for ones hidden
+  before this rule.
 - Public event + results pages label a championship's 1st/2nd as
   **Champion / Reserve**.
 - Grand Champion eligibility (Champion+Reserve vs Champions only) is the

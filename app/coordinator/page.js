@@ -1216,10 +1216,29 @@ export default function Coordinator() {
     openModal("closeEntries");
   };
 
+  // Classes "Close entries" may hide/delete. A championship class has no
+  // entries until its feeders finish (qualifiers are inserted then), so it is
+  // NOT empty when any feeder is live — walk the chain so a Grand Champion
+  // fed by live championships, and a Supreme fed by live Grands, stay too
+  // (owner's report, Sept 2026: Champ & Reserve / Grand / Supreme vanished
+  // from the printed draw after Close entries hid the "empty" classes).
+  const closableEmptyClasses = (list) => {
+    const live = new Set(list.filter((c) => c.entries.length > 0).map((c) => c.id));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const c of list) {
+        if (live.has(c.id) || !isChampionship(c)) continue;
+        if ((c.champ_feeder_ids ?? []).some((id) => live.has(id))) { live.add(c.id); changed = true; }
+      }
+    }
+    return list.filter((c) => !live.has(c.id));
+  };
+
   const submitCloseEntries = async () => {
     setBusy(true);
     try {
-      const emptyClasses = classes.filter((c) => c.entries.length === 0);
+      const emptyClasses = closableEmptyClasses(classes);
       const action = emptyClasses.length > 0 ? (form.emptyAction ?? "hide") : "leave";
       if (action === "hide") {
         const { error } = await supabase.from("classes").update({ hidden: true }).in("id", emptyClasses.map((c) => c.id));
@@ -1328,6 +1347,34 @@ export default function Coordinator() {
 
   const unhideClass = async (cls) => {
     const { error } = await supabase.from("classes").update({ hidden: false }).eq("id", cls.id);
+    if (error) { window.alert(/hidden/i.test(error.message ?? "") ? HIDE_MIGRATION_HINT : error.message); return; }
+    await loadClasses();
+  };
+
+  // Hidden championship classes whose feeders have entries (hidden by an
+  // earlier "Close entries" before this rule existed).
+  const hiddenChampsWithLiveFeeders = () => {
+    const visible = classes.filter((c) => !c.hidden);
+    const keep = new Set(visible.filter((c) => !closableEmptyClasses(visible).includes(c)).map((c) => c.id));
+    const hidden = classes.filter((c) => c.hidden && isChampionship(c));
+    // Same chain walk, but over hidden championships too.
+    let changed = true;
+    const out = new Set();
+    while (changed) {
+      changed = false;
+      for (const c of hidden) {
+        if (out.has(c.id)) continue;
+        if ((c.champ_feeder_ids ?? []).some((id) => keep.has(id) || out.has(id))) { out.add(c.id); changed = true; }
+      }
+    }
+    return hidden.filter((c) => out.has(c.id));
+  };
+
+  const unhideChampionships = async () => {
+    const list = hiddenChampsWithLiveFeeders();
+    if (!list.length) return;
+    if (!window.confirm(`Reactivate ${list.length} hidden championship ${list.length === 1 ? "class" : "classes"} whose feeder classes have entries?\n\n${list.slice(0, 8).map((c) => `Class ${c.num} · ${c.name}`).join("\n")}${list.length > 8 ? `\n…and ${list.length - 8} more` : ""}`)) return;
+    const { error } = await supabase.from("classes").update({ hidden: false }).in("id", list.map((c) => c.id));
     if (error) { window.alert(/hidden/i.test(error.message ?? "") ? HIDE_MIGRATION_HINT : error.message); return; }
     await loadClasses();
   };
@@ -2994,7 +3041,13 @@ export default function Coordinator() {
             <summary style={{ cursor: "pointer", fontWeight: 700, color: "var(--quiet)", fontSize: 14 }}>
               Hidden {isClinic ? "spot types" : "classes"} ({classes.filter((c) => c.hidden).length}) — reactivate if someone enters on the day
             </summary>
-            <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              {!isClinic && hiddenChampsWithLiveFeeders().length > 0 && (
+                <button className="btn-ghost" style={{ fontSize: 12.5, fontWeight: 700, borderColor: "#7A5C10", color: "#7A5C10" }} onClick={unhideChampionships}
+                  title="Championship classes have no entries until their feeder classes finish — these were hidden by mistake">
+                  🏆 Reactivate championships ({hiddenChampsWithLiveFeeders().length})
+                </button>
+              )}
               <button className="btn-ghost" style={{ fontSize: 12.5, fontWeight: 700 }} onClick={unhideAllClasses}>
                 ↺ Reactivate all
               </button>
@@ -3932,7 +3985,8 @@ export default function Coordinator() {
             )}
 
             {modal.type === "closeEntries" && (() => {
-              const emptyClasses = classes.filter((c) => c.entries.length === 0);
+              const emptyClasses = closableEmptyClasses(classes);
+              const keptChamps = classes.filter((c) => c.entries.length === 0 && !emptyClasses.includes(c)).length;
               return (
                 <>
                   <h2 className="display modal-title">Close entries</h2>
@@ -3947,6 +4001,11 @@ export default function Coordinator() {
                       <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 8px" }}>
                         {emptyClasses.slice(0, 6).map((c) => `Class ${c.num} · ${c.name}`).join(", ")}{emptyClasses.length > 6 ? `, and ${emptyClasses.length - 6} more` : ""}
                       </p>
+                      {keptChamps > 0 && (
+                        <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 8px" }}>
+                          {keptChamps} championship {keptChamps === 1 ? "class is" : "classes are"} kept even though {keptChamps === 1 ? "it has" : "they have"} no entries yet — {keptChamps === 1 ? "it fills" : "they fill"} with qualifiers once the feeder classes finish.
+                        </p>
+                      )}
                       {[
                         { val: "hide", title: "Hide them (recommended)", desc: "Removed from the public schedule and program but kept — reactivate any one in a click if someone enters it on the day." },
                         { val: "delete", title: "Delete them permanently", desc: "Removes the classes for good. You'd have to re-add one if it's needed later. This cannot be undone." },
