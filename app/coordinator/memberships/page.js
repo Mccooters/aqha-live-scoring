@@ -650,7 +650,10 @@ export default function MembershipsPage() {
               <div className="card-head" style={{ cursor: "pointer" }}
                 onClick={() => setExpanded(isExpanded ? null : m.id)}>
                 <div>
-                  <div style={{ fontWeight: 600, fontSize: 15 }}>{m.member_name}</div>
+                  <div style={{ fontWeight: 600, fontSize: 15 }}>
+                    {m.member_name}
+                    {m.hcqha_number != null && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 800, color: "var(--brass)", letterSpacing: ".04em" }}>HCQHA #{m.hcqha_number}</span>}
+                  </div>
                   <div style={{ fontSize: 12.5, color: "var(--quiet)" }}>
                     {showCardSeason && <><strong style={{ color: "var(--leather)" }}>{m.season}</strong> · </>}
                     {m.email} · {m.membership_type_name || "Membership"} · applied {fmtDate(m.created_at)}
@@ -686,10 +689,10 @@ export default function MembershipsPage() {
                       <div>
                         <strong>People on this membership:</strong>{" "}
                         {[
-                          `${m.member_name} (applicant)`,
+                          `${m.member_name} (applicant${m.hcqha_number != null ? `, HCQHA #${m.hcqha_number}` : ""})`,
                           ...people.map((p) => {
                             const clubs = regLabel(p.association_registrations);
-                            return `${p.name} (${p.person_type === "child" ? "child" : "adult"}${clubs ? `, ${clubs}` : ""})`;
+                            return `${p.name} (${p.person_type === "child" ? "child" : "adult"}${p.hcqha_number != null ? `, HCQHA #${p.hcqha_number}` : ""}${clubs ? `, ${clubs}` : ""})`;
                           }),
                         ].join(" · ")}
                       </div>

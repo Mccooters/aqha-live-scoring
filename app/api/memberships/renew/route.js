@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assignHcqhaNumbers } from "../../_lib/memberNumbers";
 import { createClient } from "@supabase/supabase-js";
 import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 import { currentSeason, signupSeason, seasonLabel } from "../../../../lib/membershipSeason";
@@ -108,6 +109,14 @@ async function renewOne(db, src, season) {
       ({ error: hErr } = await db.from("club_member_horses").insert(bare));
     }
     if (hErr) console.error("Renewal horse copy failed:", hErr.message);
+  }
+
+  // Carry the HCQHA membership numbers over (schema-v54) — same email, same
+  // names, same numbers; anyone new on the membership gets the next one.
+  try {
+    await assignHcqhaNumbers(db, member.id);
+  } catch (err) {
+    console.error("HCQHA number carry-over failed:", err?.message ?? err);
   }
 
   return { created: member.id };
