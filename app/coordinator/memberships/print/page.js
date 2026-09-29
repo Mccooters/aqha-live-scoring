@@ -59,29 +59,45 @@ function MemberListInner() {
 
   const load = useCallback(async () => {
     if (!session) return;
-    const [{ data: m, error: mErr }, { data: p }] = await Promise.all([
-      supabase.from("club_members").select("*").eq("status", "approved").order("member_name"),
-      supabase.from("club_member_people").select("*").order("sort_order"),
-    ]);
+    const { data: m, error: mErr } = await supabase
+      .from("club_members").select("*").eq("status", "approved").order("member_name");
     if (mErr) { setError(mErr.message); setMembers([]); return; }
     setMembers(m ?? []);
-    setPeople(p ?? []);
+    // The extra people on family memberships (schema-v25) — fetched by the
+    // approved members' ids so nothing depends on table-wide ordering; any
+    // error is shown on the page rather than silently printing nobody.
+    const ids = (m ?? []).map((r) => r.id);
+    if (ids.length) {
+      const { data: p, error: pErr } = await supabase
+        .from("club_member_people").select("*").in("member_id", ids).order("sort_order");
+      if (pErr) setError(`Family members could not be loaded: ${pErr.message}`);
+      setPeople(p ?? []);
+    } else {
+      setPeople([]);
+    }
     const found = [...new Set((m ?? []).map((r) => r.season).filter(Boolean))];
     activeSeasons().forEach((s) => { if (!found.includes(s)) found.push(s); });
     setSeasons(found.sort().reverse());
   }, [session]);
   useEffect(() => { load(); }, [load]);
 
+  // One row per PERSON (owner's rule, Sept 2026 — it's a member list, so
+  // every family member is listed): the applicant first, then each person on
+  // their membership indented beneath them.
   const rows = useMemo(() => {
     const list = (members ?? []).filter((m) => season === "all" || m.season === season);
-    // One row per person: the applicant first, then each person on a family
-    // membership indented under them — so the printed list is a headcount.
-    return list
+    const out = [];
+    list
       .sort((a, b) => String(a.member_name ?? "").localeCompare(String(b.member_name ?? ""), "en", { sensitivity: "base" }))
-      .map((m) => ({
-        m,
-        extras: people.filter((p) => p.member_id === m.id && String(p.name ?? "").trim()),
-      }));
+      .forEach((m) => {
+        out.push({ key: m.id, m, primary: true, name: m.member_name, email: m.email, phone: m.phone,
+          regs: regLabel(m.association_registrations, m.aqha_member_number), type: m.membership_type_name });
+        people
+          .filter((p) => p.member_id === m.id && String(p.name ?? "").trim())
+          .forEach((p) => out.push({ key: p.id, m, primary: false, name: p.name, email: p.email, phone: p.phone,
+            regs: regLabel(p.association_registrations, p.aqha_member_number), type: p.person_type === "child" ? "child" : "family member" }));
+      });
+    return out;
   }, [members, people, season]);
 
   if (!session) {
@@ -93,7 +109,8 @@ function MemberListInner() {
     );
   }
 
-  const headcount = rows.reduce((s, r) => s + 1 + r.extras.length, 0);
+  const memberships = rows.filter((r) => r.primary).length;
+  const headcount = rows.length;
   const printedAt = new Date().toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" });
 
   return (
@@ -107,13 +124,13 @@ function MemberListInner() {
         </select>
         <button onClick={() => window.print()}>🖨 Print / Save PDF</button>
         <span style={{ fontSize: 12, color: "var(--quiet)" }}>
-          {rows.length} {rows.length === 1 ? "membership" : "memberships"} · {headcount} {headcount === 1 ? "person" : "people"}
+          {memberships} {memberships === 1 ? "membership" : "memberships"} · {headcount} {headcount === 1 ? "person" : "people"} · {people.length} family {people.length === 1 ? "member" : "members"} on file
         </span>
       </div>
 
       <div className="member-sheet">
         <h1>HUNTER COAST QUARTER HORSE ASSOCIATION — Members</h1>
-        <div className="sub">{season === "all" ? "All seasons" : seasonLabel(season)} · approved memberships only · {rows.length} memberships, {headcount} people</div>
+        <div className="sub">{season === "all" ? "All seasons" : seasonLabel(season)} · approved memberships only · {memberships} memberships, {headcount} people</div>
         {error && <p style={{ color: "#C24A2E", fontWeight: 700 }}>{error}</p>}
         {members === null ? <p>Loading…</p> : rows.length === 0 ? (
           <p style={{ textAlign: "center", color: "#555" }}>No approved members for this season.</p>
@@ -122,30 +139,25 @@ function MemberListInner() {
             <thead>
               <tr>
                 <th className="n">#</th>
-                <th>Member</th>
+                <th>Name</th>
                 <th>Membership</th>
                 <th>Association nos.</th>
                 <th>Email</th>
                 <th>Phone</th>
-                <th>Also covers</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ m, extras }, i) => (
-                <tr key={m.id}>
+              {rows.map((r, i) => (
+                <tr key={r.key} style={r.primary ? {} : { color: "#333" }}>
                   <td className="n">{i + 1}</td>
-                  <td><strong>{m.member_name}</strong>{season === "all" ? <span style={{ display: "block", color: "#666" }}>{m.season}</span> : null}</td>
-                  <td>{m.membership_type_name ?? "—"}</td>
-                  <td>{regLabel(m.association_registrations, m.aqha_member_number) || "—"}</td>
-                  <td>{m.email ?? "—"}</td>
-                  <td>{m.phone ?? "—"}</td>
-                  <td className="people">
-                    {extras.length ? extras.map((p) => (
-                      <span key={p.id}>
-                        {p.name}{p.person_type === "child" ? " (child)" : ""}{regLabel(p.association_registrations, p.aqha_member_number) ? ` · ${regLabel(p.association_registrations, p.aqha_member_number)}` : ""}
-                      </span>
-                    )) : "—"}
+                  <td style={r.primary ? {} : { paddingLeft: 18 }}>
+                    {r.primary ? <strong>{r.name}</strong> : <>↳ {r.name}</>}
+                    {season === "all" && r.primary ? <span style={{ display: "block", color: "#666" }}>{r.m.season}</span> : null}
                   </td>
+                  <td>{r.primary ? (r.type ?? "—") : <span style={{ color: "#666" }}>on {r.m.member_name}&apos;s {r.m.membership_type_name ?? "membership"} · {r.type}</span>}</td>
+                  <td>{r.regs || "—"}</td>
+                  <td>{r.email ?? "—"}</td>
+                  <td>{r.phone ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
