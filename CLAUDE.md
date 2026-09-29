@@ -322,6 +322,11 @@ PR with a clear plain-English description.
   rows list the people on each membership), and toggle "membership
   required to enter events"
   (`site_settings` key `membership_required`; separate include-clinics flag).
+  "🖨 Print member list" opens `app/coordinator/memberships/print` — a
+  printable A4 list of every APPROVED membership for a season (name
+  order; type, association numbers, email, phone, and the people covered
+  by a family membership as an "Also covers" column; `?season=` preselects;
+  staff only).
   Enforcement is server-side in `app/api/registrations/create` (matches the
   contact email against an approved `club_members` row for the active
   season; fails open if the v23 migration hasn't been run). The entry form
