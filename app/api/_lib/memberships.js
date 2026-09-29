@@ -1,5 +1,6 @@
 import { currentSeason, signupSeason, activeSeasons, seasonLabel } from "../../../lib/membershipSeason";
 import { escapeIlike } from "./memberAuth";
+import { assignHcqhaNumbers } from "./memberNumbers";
 
 function formatMoney(cents) {
   return new Intl.NumberFormat("en-AU", {
@@ -188,6 +189,14 @@ export async function approveMembership(db, memberId) {
     .select("*");
   if (error) throw new Error(error.message);
   if (!approved?.length) return; // already approved
+
+  // HCQHA membership numbers (schema-v54) — issued on approval, reused from
+  // earlier memberships under the same email. Never blocks the approval.
+  try {
+    await assignHcqhaNumbers(db, memberId);
+  } catch (err) {
+    console.error("HCQHA number assignment failed:", err?.message ?? err);
+  }
 
   try {
     await sendApprovedEmail(approved[0]);

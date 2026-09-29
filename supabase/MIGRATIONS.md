@@ -205,6 +205,12 @@ hasn't been run.
         "back at about 10:15" and a countdown. Without it the break buttons
         show a reminder to run this file.
 
+- [ ] **v54** — `schema-v54-hcqha-numbers.sql`
+      → **HCQHA membership numbers**: every person on an approved membership
+        (applicant + family members) gets a permanent club number, issued on
+        approval/renewal and printable on the member list. Without it the
+        "Assign numbers" button shows a reminder to run this file.
+
 Tick these off once you've run them.
 
 ---
@@ -266,6 +272,7 @@ Tick these off once you've run them.
 | `schema-v51-spot-type-closed.sql` | Close online bookings for a single clinic spot type (`classes.entries_closed`) while others stay open |
 | `schema-v52-refund-log.sql` | Per-refund log with Square's refund id + status (`registrations.refund_log`) so staff can confirm a refund COMPLETED |
 | `schema-v53-break-timer.sql` | Break timer (`events.break_until` / `break_label`) — countdown + return time on the live page, started from the dashboard or gate |
+| `schema-v54-hcqha-numbers.sql` | HCQHA membership numbers (`club_members.hcqha_number`, `club_member_people.hcqha_number`) — one permanent number per person |
 
 ## For whoever updates the code next
 

@@ -229,7 +229,10 @@ function StatusCard({ m, renewal }) {
         <div className="display" style={{ fontWeight: 700, fontSize: 17, color: "var(--leather)" }}>
           {m.membership_type_name || "Club membership"}
         </div>
-        <div style={{ fontSize: 13, color: "var(--quiet)", marginTop: 2 }}>{seasonLabel(m.season)}</div>
+        <div style={{ fontSize: 13, color: "var(--quiet)", marginTop: 2 }}>
+          {seasonLabel(m.season)}
+          {m.hcqha_number != null && <> · <strong style={{ color: "var(--leather)" }}>HCQHA member #{m.hcqha_number}</strong></>}
+        </div>
         {m.status === "pending" && m.square_checkout_url && (
           <a className="btn" href={m.square_checkout_url}
             style={{ display: "block", textAlign: "center", textDecoration: "none", marginTop: 12, padding: 12 }}>
@@ -417,7 +420,7 @@ function PeopleCard({ m, onChanged }) {
             <div>
               <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</div>
               <div style={{ fontSize: 12, color: "var(--quiet)" }}>
-                {p.person_type === "child" ? "Child" : "Adult"}{p.email ? ` · ${p.email}` : ""}{regLabel(p.association_registrations) ? ` · ${regLabel(p.association_registrations)}` : ""}
+                {p.person_type === "child" ? "Child" : "Adult"}{p.hcqha_number != null ? ` · HCQHA #${p.hcqha_number}` : ""}{p.email ? ` · ${p.email}` : ""}{regLabel(p.association_registrations) ? ` · ${regLabel(p.association_registrations)}` : ""}
               </div>
             </div>
             {m.editable && (

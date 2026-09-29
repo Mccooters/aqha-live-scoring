@@ -323,10 +323,19 @@ PR with a clear plain-English description.
   required to enter events"
   (`site_settings` key `membership_required`; separate include-clinics flag).
   "🖨 Print member list" opens `app/coordinator/memberships/print` — a
-  printable A4 list of every APPROVED membership for a season (name
-  order; type, association numbers, email, phone, and the people covered
-  by a family membership as an "Also covers" column; `?season=` preselects;
-  staff only).
+  printable A4 list of every PERSON on an approved membership for a season
+  (applicant in bold, family members indented under them; full table or a
+  "Names only" 3-column layout; `?season=` preselects; staff only).
+  **HCQHA membership numbers (schema-v54)**: `club_members.hcqha_number`
+  + `club_member_people.hcqha_number` — one permanent number per person,
+  issued by `assignHcqhaNumbers()` (`app/api/_lib/memberNumbers.js`) on
+  approval (`approveMembership`) and renewal, reused across seasons (the
+  applicant by email lineage, family members by name within it; next =
+  highest issued + 1, optional start number). "Assign HCQHA numbers" on
+  the print page → `app/api/memberships/assign-numbers` (staff JWT)
+  numbers everyone approved and unnumbered, oldest approval first.
+  Shown as "HCQHA #123" on the member list, the Memberships page and the
+  member portal.
   Enforcement is server-side in `app/api/registrations/create` (matches the
   contact email against an approved `club_members` row for the active
   season; fails open if the v23 migration hasn't been run). The entry form
