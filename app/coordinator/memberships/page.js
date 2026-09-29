@@ -459,6 +459,10 @@ export default function MembershipsPage() {
           <button className="btn-ghost" onClick={() => { setModal({ type: "addMember" }); setForm({ type_id: types[0]?.id ?? "" }); }}>
             + Add member manually
           </button>
+          <Link href={`/coordinator/memberships/print${season && season !== "all" ? `?season=${encodeURIComponent(season)}` : ""}`}
+            className="btn-ghost" style={{ textDecoration: "none" }} title="A printable list of every approved member for the season, with the people on each membership">
+            🖨 Print member list
+          </Link>
         </div>
         {searching ? (
           <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 20px" }}>
