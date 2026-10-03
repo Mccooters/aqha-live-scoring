@@ -7,6 +7,7 @@ import { categoryKey, normaliseBreakLabel, programDisplayRows } from "../../lib/
 import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQualifiers, championshipTitles, suggestFeederIds } from "../../lib/championship";
 import { hasResult, resultOrder, scoreRank } from "../../lib/showPrint";
 import { BREAK_PRESETS, breakState, fmtClock, suggestedBreakLabel } from "../../lib/breakTimer";
+import { suggestHpCategory } from "../../lib/hpCategory";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 import ImportResults from "./ImportResults";
@@ -1570,6 +1571,13 @@ export default function Coordinator() {
     if (type === "clearResults") {
       initialForm = { resetStatus: true, deleteEntries: false };
     }
+    if (type === "hpCategories") {
+      // Every class with no High Points category, pre-filled with a guess
+      // from its name / program heading — staff confirm or change each one.
+      const picks = {};
+      classes.filter((c) => !c.hp_category && !c.hidden).forEach((c) => { picks[c.id] = suggestHpCategory(c); });
+      initialForm = { picks };
+    }
     if (type === "editEvent" && extra.event) {
       const ev = extra.event;
       initialForm = {
@@ -1966,6 +1974,30 @@ export default function Coordinator() {
       return;
     }
     closeModal();
+  };
+
+  // Fill in High Points categories for classes that have none (owner's
+  // report, Oct 2026: a halter class with no category was silently left out
+  // of every push, so a 1st/3rd never reached the leaderboard).
+  const submitHpCategories = async () => {
+    const picks = form.picks ?? {};
+    const updates = Object.entries(picks).filter(([, cat]) => cat);
+    if (!updates.length) { setFormError("Pick a category for at least one class, or Cancel."); return; }
+    setBusy(true);
+    try {
+      for (const [id, cat] of updates) {
+        const { error } = await supabase.from("classes").update({ hp_category: cat }).eq("id", id);
+        if (error) { setFormError(error.message); return; }
+      }
+      await loadClasses();
+      closeModal();
+      const completed = updates.filter(([id]) => classes.find((c) => c.id === id)?.status === "completed").length;
+      if (completed > 0 && window.confirm(`${updates.length} ${updates.length === 1 ? "class" : "classes"} now ${updates.length === 1 ? "has" : "have"} a High Points category.\n\n${completed} of them ${completed === 1 ? "is" : "are"} already completed — push High Points now so their results count?`)) {
+        await pushAllHighPoints();
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const submitBulkJudges = async () => {
@@ -2603,6 +2635,13 @@ export default function Coordinator() {
                 Set judges
               </button>
             )}
+            {!isClinic && classes.some((c) => !c.hp_category && !c.hidden) && (
+              <button className="btn-ghost" onClick={() => openModal("hpCategories")} disabled={!eventId}
+                style={classes.some((c) => !c.hp_category && !c.hidden && c.status === "completed" && c.entries.some((e) => hasResult(e))) ? { borderColor: "#A05000", color: "#A05000", fontWeight: 700 } : {}}
+                title="Classes with no High Points category are left out of every push — fill them in from the class names in one go">
+                HP categories ({classes.filter((c) => !c.hp_category && !c.hidden).length} missing)
+              </button>
+            )}
             <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
               title="Put every class into class-number order, day by day">
               ↕ Sort by number
@@ -2937,11 +2976,17 @@ export default function Coordinator() {
                         : `Judge: ${cls.judge}`}
                     </div>
                   )}
-                  {cls.hp_category && (
+                  {cls.hp_category ? (
                     <div style={{ fontSize: 11, color: "var(--brass)", marginTop: 2, fontWeight: 700 }}>
                       HP: {cls.hp_category}
                     </div>
-                  )}
+                  ) : (!isClinic && cls.status === "completed" && placed.length > 0 && (
+                    <div style={{ fontSize: 11, color: "#A05000", marginTop: 2, fontWeight: 700, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+                      title="This class has no High Points category, so its results are not counted on the leaderboard">
+                      <span>⚠ No HP category — results not counted</span>
+                      <button className="btn-ghost" style={{ padding: "1px 8px", fontSize: 11, borderColor: "#A05000", color: "#A05000" }} onClick={() => openModal("hpCategories")}>Set</button>
+                    </div>
+                  ))}
                   {cls.status === "upcoming" && !isClinic && placed.length > 0 && (
                     <div style={{ fontSize: 11.5, color: "#A05000", marginTop: 3, fontWeight: 700, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
                       title="Results have been entered but the class was never marked completed, so it is not counted for High Points or the results page">
@@ -3909,6 +3954,45 @@ export default function Coordinator() {
                   <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                     <button className="btn" style={{ flex: 1, background: "var(--clay)" }} onClick={submitClearResults} disabled={busy}>
                       {busy ? "Clearing…" : form.deleteEntries ? "Clear results & delete entries" : "Clear all results"}
+                    </button>
+                    <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
+                  </div>
+                </>
+              );
+            })()}
+
+            {modal.type === "hpCategories" && (() => {
+              const missing = classes.filter((c) => !c.hp_category && !c.hidden)
+                .sort((a, b) => (a.day ?? 1) - (b.day ?? 1) || (a.sort_order ?? 0) - (b.sort_order ?? 0));
+              const picks = form.picks ?? {};
+              return (
+                <>
+                  <h2 className="display modal-title">High Points categories</h2>
+                  <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
+                    A class with no category is <strong>never pushed to High Points</strong>, whatever its results. These {missing.length} classes have none —
+                    each is pre-filled with a guess from its name; change any, or leave blank for classes that earn no club points (e.g. Open).
+                  </p>
+                  <div style={{ maxHeight: "50vh", overflowY: "auto", display: "grid", gap: 6, marginTop: 8 }}>
+                    {missing.map((c) => (
+                      <div key={c.id} style={{ display: "grid", gridTemplateColumns: "1fr 170px", gap: 8, alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: 6 }}>
+                        <div style={{ fontSize: 13 }}>
+                          <strong>Class {c.num}</strong> · {c.name}
+                          {c.status === "completed" && c.entries.some((e) => hasResult(e)) && (
+                            <span style={{ display: "block", fontSize: 11, color: "#A05000", fontWeight: 700 }}>completed with results — currently not counted</span>
+                          )}
+                        </div>
+                        <select className="field" style={{ fontSize: 13 }} value={picks[c.id] ?? ""}
+                          onChange={(e) => setForm((f) => ({ ...f, picks: { ...(f.picks ?? {}), [c.id]: e.target.value } }))}>
+                          <option value="">— none —</option>
+                          {HP_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                  {formError && <p className="modal-error">{formError}</p>}
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={submitHpCategories} disabled={busy}>
+                      {busy ? "Saving…" : `Save ${Object.values(picks).filter(Boolean).length} categor${Object.values(picks).filter(Boolean).length === 1 ? "y" : "ies"}`}
                     </button>
                     <button className="btn-ghost" style={{ padding: "10px 18px" }} onClick={closeModal}>Cancel</button>
                   </div>
