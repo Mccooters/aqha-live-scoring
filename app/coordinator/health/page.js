@@ -38,6 +38,7 @@ const MIGRATION_CHECKS = [
   { m: "v52", what: "Square refund IDs + status on registrations", probe: () => supabase.from("registrations").select("refund_log").limit(1) },
   { m: "v53", what: "Break timer on the live page", probe: () => supabase.from("events").select("break_until").limit(1) },
   { m: "v54", what: "HCQHA membership numbers", probe: () => supabase.from("club_member_people").select("hcqha_number").limit(1) },
+  { m: "v55", what: "Balance reminder emails", probe: () => supabase.from("registrations").select("balance_reminder_log").limit(1) },
 ];
 
 const CONFIG_LABELS = {
@@ -51,6 +52,7 @@ const CONFIG_LABELS = {
   base_url: "Site base URL (links in emails/checkout)",
   push_vapid: "Push notifications key",
   service_role: "Supabase service role key (online entries)",
+  cron_secret: "CRON_SECRET (automatic balance reminder emails)",
 };
 
 export default function HealthPage() {
