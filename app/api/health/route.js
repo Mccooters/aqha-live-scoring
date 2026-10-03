@@ -35,6 +35,7 @@ export async function GET(req) {
       base_url: has("NEXT_PUBLIC_BASE_URL"),
       push_vapid: has("NEXT_PUBLIC_VAPID_PUBLIC_KEY"),
       service_role: has("SUPABASE_SERVICE_ROLE_KEY"),
+      cron_secret: has("CRON_SECRET"),
     },
   });
 }

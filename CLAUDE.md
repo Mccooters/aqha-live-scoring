@@ -659,7 +659,19 @@ each with its own `capacity`) instead of a normal scored show.
   portal: a "Balances owing" card (BalancesCard, fed by
   `app/api/account/registrations` — member session, registrations matched
   by the account email like every other account route) links each one to
-  its registration's payment page.
+  its registration's payment page. **Balance reminder emails
+  (schema-v55)**: `app/api/_lib/balanceReminders.js` builds/sends the
+  "balance owing" email (Resend; links to the success page's pay button;
+  "overdue — contact the organiser" wording after the due date) and logs
+  it to `registrations.balance_reminder_log` / `_last_at`. Staff send
+  from the Registrations page ("✉ Email everyone owing now" / per-row "✉
+  Send reminder" → `app/api/registrations/remind`, staff JWT); each row
+  shows "Last reminder: …". **Automatic**: `events.balance_reminder_days`
+  (e.g. [14,7,3], null = off; toggled per clinic on the same page) is
+  honoured by `runAutoReminders()` via `app/api/reminders/run`, hit daily
+  by the Vercel cron in `vercel.json` (22:00 UTC ≈ 8–9am AEST) with
+  `Authorization: Bearer CRON_SECRET` — once per person per day at most.
+  `CRON_SECRET` must be set in Vercel (health page shows it).
 
 ## Online registration & payments
 

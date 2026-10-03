@@ -211,6 +211,12 @@ hasn't been run.
         approval/renewal and printable on the member list. Without it the
         "Assign numbers" button shows a reminder to run this file.
 
+- [ ] **v55** — `schema-v55-balance-reminders.sql`
+      → **balance reminder emails**: "Send reminder" buttons on the
+        Registrations page, a log + "last reminder" date per registration,
+        and per-clinic automatic reminders on chosen days before the clinic
+        (needs the CRON_SECRET setting in Vercel for the daily run).
+
 Tick these off once you've run them.
 
 ---
@@ -273,6 +279,7 @@ Tick these off once you've run them.
 | `schema-v52-refund-log.sql` | Per-refund log with Square's refund id + status (`registrations.refund_log`) so staff can confirm a refund COMPLETED |
 | `schema-v53-break-timer.sql` | Break timer (`events.break_until` / `break_label`) — countdown + return time on the live page, started from the dashboard or gate |
 | `schema-v54-hcqha-numbers.sql` | HCQHA membership numbers (`club_members.hcqha_number`, `club_member_people.hcqha_number`) — one permanent number per person |
+| `schema-v55-balance-reminders.sql` | Balance reminder emails: `registrations.balance_reminder_log` / `_last_at`, `events.balance_reminder_days` |
 
 ## For whoever updates the code next
 

@@ -28,6 +28,7 @@ export default function RegistrationsPage() {
   const [approving, setApproving] = useState(null);
   const [refunding, setRefunding] = useState(null); // registration id mid-refund
   const [balanceBusy, setBalanceBusy] = useState(null); // reg id mid balance action
+  const [reminderBusy, setReminderBusy] = useState(null); // reg id, or "all"
   const [balanceAmounts, setBalanceAmounts] = useState({}); // reg id -> typed dollars (record outside Square)
   const [refundAmount, setRefundAmount] = useState({}); // reg id -> typed dollars
   const [checkingRefunds, setCheckingRefunds] = useState(null); // registration id mid-check
@@ -46,7 +47,7 @@ export default function RegistrationsPage() {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     supabase
       .from("events")
-      .select("id, name, status, starts_on, event_type")
+      .select("*")
       .order("starts_on", { ascending: false })
       .then(({ data }) => {
         setEvents(data ?? []);
@@ -184,6 +185,50 @@ export default function RegistrationsPage() {
       dueLabel: balanceDueLabel(ev?.starts_on),
       overdue: !reg.balance_paid_at && due ? new Date() > due : false,
     };
+  };
+
+  // Balance reminder emails (schema-v55): one registration, or everyone
+  // still owing on the event. The email carries the link to the payment page.
+  const sendReminders = async ({ reg = null } = {}) => {
+    const n = reg ? 1 : paid.filter((r) => balanceInfo(r)?.owing > 0).length;
+    if (!n) return;
+    const who = reg ? `${reg.contact_name} (${reg.contact_email})` : `all ${n} ${n === 1 ? "person" : "people"} still owing a balance`;
+    if (!window.confirm(`Email a balance reminder to ${who}?\n\nThe email shows what's owing, the due date, and a button to pay online (full or part).`)) return;
+    setReminderBusy(reg ? reg.id : "all");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const res = await fetch("/api/registrations/remind", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}` },
+        body: JSON.stringify(reg ? { registration_id: reg.id } : { event_id: eventId }),
+      });
+      const data = await res.json();
+      if (data.error) window.alert("Could not send: " + data.error);
+      else window.alert(`Sent ${data.sent} of ${data.total} reminder${data.total === 1 ? "" : "s"}.${data.failed?.length ? "\n\nNot sent:\n" + data.failed.join("\n") : ""}`);
+      await load();
+    } finally {
+      setReminderBusy(null);
+    }
+  };
+
+  // Automatic reminders: which days before the clinic to send (schema-v55).
+  const REMINDER_DAY_OPTIONS = [28, 21, 14, 10, 7, 3, 1];
+  const reminderDays = Array.isArray(selectedEvent?.balance_reminder_days) ? selectedEvent.balance_reminder_days.map(Number) : [];
+  const saveReminderDays = async (days) => {
+    const value = days.length ? [...days].sort((a, b) => b - a) : null;
+    const { error } = await supabase.from("events").update({ balance_reminder_days: value }).eq("id", eventId);
+    if (error) {
+      window.alert(/balance_reminder/i.test(error.message ?? "") ? 'Automatic reminders need a database update — run "schema-v55-balance-reminders.sql" in Supabase first.' : error.message);
+      return;
+    }
+    setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, balance_reminder_days: value } : e)));
+  };
+  const lastReminderLabel = (reg) => {
+    if (!reg.balance_reminder_last_at) return "No reminder sent yet";
+    const log = Array.isArray(reg.balance_reminder_log) ? reg.balance_reminder_log : [];
+    const last = log[log.length - 1];
+    const when = new Date(reg.balance_reminder_last_at).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    return `Last reminder: ${when}${last?.method === "auto" ? " (automatic)" : ""}${log.length > 1 ? ` · ${log.length} sent` : ""}`;
   };
 
   const copyBalanceLink = async (reg) => {
@@ -651,6 +696,42 @@ export default function RegistrationsPage() {
           </div>
         )}
 
+        {!loading && selectedClinic && (balancesOwing > 0 || reminderDays.length > 0) && (
+          <div className="card" style={{ padding: "12px 16px", marginBottom: 14 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>Balance reminders</div>
+                <div style={{ fontSize: 12.5, color: "var(--quiet)" }}>
+                  {paid.filter((r) => balanceInfo(r)?.owing > 0).length} {paid.filter((r) => balanceInfo(r)?.owing > 0).length === 1 ? "person" : "people"} still owing · emails include a button to pay online
+                </div>
+              </div>
+              <button className="btn" style={{ background: "var(--leather)", fontSize: 13, padding: "8px 14px" }}
+                disabled={reminderBusy === "all" || !paid.some((r) => balanceInfo(r)?.owing > 0)} onClick={() => sendReminders()}>
+                {reminderBusy === "all" ? "Sending…" : "✉ Email everyone owing now"}
+              </button>
+            </div>
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Automatic reminders — send on these days before the clinic:</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {REMINDER_DAY_OPTIONS.map((d) => {
+                  const on = reminderDays.includes(d);
+                  return (
+                    <button key={d} type="button" className="btn-ghost" style={{ fontSize: 12.5, padding: "4px 10px", background: on ? "var(--leather)" : undefined, color: on ? "#F2EADB" : undefined, borderColor: on ? "var(--leather)" : undefined }}
+                      onClick={() => saveReminderDays(on ? reminderDays.filter((x) => x !== d) : [...reminderDays, d])}>
+                      {d} {d === 1 ? "day" : "days"}
+                    </button>
+                  );
+                })}
+              </div>
+              <p style={{ fontSize: 11.5, color: "var(--quiet)", margin: "6px 0 0" }}>
+                {reminderDays.length
+                  ? `On: ${[...reminderDays].sort((a, b) => b - a).join(", ")} days before ${selectedEvent?.starts_on ?? "the clinic"}. Sent each morning (about 8–9am) to anyone still owing — never more than once a day per person.`
+                  : "Off — pick one or more days to switch on. Sent each morning (about 8–9am) to anyone still owing on that day."}
+              </p>
+            </div>
+          </div>
+        )}
+
         {loading && <p style={{ color: "var(--quiet)" }}>Loading…</p>}
 
         {!loading && registrations.length === 0 && (
@@ -807,7 +888,14 @@ export default function RegistrationsPage() {
                           </div>
                         )}
                         {!b.paid && (
+                          <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 4 }}>{lastReminderLabel(reg)}</div>
+                        )}
+                        {!b.paid && (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+                            <button className="btn-ghost" style={{ fontSize: 12, borderColor: "var(--leather)", color: "var(--leather)", fontWeight: 700 }} disabled={reminderBusy === reg.id}
+                              onClick={() => sendReminders({ reg })} title="Emails this person what's owing with a button to pay online">
+                              {reminderBusy === reg.id ? "Sending…" : "✉ Send reminder"}
+                            </button>
                             <button className="btn-ghost" style={{ fontSize: 12 }} disabled={balanceBusy === reg.id}
                               onClick={() => copyBalanceLink(reg)}>
                               {balanceBusy === reg.id ? "Working…" : "Copy balance payment link"}
