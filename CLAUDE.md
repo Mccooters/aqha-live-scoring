@@ -282,9 +282,14 @@ PR with a clear plain-English description.
   the registry number under the name (horse back number from `horses`,
   rider association numbers from `riders`/`rider_registrations`; breed
   suffix stripped before the name match; decoration only — no match, no
-  line). Only COMPLETED classes are ever pushed; the dashboard flags an
-  upcoming class that already holds results ("⚠ Has results but isn't
-  completed") with an inline ✓ Mark completed button.
+  line). Only COMPLETED classes WITH an `hp_category` are ever pushed; the
+  dashboard flags an upcoming class that already holds results ("⚠ Has
+  results but isn't completed") with an inline ✓ Mark completed button,
+  and a completed class with results but NO category ("⚠ No HP category —
+  results not counted", owner's report, Oct 2026) with a Set button that
+  opens the **HP categories** toolbar tool: every category-less class
+  pre-filled from `suggestHpCategory()` (`lib/hpCategory.js` — name +
+  program heading; Open = blank), saved per class, then offers Push all HP.
 - `app/membership/page.js` — public "Become a member" form (schema-v23):
   pick a membership type, contact details, optional horse details for the
   committee to review, then Square checkout (skipped when the fee is $0).
