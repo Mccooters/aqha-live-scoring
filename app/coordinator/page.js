@@ -991,7 +991,7 @@ export default function Coordinator() {
       // A class can hold judge-2-only results (paperwork typed in for judge 2
       // first, or the judges disagreed) — don't skip it just because judge 1
       // has nothing yet.
-      if (!entries.length && !(c.judge2 && active.some((e) => e.score2 != null))) continue;
+      if (!entries.length && !(c.judge2 && active.some((e) => e.score2 != null)) && !(c.hp_category === "Beginner" && active.some((e) => e.score === -1))) continue;
 
       const isPlacing = ["placing", "class_only", "tbc_class"].includes(c.scoring_mode);
       // A dual-registered horse earns the same points once per breed —
@@ -1039,28 +1039,43 @@ export default function Coordinator() {
         continue;
       }
 
-      const applyJudge = (sorted, getScore, judgeIdx) => {
-        const n = sorted.length;
+      // Beginner classes (owner's rule, Oct 2026): a DQ still places — last,
+      // behind everyone with a real result (two DQs: draw order) — and earns
+      // the points for that placing. Every other category: DQ = no points.
+      const dqPlaces = category === "Beginner";
+      const applyJudge = (sorted, getScore, judgeIdx, dqs = []) => {
+        const n = sorted.length + dqs.length;
+        let maxPlacing = 0;
         sorted.forEach((e, i) => {
           const placing = isPlacing ? Math.round(getScore(e)) : i + 1;
+          maxPlacing = Math.max(maxPlacing, placing);
           const pts = calcPoints(placing, n);
           if (!pts) return;
           credit(e, pts, judgeIdx);
         });
+        const lastPlaced = Math.max(maxPlacing, sorted.length);
+        dqs.forEach((e, i) => {
+          const pts = calcPoints(lastPlaced + i + 1, n);
+          if (!pts) return;
+          credit(e, pts, judgeIdx);
+        });
       };
+      const byDraw = (a, b) => (a.draw_order ?? 0) - (b.draw_order ?? 0);
 
       applyJudge(
         [...entries].sort((a, b) => isPlacing ? a.score - b.score : b.score - a.score),
         (e) => e.score,
-        0
+        0,
+        dqPlaces ? active.filter((e) => e.score === -1).sort(byDraw) : []
       );
       if (c.judge2) {
         // From ALL active entries — judge 2 may have placed a horse judge 1 didn't.
-        const j2 = active.filter((e) => e.score2 != null && e.score2 !== -1); // DQ earns no points
+        const j2 = active.filter((e) => e.score2 != null && e.score2 !== -1); // DQ earns no points (except Beginner)
         applyJudge(
           [...j2].sort((a, b) => isPlacing ? a.score2 - b.score2 : b.score2 - a.score2),
           (e) => e.score2,
-          1
+          1,
+          dqPlaces ? active.filter((e) => e.score2 === -1).sort(byDraw) : []
         );
       }
     }

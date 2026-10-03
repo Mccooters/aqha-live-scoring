@@ -625,6 +625,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                   <div className="display" style={{ fontWeight: 700, fontSize: 17 }}>{effectiveCategory}</div>
                   <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
                     {HORSE_CATEGORIES.has(effectiveCategory) ? "Horse" : "Rider"} points · 3+ entries: 1st=3, 2nd=2, 3rd=1 · 2 entries: 1st=2, 2nd=1 · 1 entry: 1pt · per judge · Champion=1, Reserve=0.5 · Grand Champion & Supreme none
+                    {effectiveCategory === "Beginner" ? " · a DQ still places (last) and earns that placing's points" : " · DQ = no points"}
                   </div>
                 </div>
                 {session && <button className="btn-ghost" onClick={openAdd}>+ Add</button>}

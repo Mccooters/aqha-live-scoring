@@ -747,7 +747,11 @@ page, and `approveRegistration` copies new horse numbers into the registry
   score box; `lib/showPrint.js` `isDq`/`scoreRank`/`scoreText`): it displays
   as DQ everywhere, always sorts below every real result, earns no points
   (excluded from the Club Points export and High Points push), and never
-  qualifies for a championship.
+  qualifies for a championship. EXCEPTION (owner's rule, Oct 2026): in
+  classes whose `hp_category` is **Beginner**, `pushToHighPoints` places a
+  DQ LAST behind every real result (several DQs: draw order) and credits
+  that placing's points on the leaderboard — e.g. 3 riders, one DQ = 3rd
+  = 1 pt. Leaderboard only; the Club Points export still gives a DQ nothing.
 - Many classes are placings-based; points are allocated per the rule book's
   point scale based on placing AND number of entries in the class — this is
   why the export includes an "Entries in Class" column. Current formula in
