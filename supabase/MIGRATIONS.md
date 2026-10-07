@@ -216,6 +216,10 @@ hasn't been run.
         Registrations page, a log + "last reminder" date per registration,
         and per-clinic automatic reminders on chosen days before the clinic
         (needs the CRON_SECRET setting in Vercel for the daily run).
+- [ ] **v56** — `schema-v56-raffles.sql`
+      → **fundraising raffles**: the "🎟 Raffles" page on the dashboard and
+        the public /raffle pages. Without it the Raffles page shows a
+        "tables haven't been created" notice and nothing can be sold.
 
 Tick these off once you've run them.
 
@@ -280,6 +284,7 @@ Tick these off once you've run them.
 | `schema-v53-break-timer.sql` | Break timer (`events.break_until` / `break_label`) — countdown + return time on the live page, started from the dashboard or gate |
 | `schema-v54-hcqha-numbers.sql` | HCQHA membership numbers (`club_members.hcqha_number`, `club_member_people.hcqha_number`) — one permanent number per person |
 | `schema-v55-balance-reminders.sql` | Balance reminder emails: `registrations.balance_reminder_log` / `_last_at`, `events.balance_reminder_days` |
+| `schema-v56-raffles.sql` | Fundraising raffles: `raffles`, `raffle_orders`, `raffle_tickets`, `raffle_secrets` (fair-draw seed, service role only) |
 
 ## For whoever updates the code next
 

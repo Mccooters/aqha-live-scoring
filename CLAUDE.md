@@ -829,3 +829,47 @@ proper forms instead of `prompt()`, registry bulk import, event schedule
 page) has all shipped — see the relevant sections above. No open backlog
 items are currently agreed with the owner; check with them for what's next
 before starting speculative work.
+
+## Fundraising raffles (schema-v56)
+
+A **distinct service** on the same site (owner's request, Oct 2026) — not
+tied to events. Tables `raffles` (name, description, prizes jsonb
+[{title, detail}], ticket_price_cents, ticket_count default 100, status
+draft|open|closed|drawn, draw_date free text, plus the fair-draw fields),
+`raffle_orders` (buyer name/email/phone, numbers, total, status
+pending|paid|cancelled|expired, method square|manual, Square ids),
+`raffle_tickets` (one row per taken number, unique (raffle_id, number) —
+the referee for two buyers picking the same number; status reserved|sold)
+and `raffle_secrets` (service role only). Public read on `raffles`; orders
+and tickets are staff-only (names/emails) — the public page gets taken
+numbers via `app/api/raffle/[id]/numbers` (sold numbers carry a "Jane S."
+short name only).
+
+- **Public**: `/raffle` (list) and `/raffle/[id]` — prizes at the top, a
+  grid of every number (available / yours / sold / being paid for), name +
+  email (+ phone) form, then `POST /api/raffle/[id]/order` → Square checkout
+  (`createRaffleCheckout` in `app/api/_lib/raffles.js`, reference_id =
+  order id) → `/raffle/[id]/success?order=` polls `/api/raffle/[id]/status`.
+  Chosen numbers are **reserved for 15 minutes** (`RESERVATION_MINUTES`;
+  `takenNumbers()` releases expired holds and marks their orders expired on
+  every read). Max 20 numbers per order. Free raffles (price $0) settle
+  immediately. The Square webhook's `handleRafflePayment` (checked after
+  registrations/balances, before memberships) marks the order paid, the
+  tickets sold, re-reserves the numbers if the hold had lapsed, and emails
+  a receipt listing the numbers.
+- **Staff** `/coordinator/raffles` ("🎟 Raffles" under People & money):
+  create/edit (prizes in order, price, count, draw date), Open/Close/Reopen,
+  copy the share link (for Facebook), live ticket board, orders list
+  (Mark paid / Release for pending ones via `app/api/raffle/[id]/sell`),
+  record cash/transfer sales (same route — tickets go straight to sold),
+  Draw winners, Delete (confirm dialog; Square money is not refunded).
+- **Fair draw** (`drawWinners()` in `raffles.js`, `app/api/raffle/[id]/draw`
+  staff JWT): opening the raffle calls `{action:"commit"}` →
+  `ensureRaffleSeed` stores a 32-byte random seed in `raffle_secrets` and
+  publishes `raffles.seed_hash` (SHA-256) BEFORE any ticket sells. The draw
+  generates a fresh `draw_salt`, and for prize k picks
+  `sorted_sold[HMAC-SHA256(seed, "salt:k") mod remaining]` without
+  replacement (sold tickets only, one win per ticket). Results, the
+  revealed seed, salt and timestamp are stored on the raffle row and shown
+  on the public page with a plain-English "how to check it" explainer.
+  Drawing is one-shot — a second call returns the stored result.
