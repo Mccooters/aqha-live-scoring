@@ -2598,6 +2598,10 @@ export default function Coordinator() {
             <Link href="/coordinator/numbers" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
               New numbers
             </Link>
+            <Link href="/coordinator/raffles" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}
+              title="Fundraising raffles — sell numbered tickets online and draw the winners">
+              🎟 Raffles
+            </Link>
             <Link href="/coordinator/staff" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}
               title="Add or remove staff logins, and set committee members to read-only">
               Staff access

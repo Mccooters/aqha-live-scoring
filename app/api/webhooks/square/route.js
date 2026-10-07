@@ -74,6 +74,8 @@ export async function POST(req) {
   if (!reg) {
     const balanceRes = await handleBalancePayment(db, payment, orderId);
     if (balanceRes) return balanceRes;
+    const raffleRes = await handleRafflePayment(db, payment, orderId);
+    if (raffleRes) return raffleRes;
     return handleMembershipPayment(db, payment, orderId);
   }
 
@@ -105,6 +107,62 @@ export async function POST(req) {
   // A membership renewal bought in the same checkout shares this Square
   // order — settle it too (does nothing when no membership matches).
   return handleMembershipPayment(db, payment, orderId);
+}
+
+// A raffle ticket purchase (schema-v56): created by /api/raffle/[id]/order.
+// Marks the order paid and its reserved numbers sold, then emails the buyer
+// their numbers. null = not a raffle order (fall through to memberships).
+async function handleRafflePayment(db, payment, orderId) {
+  const { data: order, error } = await db
+    .from("raffle_orders").select("*").eq("square_order_id", orderId).maybeSingle();
+  if (error) {
+    if (/raffle_orders|does not exist|schema cache/i.test(error.message ?? "")) return null;
+    return NextResponse.json({ error: "Lookup failed" }, { status: 500 });
+  }
+  if (!order) return null;
+  const paidCents = payment?.amount_money?.amount;
+  if (typeof paidCents !== "number" || paidCents < (order.total_cents ?? 0)) {
+    console.error(`Square payment ${payment.id} paid ${paidCents}c but raffle order ${order.id} needed ${order.total_cents}c`);
+    return NextResponse.json({ ok: true });
+  }
+  const { settleRaffleOrder } = await import("../../_lib/raffles");
+  const wasPaid = order.status === "paid";
+  // Reservation may have expired and been released before payment landed
+  // (slow checkout) — re-reserve the numbers if they're still free.
+  const { data: tickets } = await db.from("raffle_tickets").select("number").eq("order_id", order.id);
+  if (!tickets?.length) {
+    await db.from("raffle_tickets").insert(
+      (order.numbers ?? []).map((n) => ({ raffle_id: order.raffle_id, number: n, order_id: order.id, status: "sold", buyer_name: order.buyer_name }))
+    ).then(({ error: insErr }) => { if (insErr) console.error("Raffle re-reserve failed (number resold?):", insErr.message); });
+  }
+  await settleRaffleOrder(db, order.id, { paymentId: payment.id });
+  if (!wasPaid) {
+    try { await sendRaffleReceipt(db, order); } catch (e) { console.error("Raffle receipt email failed:", e?.message ?? e); }
+  }
+  return NextResponse.json({ ok: true });
+}
+
+async function sendRaffleReceipt(db, order) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.BOOKING_EMAIL_FROM;
+  if (!apiKey || !from || !order.buyer_email) return;
+  const { data: raffle } = await db.from("raffles").select("name, draw_date, prizes").eq("id", order.raffle_id).maybeSingle();
+  const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const nums = (order.numbers ?? []).join(", ");
+  const html = `
+    <div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#241A12">
+      <h2 style="margin:0 0 8px">${esc(raffle?.name ?? "Raffle")} — your tickets</h2>
+      <p>Thanks ${esc(order.buyer_name)}! Your ticket number${(order.numbers ?? []).length === 1 ? " is" : "s are"}:</p>
+      <p style="font-size:26px;font-weight:bold;letter-spacing:.04em;color:#3A2A1C">${esc(nums)}</p>
+      ${raffle?.draw_date ? `<p>Drawn: <strong>${esc(raffle.draw_date)}</strong>. Results are posted on the raffle page.</p>` : ""}
+      ${Array.isArray(raffle?.prizes) && raffle.prizes.length ? `<p style="color:#555;font-size:13px">Prizes: ${raffle.prizes.map((p) => esc(p.title)).join(" · ")}</p>` : ""}
+      <p style="font-size:12px;color:#888;margin-top:24px">Hunter Coast Quarter Horse Association · HCQHA Live Scoring</p>
+    </div>`;
+  await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from, to: [order.buyer_email], ...(process.env.BOOKING_EMAIL_REPLY_TO ? { reply_to: process.env.BOOKING_EMAIL_REPLY_TO } : {}), subject: `Your ${raffle?.name ?? "raffle"} ticket numbers: ${nums}`, html }),
+  });
 }
 
 // A clinic balance payment (schema-v47): a Square checkout created by

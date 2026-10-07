@@ -33,6 +33,15 @@ function SectionHeading({ title, count, first }) {
 
 export default function Home() {
   const [events, setEvents] = useState(null);
+  const [raffles, setRaffles] = useState([]);
+
+  // Fundraising raffles (schema-v56) get a card above the events while tickets
+  // are on sale. Guarded: on a database without the table there simply are none.
+  useEffect(() => {
+    supabase.from("raffles").select("id, name, ticket_price_cents, ticket_count, draw_date, prizes, status")
+      .in("status", ["open", "drawn"]).order("created_at", { ascending: false })
+      .then(({ data, error }) => setRaffles(error ? [] : (data ?? [])));
+  }, []);
 
   useEffect(() => {
     supabase
@@ -109,6 +118,24 @@ export default function Home() {
       </header>
 
       <main className="wrap">
+        {raffles.filter((r) => r.status === "open").map((r) => (
+          <Link key={r.id} href={`/raffle/${r.id}`} style={{ textDecoration: "none", color: "inherit" }}>
+            <section className="card" style={{ borderColor: "var(--brass)", background: "#FFF9E8", marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "12px 16px" }}>
+                <div>
+                  <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass)", fontWeight: 800 }}>🎟 Fundraising raffle</div>
+                  <div className="display" style={{ fontWeight: 700, fontSize: 17, marginTop: 2 }}>{r.name}</div>
+                  <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 1 }}>
+                    ${((r.ticket_price_cents ?? 0) / 100).toFixed(2)} a ticket · {r.ticket_count} numbers
+                    {Array.isArray(r.prizes) && r.prizes[0]?.title ? ` · 1st prize: ${r.prizes[0].title}` : ""}
+                    {r.draw_date ? ` · Drawn ${r.draw_date}` : ""}
+                  </div>
+                </div>
+                <span style={{ color: "var(--brass)", fontWeight: 700, fontSize: 14, whiteSpace: "nowrap" }}>Buy tickets →</span>
+              </div>
+            </section>
+          </Link>
+        ))}
         {events === null && <p style={{ color: "var(--quiet)" }}>Loading events…</p>}
         {events?.length === 0 && (
           <p style={{ color: "var(--quiet)" }}>
