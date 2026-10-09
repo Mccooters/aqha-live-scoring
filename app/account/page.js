@@ -753,6 +753,69 @@ function PasswordCard({ hasPassword, onChanged }) {
 // plans, schema-v47/v50). Renders nothing when there's nothing owing. The
 // "Pay" button goes to the registration's own payment page, which already
 // handles paying in full or in parts.
+// Raffle tickets bought with this account's email (schema-v56 raffles): the
+// numbers per raffle, any prize they won once drawn, and a "finish payment"
+// link for an order still inside its 15-minute hold.
+function RafflesCard() {
+  const [raffles, setRaffles] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    api("/api/account/raffles")
+      .then(({ ok, data }) => { if (!cancelled && ok) setRaffles(data?.raffles ?? []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  if (!raffles?.length) return null;
+  const ORD = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th"];
+  const numChip = (n, win) => (
+    <span key={n} className="display" style={{ fontWeight: 700, fontSize: 15, padding: "3px 9px", borderRadius: 8, background: win ? "#FFF6DA" : "var(--leather)", color: win ? "var(--leather)" : "#FFF6EC", border: win ? "1px solid var(--brass)" : "none" }}>#{n}</span>
+  );
+  return (
+    <section className="card">
+      <CardTitle>🎟 My raffle tickets</CardTitle>
+      <div style={{ padding: "4px 16px 14px" }}>
+        {raffles.map((r) => {
+          const wonNums = new Set(r.wins.map((w) => w.number));
+          return (
+            <div key={r.id} style={{ paddingTop: 12, marginTop: 4, borderTop: "1px solid var(--line)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: "var(--leather)" }}>{r.name}</div>
+                <span style={{ fontSize: 12, color: "var(--quiet)" }}>
+                  {r.status === "drawn" ? "Drawn" : r.status === "closed" ? "Sales closed — draw coming up" : r.status === "open" ? "Tickets on sale" : "Coming soon"}
+                  {r.draw_date && r.status !== "drawn" ? ` · drawn ${r.draw_date}` : ""}
+                </span>
+              </div>
+              {r.numbers.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>{r.numbers.map((n) => numChip(n, wonNums.has(n)))}</div>
+              )}
+              {r.status === "drawn" && (
+                r.wins.length > 0 ? (
+                  <div style={{ marginTop: 8, fontSize: 14, color: "var(--leather)", background: "#FFF6DA", border: "1px solid var(--brass)", borderRadius: 8, padding: "8px 10px" }}>
+                    {r.wins.map((w) => <div key={w.prize_index}>🏆 <strong>{ORD[w.prize_index] ?? `${w.prize_index + 1}th`} prize</strong> — {w.prize} — ticket #{w.number}. The club will be in touch!</div>)}
+                  </div>
+                ) : r.numbers.length > 0 ? (
+                  <p style={{ fontSize: 13, color: "var(--quiet)", margin: "6px 0 0" }}>Drawn — no luck this time. Thanks for supporting the club.</p>
+                ) : null
+              )}
+              {r.pending_numbers.length > 0 && (
+                <p style={{ fontSize: 13, color: "#9A6A1A", margin: "8px 0 0" }}>
+                  Numbers {r.pending_numbers.join(", ")} are held for you but not paid yet.{" "}
+                  {r.finish_payment_url && <Link href={r.finish_payment_url} style={{ color: "var(--brass)", fontWeight: 700 }}>Finish payment →</Link>}
+                </p>
+              )}
+              <div style={{ marginTop: 8 }}>
+                <Link href={`/raffle/${r.id}`} style={{ color: "var(--brass)", fontSize: 13, fontWeight: 700 }}>
+                  {r.status === "open" ? "Buy more tickets →" : "View raffle →"}
+                </Link>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function BalancesCard() {
   const [balances, setBalances] = useState(null);
   useEffect(() => {
@@ -877,6 +940,7 @@ export default function AccountPage() {
         {phase === "portal" && (
           <>
             <BalancesCard />
+            <RafflesCard />
 
             {activeRows.map((m) => (
               <StatusCard key={m.id} m={m} renewal={hasCurrent && !m.is_current} />
