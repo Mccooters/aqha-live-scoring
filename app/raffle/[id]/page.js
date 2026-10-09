@@ -28,6 +28,7 @@ export default function RafflePage() {
   const [taken, setTaken] = useState({});          // number -> {status, label}
   const [takenState, setTakenState] = useState("loading"); // loading | ok | error
   const [takenError, setTakenError] = useState("");
+  const [takenAt, setTakenAt] = useState(null);     // when the board was last fetched OK
   const [selected, setSelected] = useState([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -55,6 +56,7 @@ export default function RafflePage() {
       setTaken(map);
       setTakenState("ok");
       setTakenError("");
+      setTakenAt(new Date());
       // Drop anything we'd picked that someone else has since taken.
       setSelected((sel) => sel.filter((n) => !map[n]));
     } catch (err) {
@@ -246,7 +248,8 @@ export default function RafflePage() {
           <div className="card-head">
             <strong className="display" style={{ fontSize: 17 }}>🎟 Pick your numbers</strong>
             <span style={{ fontSize: 12, color: "var(--quiet)" }}>
-              {isDrawn ? `${soldCount} sold` : `${remaining} of ${count} left`}
+              {takenState === "ok" ? (isDrawn ? `${soldCount} sold` : `${soldCount} sold · ${remaining} of ${count} left`) : "…"}
+              {takenAt && <span title="When this board was last refreshed"> · updated {takenAt.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", second: "2-digit" })}</span>}
             </span>
           </div>
           <div style={{ padding: "12px 16px 16px" }}>
