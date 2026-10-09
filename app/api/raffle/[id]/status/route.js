@@ -14,5 +14,5 @@ export async function GET(req, { params }) {
     .select("id, raffle_id, buyer_name, numbers, total_cents, status, square_checkout_url")
     .eq("id", orderId).eq("raffle_id", params.id).maybeSingle();
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
-  return NextResponse.json({ ok: true, order });
+  return NextResponse.json({ ok: true, order }, { headers: { "Cache-Control": "no-store" } });
 }

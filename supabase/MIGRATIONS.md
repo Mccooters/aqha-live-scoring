@@ -220,6 +220,11 @@ hasn't been run.
       → **fundraising raffles**: the "🎟 Raffles" page on the dashboard and
         the public /raffle pages. Without it the Raffles page shows a
         "tables haven't been created" notice and nothing can be sold.
+- [ ] **v57** — `schema-v57-raffle-live-updates.sql`
+      → **raffle ticket board updates instantly**: every open raffle page
+        (public and staff) hears about a sale the moment it happens instead
+        of waiting for its next timer tick. Without it the pages still work
+        but refresh on a timer only.
 
 Tick these off once you've run them.
 
@@ -285,6 +290,7 @@ Tick these off once you've run them.
 | `schema-v54-hcqha-numbers.sql` | HCQHA membership numbers (`club_members.hcqha_number`, `club_member_people.hcqha_number`) — one permanent number per person |
 | `schema-v55-balance-reminders.sql` | Balance reminder emails: `registrations.balance_reminder_log` / `_last_at`, `events.balance_reminder_days` |
 | `schema-v56-raffles.sql` | Fundraising raffles: `raffles`, `raffle_orders`, `raffle_tickets`, `raffle_secrets` (fair-draw seed, service role only) |
+| `schema-v57-raffle-live-updates.sql` | Raffle live updates: `raffles.tickets_changed_at` (bumped on every ticket change so public pages re-fetch) + raffle tables added to the realtime publication |
 
 ## For whoever updates the code next
 

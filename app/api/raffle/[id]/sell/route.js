@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { adminClient, isCommitteeViewer } from "../../../_lib/registrations";
-import { takenNumbers, settleRaffleOrder, deleteSquarePaymentLink } from "../../../_lib/raffles";
+import { takenNumbers, settleRaffleOrder, touchRaffle } from "../../../_lib/raffles";
 
 // Staff: sell tickets for cash / bank transfer (no Square), or release a
 // pending/unpaid order's numbers.
@@ -31,6 +31,7 @@ export async function POST(req, { params }) {
       if (order.status === "paid") return NextResponse.json({ error: "That order is paid — its numbers can't be released." }, { status: 400 });
       await db.from("raffle_tickets").delete().eq("order_id", order.id);
       await db.from("raffle_orders").update({ status: "cancelled" }).eq("id", order.id);
+      await touchRaffle(db, raffle.id);
       return NextResponse.json({ ok: true });
     }
 
@@ -60,6 +61,7 @@ export async function POST(req, { params }) {
       await db.from("raffle_orders").delete().eq("id", order.id);
       return NextResponse.json({ error: /23505|duplicate/i.test(`${tErr.code ?? ""} ${tErr.message ?? ""}`) ? "One of those numbers was just taken." : tErr.message }, { status: 409 });
     }
+    await touchRaffle(db, raffle.id);
     return NextResponse.json({ ok: true, order_id: order.id });
   } catch (err) {
     console.error("raffle/sell error:", err);

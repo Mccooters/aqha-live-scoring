@@ -13,8 +13,8 @@ export async function GET(_req, { params }) {
     return NextResponse.json({
       ok: true,
       taken: tickets.map((t) => ({ number: t.number, status: t.status, label: t.status === "sold" ? shortName(t.buyer_name) : "" })),
-    });
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
-    return NextResponse.json({ error: err.message ?? "Unexpected error" }, { status: 500 });
+    return NextResponse.json({ error: err.message ?? "Unexpected error" }, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
 }

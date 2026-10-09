@@ -26,6 +26,8 @@ export default function RafflePage() {
   const router = useRouter();
   const [raffle, setRaffle] = useState(undefined);
   const [taken, setTaken] = useState({});          // number -> {status, label}
+  const [takenState, setTakenState] = useState("loading"); // loading | ok | error
+  const [takenError, setTakenError] = useState("");
   const [selected, setSelected] = useState([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -39,29 +41,53 @@ export default function RafflePage() {
     setRaffle(data ?? null);
   }, [id]);
 
+  // Which numbers are sold / being paid for. The ticket rows hold names and
+  // emails so they aren't public — this server route hands back just the
+  // numbers. If it can't be reached we SAY so (and stop sales on this page)
+  // rather than quietly showing every number as free.
   const loadTaken = useCallback(async () => {
     try {
-      const res = await fetch(`/api/raffle/${id}/numbers`, { cache: "no-store" });
-      const data = await res.json();
-      if (res.ok) {
-        const map = {};
-        for (const t of data.taken ?? []) map[t.number] = t;
-        setTaken(map);
-        // Drop anything we'd picked that someone else has since taken.
-        setSelected((sel) => sel.filter((n) => !map[n]));
-      }
-    } catch { /* keep the last known state */ }
+      const res = await fetch(`/api/raffle/${id}/numbers?t=${Date.now()}`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? `Server error ${res.status}`);
+      const map = {};
+      for (const t of data.taken ?? []) map[t.number] = t;
+      setTaken(map);
+      setTakenState("ok");
+      setTakenError("");
+      // Drop anything we'd picked that someone else has since taken.
+      setSelected((sel) => sel.filter((n) => !map[n]));
+    } catch (err) {
+      setTakenState((cur) => (cur === "ok" ? "ok" : "error"));
+      setTakenError(err?.message ?? "Could not load the ticket board.");
+    }
   }, [id]);
 
   useEffect(() => { loadRaffle(); loadTaken(); }, [loadRaffle, loadTaken]);
 
   useEffect(() => {
+    // Live: the server bumps raffles.tickets_changed_at on every sale /
+    // hold / release (schema-v57), so this fires the moment anything changes.
+    const refresh = () => { loadRaffle(); loadTaken(); };
     const channel = supabase
       .channel(`raffle-${id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "raffles", filter: `id=eq.${id}` }, loadRaffle)
+      .on("postgres_changes", { event: "*", schema: "public", table: "raffles", filter: `id=eq.${id}` }, refresh)
       .subscribe();
-    const timer = setInterval(loadTaken, 8000);
-    return () => { supabase.removeChannel(channel); clearInterval(timer); };
+    // Belt and braces: poll while the tab is in view, and refresh the instant
+    // it comes back — a phone tab left in the background keeps whatever it
+    // last saw, and its timers are frozen until it's looked at again.
+    const timer = setInterval(() => { if (typeof document === "undefined" || !document.hidden) loadTaken(); }, 5000);
+    const onVisible = () => { if (!document.hidden) refresh(); };
+    const onShow = () => refresh();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onShow);
+    window.addEventListener("pageshow", onShow);
+    return () => {
+      supabase.removeChannel(channel); clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onShow);
+      window.removeEventListener("pageshow", onShow);
+    };
   }, [id, loadRaffle, loadTaken]);
 
   const toggle = (n) => {
@@ -72,6 +98,7 @@ export default function RafflePage() {
   const buy = async (e) => {
     e.preventDefault();
     if (!selected.length) { setError("Tap the numbers you'd like first."); return; }
+    if (takenState !== "ok") { setError("The ticket board hasn't loaded yet — please wait a moment and try again."); await loadTaken(); return; }
     setSubmitting(true); setError("");
     try {
       const res = await fetch(`/api/raffle/${id}/order`, {
@@ -233,6 +260,24 @@ export default function RafflePage() {
                 Tap the numbers you want (up to 20), then pay by card below. Numbers are held for 15 minutes while you pay.
               </p>
             )}
+            {takenState === "loading" && (
+              <p style={{ color: "var(--quiet)", margin: "0 0 10px", fontSize: 13, fontStyle: "italic" }}>Checking which numbers are still free…</p>
+            )}
+            {takenState === "ok" && takenError && (
+              <p style={{ color: "#9A6A1A", margin: "0 0 10px", fontSize: 12.5 }}>
+                ⚠ Couldn't refresh the board just now — it may be slightly out of date. Retrying…
+              </p>
+            )}
+            {takenState === "error" && (
+              <div style={{ background: "#FBE9E4", border: "1px solid var(--clay)", borderRadius: 10, padding: "10px 12px", margin: "0 0 10px", fontSize: 13 }}>
+                <strong style={{ color: "#B03030" }}>Couldn't load which numbers are taken</strong>
+                {takenError ? <span style={{ color: "var(--quiet)" }}> — {takenError}</span> : null}
+                <div style={{ marginTop: 6 }}>
+                  <button type="button" className="btn-ghost" onClick={loadTaken}>↻ Try again</button>
+                  <span style={{ color: "var(--quiet)", marginLeft: 8 }}>Tickets can't be bought from this page until it loads.</span>
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, color: "var(--quiet)", marginBottom: 10 }}>
               <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, border: "2px solid var(--line)", background: "#fff", verticalAlign: "-2px", marginRight: 4 }} />Available</span>
               <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "var(--clay)", verticalAlign: "-2px", marginRight: 4 }} />Yours</span>
@@ -244,7 +289,7 @@ export default function RafflePage() {
                 const t = taken[n];
                 const win = winnersByNumber[n];
                 return (
-                  <button key={n} type="button" style={cellStyle(n)} disabled={!isOpen || !!t}
+                  <button key={n} type="button" style={cellStyle(n)} disabled={!isOpen || !!t || takenState !== "ok"}
                     onClick={() => toggle(n)} aria-pressed={selected.includes(n)}
                     title={t?.status === "sold" ? `Sold${t.label ? ` to ${t.label}` : ""}` : t?.status === "reserved" ? "Being paid for right now" : undefined}>
                     <span>{n}</span>
@@ -281,7 +326,7 @@ export default function RafflePage() {
                 <input className="field" style={{ fontSize: 16 }} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
               </label>
               {error && <div style={{ color: "#B03030", fontSize: 14, fontWeight: 600 }}>{error}</div>}
-              <button className="btn" type="submit" disabled={submitting || !selected.length}>
+              <button className="btn" type="submit" disabled={submitting || !selected.length || takenState !== "ok"}>
                 {submitting ? "Taking you to payment…" : total > 0 ? `Pay ${fmtMoney(total)} by card` : "Claim tickets"}
               </button>
               <div style={{ fontSize: 12, color: "var(--quiet)" }}>

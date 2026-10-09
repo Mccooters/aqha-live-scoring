@@ -873,3 +873,16 @@ short name only).
   revealed seed, salt and timestamp are stored on the raffle row and shown
   on the public page with a plain-English "how to check it" explainer.
   Drawing is one-shot — a second call returns the stored result.
+- **Live ticket board (schema-v57)**: v56 forgot to add the raffle tables
+  to the `supabase_realtime` publication (owner's report, Oct 2026 — a
+  public tab showed a number free that the staff board showed sold).
+  v57 adds them plus `raffles.tickets_changed_at`, which `touchRaffle()`
+  (`raffles.js`) bumps on every reserve / sell / release / expiry; the
+  public page (anon can read `raffles` but never the ticket rows) listens
+  for changes to its raffle row and re-fetches `/numbers`. Both pages also
+  poll while visible and refresh on visibilitychange / focus / pageshow
+  (phone tabs in the background freeze their timers). The public page
+  shows "Checking which numbers are still free…" until the first load and
+  a red "Couldn't load which numbers are taken" notice (buying disabled)
+  if `/numbers` fails — never a silent all-available grid. `/numbers` and
+  `/status` send `Cache-Control: no-store` and the page cache-busts.

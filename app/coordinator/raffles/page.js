@@ -73,7 +73,20 @@ export default function RafflesPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "raffle_orders" }, loadDetail)
       .on("postgres_changes", { event: "*", schema: "public", table: "raffle_tickets" }, loadDetail)
       .subscribe();
-    return () => supabase.removeChannel(channel);
+    // A phone tab left in the background keeps whatever it last saw — refresh
+    // the moment it's looked at again (and every 15 s while in view).
+    const refresh = () => { loadRaffles(); loadDetail(); };
+    const onVisible = () => { if (!document.hidden) refresh(); };
+    const timer = setInterval(() => { if (!document.hidden) loadDetail(); }, 15000);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("pageshow", refresh);
+    return () => {
+      supabase.removeChannel(channel); clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("pageshow", refresh);
+    };
   }, [session, loadRaffles, loadDetail]);
 
   const staffPost = async (path, body) => {

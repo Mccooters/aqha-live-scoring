@@ -8,6 +8,18 @@ export const RESERVATION_MINUTES = 15;
 
 export const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
+// Nudge every open raffle page: the public page can read `raffles` but not
+// the ticket rows (they hold names/emails), so it listens for changes to its
+// raffle row and re-fetches the taken numbers whenever this stamp moves.
+// Column arrives with schema-v57 — on an older database this is a silent
+// no-op (the page still polls).
+export async function touchRaffle(db, raffleId) {
+  if (!raffleId) return;
+  try {
+    await db.from("raffles").update({ tickets_changed_at: new Date().toISOString() }).eq("id", raffleId);
+  } catch { /* pre-v57 database */ }
+}
+
 // Numbers that can't be chosen right now: sold, or reserved within the last
 // RESERVATION_MINUTES by someone who hasn't finished paying yet. Expired
 // reservations are released on the way through.
@@ -25,6 +37,7 @@ export async function takenNumbers(db, raffleId) {
     if (orderIds.length) {
       await db.from("raffle_orders").update({ status: "expired" }).in("id", orderIds).eq("status", "pending");
     }
+    await touchRaffle(db, raffleId);
   }
   return (tickets ?? []).filter((t) => !expired.some((e) => e.id === t.id));
 }
@@ -47,6 +60,7 @@ export async function settleRaffleOrder(db, orderId, { paymentId = null } = {}) 
       .eq("id", orderId);
   }
   await db.from("raffle_tickets").update({ status: "sold" }).eq("order_id", orderId);
+  await touchRaffle(db, order.raffle_id);
   return order;
 }
 
