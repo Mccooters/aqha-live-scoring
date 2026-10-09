@@ -861,7 +861,17 @@ grid says "sold" rather than who. A buyer's own numbers are remembered in
 their browser (`localStorage` `raffle-mine-<id>`, written by the success
 page once paid) so the grid can mark them "yours ✓" on that device only.
 The success page still greets the buyer by name — it's their own private
-link.
+link. **Member accounts** (owner's request, Oct 2026): the raffle page calls
+`/api/account/me` like the entry form — a signed-in member's name/email/
+phone are pre-filled and collapsed to a "Signed in via the member portal"
+card ("Use different details" to override) — and `/api/account/raffles`
+(member session; `raffle_orders.buyer_email` ilike the account email,
+paid + in-hold pending orders, grouped per raffle with the numbers, any
+`draw_results` wins and a finish-payment link) marks those numbers
+"yours ✓" on any device and feeds the portal's "🎟 My raffle tickets"
+card (RafflesCard in `app/account/page.js`). Tickets attach by email
+only — a member who types a different email at checkout is treated like
+any other buyer.
 
 - **Public**: `/raffle` (list) and `/raffle/[id]` — prizes at the top, a
   grid of every number (available / yours / sold / being paid for), name +

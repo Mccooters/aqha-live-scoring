@@ -30,6 +30,9 @@ export default function RafflePage() {
   const [takenError, setTakenError] = useState("");
   const [takenAt, setTakenAt] = useState(null);     // when the board was last fetched OK
   const [mine, setMine] = useState([]);             // numbers bought from THIS device (success page remembers them)
+  const [accountMine, setAccountMine] = useState([]); // numbers bought under the signed-in member's email (any device)
+  const [memberAccount, setMemberAccount] = useState(null); // { email, name } when signed in to the member portal
+  const [useDifferentDetails, setUseDifferentDetails] = useState(false);
   const [selected, setSelected] = useState([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -68,8 +71,9 @@ export default function RafflePage() {
 
   useEffect(() => { loadRaffle(); loadTaken(); }, [loadRaffle, loadTaken]);
 
-  // Buyer names are never shown publicly, so the only way to mark "your"
-  // numbers is from this browser's own memory of its purchases.
+  // Buyer names are never shown publicly, so "your" numbers come from two
+  // private sources: this browser's own memory of its purchases, and — for
+  // members signed in to the portal — the tickets bought with their email.
   useEffect(() => {
     try {
       const list = JSON.parse(window.localStorage.getItem(`raffle-mine-${id}`) || "[]");
@@ -77,10 +81,40 @@ export default function RafflePage() {
     } catch { setMine([]); }
   }, [id]);
 
+  const loadAccountTickets = useCallback(async () => {
+    try {
+      const res = await fetch("/api/account/raffles", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const r = (data?.raffles ?? []).find((x) => x.id === id);
+      setAccountMine(r ? r.numbers : []);
+    } catch { /* not signed in or offline */ }
+  }, [id]);
+
+  // Signed-in members get their details filled in (same as the entry form)
+  // and their numbers marked on every device they use.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/account/me");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data?.email) return;
+        const best = (data.memberships ?? []).find((m) => m.is_current)
+          ?? (data.memberships ?? []).find((m) => m.status !== "rejected");
+        setMemberAccount({ email: data.email, name: best?.member_name ?? "" });
+        setName((prev) => prev || best?.member_name || "");
+        setEmail((prev) => prev || data.email);
+        setPhone((prev) => prev || best?.phone || "");
+        loadAccountTickets();
+      } catch { /* not signed in — the form simply works the normal way */ }
+    })();
+  }, [loadAccountTickets]);
+
   useEffect(() => {
     // Live: the server bumps raffles.tickets_changed_at on every sale /
     // hold / release (schema-v57), so this fires the moment anything changes.
-    const refresh = () => { loadRaffle(); loadTaken(); };
+    const refresh = () => { loadRaffle(); loadTaken(); if (memberAccount) loadAccountTickets(); };
     const channel = supabase
       .channel(`raffle-${id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "raffles", filter: `id=eq.${id}` }, refresh)
@@ -100,7 +134,7 @@ export default function RafflePage() {
       window.removeEventListener("focus", onShow);
       window.removeEventListener("pageshow", onShow);
     };
-  }, [id, loadRaffle, loadTaken]);
+  }, [id, loadRaffle, loadTaken, loadAccountTickets, memberAccount]);
 
   const toggle = (n) => {
     setError("");
@@ -152,7 +186,7 @@ export default function RafflePage() {
   const status = STATUS[raffle.status] ?? STATUS.draft;
   const total = selected.length * (raffle.ticket_price_cents ?? 0);
   const results = Array.isArray(raffle.draw_results) ? raffle.draw_results : [];
-  const mineSet = new Set(mine);
+  const mineSet = new Set([...mine, ...accountMine]);
   const isMine = (n) => mineSet.has(n) && taken[n]?.status === "sold";
   const winnersByNumber = Object.fromEntries(results.map((r) => [r.number, r]));
 
@@ -297,7 +331,7 @@ export default function RafflePage() {
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, color: "var(--quiet)", marginBottom: 10 }}>
               <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, border: "2px solid var(--line)", background: "#fff", verticalAlign: "-2px", marginRight: 4 }} />Available</span>
               <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "var(--clay)", verticalAlign: "-2px", marginRight: 4 }} />Picked</span>
-              {mine.length > 0 && <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#E6F2EA", border: "1px solid #2D7A52", verticalAlign: "-2px", marginRight: 4 }} />Yours</span>}
+              {mineSet.size > 0 && <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#E6F2EA", border: "1px solid #2D7A52", verticalAlign: "-2px", marginRight: 4 }} />Yours</span>}
               <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#EFEAE0", verticalAlign: "-2px", marginRight: 4 }} />Sold</span>
               <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#FBF3E6", border: "1px solid #E8D9B8", verticalAlign: "-2px", marginRight: 4 }} />Being paid for</span>
             </div>
@@ -330,18 +364,33 @@ export default function RafflePage() {
               <div style={{ fontSize: 14, minHeight: 20 }}>
                 {selected.length ? <>Numbers: <strong>{selected.join(", ")}</strong></> : <span style={{ color: "var(--quiet)" }}>Tap numbers above to add them here.</span>}
               </div>
-              <label style={{ display: "grid", gap: 4, fontSize: 13, fontWeight: 700 }}>
-                Your name
-                <input className="field" style={{ fontSize: 16 }} value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
-              </label>
-              <label style={{ display: "grid", gap: 4, fontSize: 13, fontWeight: 700 }}>
-                Email <span style={{ fontWeight: 400, color: "var(--quiet)" }}>— your ticket numbers are emailed here</span>
-                <input className="field" style={{ fontSize: 16 }} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-              </label>
-              <label style={{ display: "grid", gap: 4, fontSize: 13, fontWeight: 700 }}>
-                Phone <span style={{ fontWeight: 400, color: "var(--quiet)" }}>(optional — so we can reach you if you win)</span>
-                <input className="field" style={{ fontSize: 16 }} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
-              </label>
+              {memberAccount && !useDifferentDetails && name.trim() && email.trim() ? (
+                <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "var(--paper)" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="display" style={{ fontWeight: 700, fontSize: 15 }}>{name}</div>
+                    <div style={{ fontSize: 12.5, color: "var(--quiet)", overflowWrap: "anywhere" }}>{email}{phone ? ` · ${phone}` : ""}</div>
+                    <div style={{ fontSize: 11.5, color: "var(--quiet)", marginTop: 2 }}>Signed in via the member portal — these tickets will show in your account</div>
+                  </div>
+                  <button type="button" className="btn-ghost" style={{ padding: "6px 10px", fontSize: 12, flexShrink: 0 }} onClick={() => setUseDifferentDetails(true)}>
+                    Use different details
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <label style={{ display: "grid", gap: 4, fontSize: 13, fontWeight: 700 }}>
+                    Your name
+                    <input className="field" style={{ fontSize: 16 }} value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
+                  </label>
+                  <label style={{ display: "grid", gap: 4, fontSize: 13, fontWeight: 700 }}>
+                    Email <span style={{ fontWeight: 400, color: "var(--quiet)" }}>— your ticket numbers are emailed here</span>
+                    <input className="field" style={{ fontSize: 16 }} type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
+                  </label>
+                  <label style={{ display: "grid", gap: 4, fontSize: 13, fontWeight: 700 }}>
+                    Phone <span style={{ fontWeight: 400, color: "var(--quiet)" }}>(optional — so we can reach you if you win)</span>
+                    <input className="field" style={{ fontSize: 16 }} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
+                  </label>
+                </>
+              )}
               {error && <div style={{ color: "#B03030", fontSize: 14, fontWeight: 600 }}>{error}</div>}
               <button className="btn" type="submit" disabled={submitting || !selected.length || takenState !== "ok"}>
                 {submitting ? "Taking you to payment…" : total > 0 ? `Pay ${fmtMoney(total)} by card` : "Claim tickets"}
