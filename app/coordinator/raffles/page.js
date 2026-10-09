@@ -37,6 +37,7 @@ export default function RafflesPage() {
   const [busy, setBusy] = useState(false);
   const [sale, setSale] = useState({ numbers: "", name: "", email: "", phone: "" });
   const [copied, setCopied] = useState(false);
+  const [publicCheck, setPublicCheck] = useState(null); // what the PUBLIC page sees for this raffle
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -64,6 +65,28 @@ export default function RafflesPage() {
 
   useEffect(() => { loadRaffles(); }, [loadRaffles]);
   useEffect(() => { loadDetail(); }, [loadDetail]);
+
+  // Self-check: ask the SAME route the public page uses and compare it with
+  // the board above (owner's report, Oct 2026 — a sold number showed as free
+  // on the public page). If the two ever disagree this says so, with the
+  // server's own error text when there is one.
+  const runPublicCheck = useCallback(async () => {
+    if (!selectedId) { setPublicCheck(null); return; }
+    try {
+      const res = await fetch(`/api/raffle/${selectedId}/numbers?t=${Date.now()}`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setPublicCheck({ error: data.error ?? `Server error ${res.status}` }); return; }
+      const list = Array.isArray(data.taken) ? data.taken : [];
+      setPublicCheck({
+        sold: list.filter((t) => t.status === "sold").map((t) => t.number).sort((a, b) => a - b),
+        held: list.filter((t) => t.status === "reserved").map((t) => t.number).sort((a, b) => a - b),
+        at: new Date(),
+      });
+    } catch (err) {
+      setPublicCheck({ error: err?.message ?? "Could not reach the public ticket lookup." });
+    }
+  }, [selectedId]);
+  useEffect(() => { runPublicCheck(); }, [runPublicCheck, tickets]);
 
   useEffect(() => {
     if (!session) return;
@@ -328,6 +351,27 @@ export default function RafflesPage() {
                     </div>
                   ))}
                 </div>
+
+                {(() => {
+                  const boardSold = sold.map((t) => t.number).sort((a, b) => a - b);
+                  const boardHeld = held.map((t) => t.number).sort((a, b) => a - b);
+                  const same = publicCheck && !publicCheck.error
+                    && publicCheck.sold.join(",") === boardSold.join(",") && publicCheck.held.join(",") === boardHeld.join(",");
+                  const tone = !publicCheck ? "var(--quiet)" : same ? "#2D7A52" : "#B03030";
+                  return (
+                    <div style={{ fontSize: 12.5, color: tone, background: same === false && publicCheck ? "#FBE9E4" : "transparent", borderRadius: 8, padding: same === false && publicCheck ? "8px 10px" : 0 }}>
+                      {!publicCheck && "Checking what the public page sees…"}
+                      {publicCheck?.error && <><strong>⚠ The public page can't load the ticket board:</strong> {publicCheck.error}</>}
+                      {publicCheck && !publicCheck.error && (
+                        same
+                          ? <>✓ The public page sees the same board: {publicCheck.sold.length} sold, {publicCheck.held.length} held.</>
+                          : <><strong>⚠ The public page sees a different board:</strong> sold {publicCheck.sold.length ? publicCheck.sold.join(", ") : "none"} · held {publicCheck.held.length ? publicCheck.held.join(", ") : "none"} — but this page shows sold {boardSold.length ? boardSold.join(", ") : "none"} · held {boardHeld.length ? boardHeld.join(", ") : "none"}.</>
+                      )}
+                      {" "}<button type="button" className="btn-ghost" onClick={runPublicCheck} style={{ marginLeft: 4 }}>↻ Re-check</button>
+                      <div style={{ color: "var(--quiet)", marginTop: 4, fontFamily: "monospace", fontSize: 11, wordBreak: "break-all" }}>Raffle id {raffle.id}</div>
+                    </div>
+                  );
+                })()}
 
                 <div>
                   <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 4 }}>Prizes</div>
