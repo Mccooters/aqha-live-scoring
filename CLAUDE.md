@@ -818,6 +818,17 @@ away). `next.config.mjs` stubs Node built-ins (fs etc.) for that file.
 - Client-side Supabase calls are the default for everything; only reach for
   an `app/api/` route when the action must run with elevated privileges
   (service-role key) or call a third-party API (Square).
+- **Server-side reads must never be cached.** Next.js's Data Cache wraps
+  every server `fetch()` — including the ones supabase-js makes — and a GET
+  route handler that doesn't touch its Request (only `[params]`, even with
+  `dynamic = "force-dynamic"`) gets the database's FIRST answer forever
+  (owner's report, Oct 2026: a raffle ticket sold an hour earlier still
+  showed as free, and `/status` never left "pending"). `adminClient()`
+  therefore passes a `cache: "no-store"` fetch to supabase-js, and the
+  raffle `/numbers` + `/status` routes also declare
+  `fetchCache = "force-no-store"`. Any new server-side client must do the
+  same; the staff Raffles page's "public page sees…" self-check is the
+  canary.
 - Mobile-first: coordinators score from a phone at the arena gate.
 - pip-style draw counters exclude scratched entries everywhere, and are
   mode-aware for TBC draw classes (counting `called` rather than `score`).

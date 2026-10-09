@@ -20,10 +20,20 @@ export async function isCommitteeViewer(db, userId) {
   }
 }
 
+// Next.js caches the results of server-side fetch() calls (its "Data Cache")
+// — including the ones supabase-js makes underneath every query — unless the
+// route happens to count as dynamic in just the right way. A GET route handler
+// that only uses its [param] (raffle ticket lookups, Oct 2026) was served the
+// database's FIRST answer forever: a number sold an hour ago still showed as
+// free. A database read must never come from yesterday's answer, so every
+// admin query opts out explicitly.
+const uncachedFetch = (input, init) => fetch(input, { ...init, cache: "no-store" });
+
 export function adminClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    { global: { fetch: uncachedFetch } }
   );
 }
 

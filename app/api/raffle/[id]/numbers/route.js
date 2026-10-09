@@ -5,6 +5,7 @@ import { takenNumbers, shortName } from "../../../_lib/raffles";
 // Public: which numbers are taken (sold, or reserved by someone mid-payment)
 // with a short display name — never emails or full names.
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store"; // never serve a stale ticket board / payment status
 
 export async function GET(_req, { params }) {
   try {
