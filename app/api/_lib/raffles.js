@@ -42,14 +42,6 @@ export async function takenNumbers(db, raffleId) {
   return (tickets ?? []).filter((t) => !expired.some((e) => e.id === t.id));
 }
 
-// "Jane S." — enough for buyers to see which numbers are theirs without
-// publishing full names.
-export const shortName = (name) => {
-  const parts = String(name ?? "").trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "";
-  return parts.length === 1 ? parts[0] : `${parts[0]} ${parts[parts.length - 1][0]}.`;
-};
-
 // Mark an order paid and its tickets sold. Idempotent.
 export async function settleRaffleOrder(db, orderId, { paymentId = null } = {}) {
   const { data: order } = await db.from("raffle_orders").select("*").eq("id", orderId).maybeSingle();

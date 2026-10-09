@@ -29,6 +29,7 @@ export default function RafflePage() {
   const [takenState, setTakenState] = useState("loading"); // loading | ok | error
   const [takenError, setTakenError] = useState("");
   const [takenAt, setTakenAt] = useState(null);     // when the board was last fetched OK
+  const [mine, setMine] = useState([]);             // numbers bought from THIS device (success page remembers them)
   const [selected, setSelected] = useState([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -66,6 +67,15 @@ export default function RafflePage() {
   }, [id]);
 
   useEffect(() => { loadRaffle(); loadTaken(); }, [loadRaffle, loadTaken]);
+
+  // Buyer names are never shown publicly, so the only way to mark "your"
+  // numbers is from this browser's own memory of its purchases.
+  useEffect(() => {
+    try {
+      const list = JSON.parse(window.localStorage.getItem(`raffle-mine-${id}`) || "[]");
+      setMine(Array.isArray(list) ? list.map((n) => parseInt(n, 10)).filter(Number.isInteger) : []);
+    } catch { setMine([]); }
+  }, [id]);
 
   useEffect(() => {
     // Live: the server bumps raffles.tickets_changed_at on every sale /
@@ -142,6 +152,8 @@ export default function RafflePage() {
   const status = STATUS[raffle.status] ?? STATUS.draft;
   const total = selected.length * (raffle.ticket_price_cents ?? 0);
   const results = Array.isArray(raffle.draw_results) ? raffle.draw_results : [];
+  const mineSet = new Set(mine);
+  const isMine = (n) => mineSet.has(n) && taken[n]?.status === "sold";
   const winnersByNumber = Object.fromEntries(results.map((r) => [r.number, r]));
 
   const cellStyle = (n) => {
@@ -154,6 +166,7 @@ export default function RafflePage() {
       cursor: isOpen && !t ? "pointer" : "default", lineHeight: 1.1,
     };
     if (win) return { ...base, borderColor: "var(--brass)", background: "#FFF6DA", color: "var(--leather)" };
+    if (isMine(n)) return { ...base, background: "#E6F2EA", borderColor: "#2D7A52", color: "#2D7A52" };
     if (t?.status === "sold") return { ...base, background: "#EFEAE0", borderColor: "#EFEAE0", color: "#8B8073" };
     if (t?.status === "reserved") return { ...base, background: "#FBF3E6", borderColor: "#E8D9B8", color: "#9A6A1A" };
     if (selected.includes(n)) return { ...base, background: "var(--clay)", borderColor: "var(--clay)", color: "#FFF6EC" };
@@ -191,7 +204,7 @@ export default function RafflePage() {
                   <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--brass)", minWidth: 74 }}>{prizeLabel(r.prize_index)}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700 }}>{r.prize}</div>
-                    <div style={{ fontSize: 13, color: "var(--quiet)" }}>Ticket <strong style={{ color: "var(--leather)" }}>#{r.number}</strong>{r.buyer_name ? ` · ${r.buyer_name}` : ""}</div>
+                    <div style={{ fontSize: 13, color: "var(--quiet)" }}>Ticket <strong style={{ color: "var(--leather)" }}>#{r.number}</strong>{isMine(r.number) ? " · that's one of yours!" : ""}</div>
                   </div>
                 </div>
               ))}
@@ -283,7 +296,8 @@ export default function RafflePage() {
             )}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, color: "var(--quiet)", marginBottom: 10 }}>
               <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, border: "2px solid var(--line)", background: "#fff", verticalAlign: "-2px", marginRight: 4 }} />Available</span>
-              <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "var(--clay)", verticalAlign: "-2px", marginRight: 4 }} />Yours</span>
+              <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "var(--clay)", verticalAlign: "-2px", marginRight: 4 }} />Picked</span>
+              {mine.length > 0 && <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#E6F2EA", border: "1px solid #2D7A52", verticalAlign: "-2px", marginRight: 4 }} />Yours</span>}
               <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#EFEAE0", verticalAlign: "-2px", marginRight: 4 }} />Sold</span>
               <span><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#FBF3E6", border: "1px solid #E8D9B8", verticalAlign: "-2px", marginRight: 4 }} />Being paid for</span>
             </div>
@@ -294,10 +308,10 @@ export default function RafflePage() {
                 return (
                   <button key={n} type="button" style={cellStyle(n)} disabled={!isOpen || !!t || takenState !== "ok"}
                     onClick={() => toggle(n)} aria-pressed={selected.includes(n)}
-                    title={t?.status === "sold" ? `Sold${t.label ? ` to ${t.label}` : ""}` : t?.status === "reserved" ? "Being paid for right now" : undefined}>
+                    title={isMine(n) ? "Yours" : t?.status === "sold" ? "Sold" : t?.status === "reserved" ? "Being paid for right now" : undefined}>
                     <span>{n}</span>
                     {win && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--brass)" }}>{ORDINAL[win.prize_index] ?? "Win"}</span>}
-                    {!win && t?.status === "sold" && <span style={{ fontSize: 9.5, fontWeight: 600, color: "#8B8073", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label || "sold"}</span>}
+                    {!win && t?.status === "sold" && <span style={{ fontSize: 9.5, fontWeight: 700, color: isMine(n) ? "#2D7A52" : "#8B8073" }}>{isMine(n) ? "yours ✓" : "sold"}</span>}
                     {!win && t?.status === "reserved" && <span style={{ fontSize: 9.5, fontWeight: 600 }}>held</span>}
                   </button>
                 );

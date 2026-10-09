@@ -41,18 +41,19 @@ export async function POST(req, { params }) {
     if (!prizes.length) return NextResponse.json({ error: "Add at least one prize before drawing." }, { status: 400 });
 
     const { data: sold } = await db
-      .from("raffle_tickets").select("number, buyer_name").eq("raffle_id", raffle.id).eq("status", "sold");
+      .from("raffle_tickets").select("number").eq("raffle_id", raffle.id).eq("status", "sold");
     if (!sold?.length) return NextResponse.json({ error: "No tickets have been sold yet." }, { status: 400 });
 
     const seed = await ensureRaffleSeed(db, raffle);
     const salt = randomBytes(16).toString("hex");
     const picks = drawWinners({ seed, salt, soldNumbers: sold.map((t) => t.number), prizeCount: prizes.length });
-    const byNumber = Object.fromEntries(sold.map((t) => [t.number, t.buyer_name]));
+    // Prize + ticket number only: draw_results lives on the publicly readable
+    // raffles row, and buyer names are staff-only (the staff page looks the
+    // winner up from the ticket records).
     const results = picks.map((p) => ({
       prize_index: p.prize_index,
       prize: prizes[p.prize_index]?.title ?? `Prize ${p.prize_index + 1}`,
       number: p.number,
-      buyer_name: byNumber[p.number] ?? "",
     }));
     const { error } = await db.from("raffles").update({
       status: "drawn",
