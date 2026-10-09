@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminClient } from "../../../_lib/registrations";
-import { takenNumbers, createRaffleCheckout, settleRaffleOrder, deleteSquarePaymentLink } from "../../../_lib/raffles";
+import { takenNumbers, createRaffleCheckout, settleRaffleOrder, touchRaffle } from "../../../_lib/raffles";
 
 // Public: buy raffle tickets. Reserves the chosen numbers (the unique index
 // on raffle_tickets is the referee if two people pick the same number at the
@@ -49,6 +49,7 @@ export async function POST(req, { params }) {
       }
       return NextResponse.json({ error: tErr.message }, { status: 500 });
     }
+    await touchRaffle(db, raffle.id);
 
     // Free raffle (price 0): nothing to pay — sold immediately.
     if (totalCents <= 0) {
@@ -61,6 +62,7 @@ export async function POST(req, { params }) {
     if (sqErr || !link?.url) {
       await db.from("raffle_tickets").delete().eq("order_id", order.id);
       await db.from("raffle_orders").update({ status: "cancelled" }).eq("id", order.id);
+      await touchRaffle(db, raffle.id);
       return NextResponse.json({ error: sqErr ?? "Could not start the payment." }, { status: status ?? 500 });
     }
     await db.from("raffle_orders")

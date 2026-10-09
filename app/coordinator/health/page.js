@@ -40,6 +40,7 @@ const MIGRATION_CHECKS = [
   { m: "v54", what: "HCQHA membership numbers", probe: () => supabase.from("club_member_people").select("hcqha_number").limit(1) },
   { m: "v55", what: "Balance reminder emails", probe: () => supabase.from("registrations").select("balance_reminder_log").limit(1) },
   { m: "v56", what: "Fundraising raffles", probe: () => supabase.from("raffles").select("id").limit(1) },
+  { m: "v57", what: "Raffle live updates (ticket board)", probe: () => supabase.from("raffles").select("tickets_changed_at").limit(1) },
 ];
 
 const CONFIG_LABELS = {
