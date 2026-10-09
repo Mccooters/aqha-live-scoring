@@ -4,6 +4,7 @@ import { adminClient } from "../../../_lib/registrations";
 // Public: the success page polls this (by order id — a long random uuid)
 // until the Square webhook marks the order paid.
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store"; // never serve a stale ticket board / payment status
 
 export async function GET(req, { params }) {
   const orderId = new URL(req.url).searchParams.get("order");
