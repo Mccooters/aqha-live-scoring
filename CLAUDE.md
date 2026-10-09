@@ -853,8 +853,15 @@ pending|paid|cancelled|expired, method square|manual, Square ids),
 the referee for two buyers picking the same number; status reserved|sold)
 and `raffle_secrets` (service role only). Public read on `raffles`; orders
 and tickets are staff-only (names/emails) — the public page gets taken
-numbers via `app/api/raffle/[id]/numbers` (sold numbers carry a "Jane S."
-short name only).
+numbers via `app/api/raffle/[id]/numbers` (number + status ONLY). **Buyer
+names never appear publicly** (owner's rule, Oct 2026): `draw_results`
+stores prize + number only (the staff page resolves the winner's name from
+`raffle_tickets`), the public winners list shows ticket numbers, and the
+grid says "sold" rather than who. A buyer's own numbers are remembered in
+their browser (`localStorage` `raffle-mine-<id>`, written by the success
+page once paid) so the grid can mark them "yours ✓" on that device only.
+The success page still greets the buyer by name — it's their own private
+link.
 
 - **Public**: `/raffle` (list) and `/raffle/[id]` — prizes at the top, a
   grid of every number (available / yours / sold / being paid for), name +

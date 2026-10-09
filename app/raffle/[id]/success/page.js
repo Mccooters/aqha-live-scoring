@@ -25,6 +25,16 @@ function Content() {
         if (!cancelled) {
           setOrder(data?.order ?? null);
           pending = data?.order?.status === "pending";
+          // Names are never public, so the raffle page marks "your" numbers
+          // from this browser's own memory of what it bought.
+          if (data?.order?.status === "paid") {
+            try {
+              const key = `raffle-mine-${id}`;
+              const prev = JSON.parse(window.localStorage.getItem(key) || "[]");
+              const next = [...new Set([...(Array.isArray(prev) ? prev : []), ...(data.order.numbers ?? [])])];
+              window.localStorage.setItem(key, JSON.stringify(next));
+            } catch { /* private browsing etc. — the grid just won't mark them */ }
+          }
         }
       } catch { if (!cancelled && order === undefined) setOrder(null); }
       if (!cancelled && pending && polls < 40) {

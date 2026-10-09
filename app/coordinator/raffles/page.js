@@ -388,7 +388,7 @@ export default function RafflesPage() {
                       const o = orders.find((x) => x.status === "paid" && (x.numbers ?? []).includes(r.number));
                       return (
                         <div key={r.prize_index} style={{ fontSize: 14, padding: "3px 0" }}>
-                          <strong>{ORDINAL[r.prize_index] ?? `${r.prize_index + 1}th`}</strong> {r.prize} — ticket <strong>#{r.number}</strong> · {r.buyer_name || "—"}
+                          <strong>{ORDINAL[r.prize_index] ?? `${r.prize_index + 1}th`}</strong> {r.prize} — ticket <strong>#{r.number}</strong> · {tickets.find((t) => t.number === r.number)?.buyer_name || o?.buyer_name || r.buyer_name || "—"}
                           {o && <span style={{ color: "var(--quiet)" }}>{o.buyer_email ? ` · ${o.buyer_email}` : ""}{o.buyer_phone ? ` · ${o.buyer_phone}` : ""}</span>}
                         </div>
                       );
