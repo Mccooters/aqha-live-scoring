@@ -53,14 +53,13 @@ export async function sendBalanceReminder(db, reg, event, { method = "manual", b
       <p>This is a ${overdue ? "final" : "friendly"} reminder that your clinic balance of
         <strong>${escapeHtml(formatMoney(owing))}</strong> is still owing${reg.deposit_cents ? ` (deposit of ${escapeHtml(formatMoney(reg.deposit_cents))} received, thank you)` : ""}.
         ${dueLabel ? (overdue
-          ? `Balances were due by <strong>${escapeHtml(dueLabel)}</strong>. Please contact the organiser to arrange payment.`
+          ? `Balances were due by <strong>${escapeHtml(dueLabel)}</strong>, so this one is now <strong>overdue</strong>. Please pay it as soon as you can using the button below, or contact the organiser if you need to arrange something.`
           : `Balances are due by <strong>${escapeHtml(dueLabel)}</strong>.`) : ""}
       </p>
-      ${overdue ? "" : `
       <p style="margin:20px 0">
         <a href="${escapeHtml(payUrl)}" style="background:#3A2A1C;color:#F2EADB;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Pay the balance</a>
       </p>
-      <p style="font-size:13px;color:#555">You can pay the full amount or part of it from that page. If you've already paid by bank transfer, please ignore this email — it can take a day or two to be recorded.</p>`}
+      <p style="font-size:13px;color:#555">You can pay the full amount or part of it from that page. If you've already paid by bank transfer, please ignore this email — it can take a day or two to be recorded.</p>
       <p style="font-size:12px;color:#888;margin-top:24px">Hunter Coast Quarter Horse Association · HCQHA Live Scoring</p>
     </div>`;
 

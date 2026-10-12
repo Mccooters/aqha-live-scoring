@@ -6,7 +6,7 @@ import {
   balanceDueLabel,
   balanceOwingCents,
   balancePaidCents,
-  depositWindowOpen,
+  balancePaymentsOpen,
 } from "../../../../lib/clinicPayments";
 
 // Clinic balances owing for the signed-in member (schema-v47/v50): any paid
@@ -22,7 +22,7 @@ export async function GET() {
 
     const { data, error } = await db
       .from("registrations")
-      .select("*, event:events(id, name, starts_on, event_type)")
+      .select("*, event:events(id, name, starts_on, event_type, status)")
       .eq("status", "paid")
       .gt("deposit_cents", 0)
       .ilike("contact_email", escapeIlike(account.email));
@@ -50,7 +50,7 @@ export async function GET() {
           total_cents: reg.total_cents ?? 0,
           due_label: balanceDueLabel(reg.event?.starts_on),
           overdue: due ? new Date() > due : false,
-          window_open: depositWindowOpen(reg.event?.starts_on),
+          window_open: balancePaymentsOpen(reg.event),
         };
       })
       .filter(Boolean)

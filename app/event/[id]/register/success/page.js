@@ -163,10 +163,14 @@ function SuccessContent() {
                         ? `$${(balance.paid_part_cents / 100).toFixed(2)} paid so far — $${(balance.owing_cents / 100).toFixed(2)} balance to go`
                         : `Deposit received — $${(balance.owing_cents / 100).toFixed(2)} balance still to pay`}
                     </div>
-                    <p style={{ fontSize: 13, color: "var(--quiet)", margin: "4px 0 10px" }}>
-                      Your spot is held by the non-refundable deposit. The balance is due
-                      {balance.due_label ? <> by <strong>{balance.due_label}</strong></> : " 2 weeks before the clinic"} —
-                      pay it {balance.partial_allowed ? "in one go or in parts, " : ""}any time from this page or the link in your confirmation email.
+                    <p style={{ fontSize: 13, color: balance.overdue ? "var(--clay)" : "var(--quiet)", margin: "4px 0 10px", fontWeight: balance.overdue ? 700 : 400 }}>
+                      {balance.overdue ? (
+                        <>This balance was due{balance.due_label ? <> by {balance.due_label}</> : null} and is now overdue — please pay it {balance.partial_allowed ? "(in one go or in parts) " : ""}as soon as you can, or contact the organiser if you need to arrange something.</>
+                      ) : (
+                        <>Your spot is held by the non-refundable deposit. The balance is due
+                        {balance.due_label ? <> by <strong>{balance.due_label}</strong></> : " 2 weeks before the clinic"} —
+                        pay it {balance.partial_allowed ? "in one go or in parts, " : ""}any time from this page or the link in your confirmation email.</>
+                      )}
                     </p>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                       <button className="btn" style={{ background: "var(--leather)" }} onClick={() => payBalance()} disabled={payingBalance}>

@@ -6,12 +6,13 @@ import {
   balanceDueLabel,
   balanceOwingCents,
   balancePaidCents,
-  depositWindowOpen,
+  balancePaymentsOpen,
   MIN_PART_PAYMENT_CENTS,
 } from "../../../../lib/clinicPayments";
 
 // Clinic balance payment (schema-v47): a deposit registration's remaining
-// amount, payable any time up to 2 weeks before the clinic. The registration
+// amount. Due 2 weeks before the clinic, but payable for as long as it's
+// owing — an overdue balance can still be paid online. The registration
 // ID is a long random code known only from the payer's own confirmation
 // email / success page (the same access rule as the status route); staff use
 // it from the Registrations page too.
@@ -30,7 +31,7 @@ export async function POST(req) {
 
     const { data: reg, error } = await db
       .from("registrations")
-      .select("*, event:events(id, name, starts_on, event_type)")
+      .select("*, event:events(id, name, starts_on, event_type, status)")
       .eq("id", registration_id)
       .maybeSingle();
     if (error || !reg) {
@@ -47,9 +48,9 @@ export async function POST(req) {
     if (owing <= 0) {
       return NextResponse.json({ error: "This registration has no balance owing." }, { status: 400 });
     }
-    if (!depositWindowOpen(reg.event?.starts_on)) {
+    if (!balancePaymentsOpen(reg.event)) {
       return NextResponse.json(
-        { error: "Online balance payments have closed (balances are due 2 weeks before the clinic). Please contact the organiser to arrange payment." },
+        { error: "This clinic has been cancelled, so no balance is being collected. Please contact the organiser about your deposit." },
         { status: 400 }
       );
     }

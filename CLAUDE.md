@@ -639,9 +639,14 @@ each with its own `capacity`) instead of a normal scored show.
   page, in the booking email, and copyable from the staff Registrations
   page, which also shows owing/overdue badges, a "record paid outside
   Square" button, and a Balances-owing stat; revenue counts deposits only
-  until balances are paid). Balance payments close 2 weeks before the
-  clinic (`balance_*` columns on registrations; overdue = staff decide,
-  no auto-cancel). **Part payments (schema-v50)**: the payer may send
+  until balances are paid). Balances are DUE 2 weeks before the clinic
+  (`balanceDueDate`; OVERDUE badge / "final reminder" email after that;
+  no auto-cancel) but **online payment stays open while anything is
+  owing** — `balancePaymentsOpen(event)` in `lib/clinicPayments.js` only
+  shuts it for a cancelled event (owner's rule, Oct 2026: the pay link
+  used to refuse after the due date, leaving staff unable to collect
+  overdue money). `depositWindowOpen` now gates only the deposit OFFER on
+  the entry form (no new deposit plans inside the last 2 weeks). **Part payments (schema-v50)**: the payer may send
   `amount_cents` to pay-balance (min `MIN_PART_PAYMENT_CENTS` = $10, max
   what's owing — the success page offers "pay part of it instead" when the
   status route reports `partial_allowed`); every Square balance payment,
