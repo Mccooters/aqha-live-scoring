@@ -848,7 +848,7 @@ function BalancesCard() {
               </Link>
             ) : (
               <p style={{ fontSize: 12.5, color: "var(--clay)", fontWeight: 700, margin: 0 }}>
-                Online payment has closed — please contact the organiser to arrange payment.
+                This clinic has been cancelled — please contact the organiser about your deposit.
               </p>
             )}
           </div>

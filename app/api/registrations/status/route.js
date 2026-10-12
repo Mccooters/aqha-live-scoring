@@ -66,7 +66,7 @@ export async function GET(req) {
         .maybeSingle());
     }
     if (extra?.deposit_cents > 0) {
-      const { balanceDueLabel, balancePaidCents, MIN_PART_PAYMENT_CENTS } = await import("../../../../lib/clinicPayments");
+      const { balanceDueDate, balanceDueLabel, balancePaidCents, MIN_PART_PAYMENT_CENTS } = await import("../../../../lib/clinicPayments");
       const partPaid = partials ? balancePaidCents(extra) : 0;
       const paid = Boolean(extra.balance_paid_at);
       const owing = paid ? 0 : Math.max(0, (reg.total_cents ?? 0) - extra.deposit_cents - partPaid);
@@ -80,6 +80,7 @@ export async function GET(req) {
         partial_allowed: partials && !paid && owing > MIN_PART_PAYMENT_CENTS,
         min_part_cents: MIN_PART_PAYMENT_CENTS,
         due_label: balanceDueLabel(extra.event?.starts_on),
+        overdue: (() => { const d = balanceDueDate(extra.event?.starts_on); return d ? new Date() > d : false; })(),
       };
     }
   } catch {}
