@@ -225,6 +225,10 @@ hasn't been run.
         (public and staff) hears about a sale the moment it happens instead
         of waiting for its next timer tick. Without it the pages still work
         but refresh on a timer only.
+- [ ] **v58** — `schema-v58-paypal.sql`
+      → **PayPal as a payment option**: records which provider (Square or
+        PayPal) each checkout went through. Until it's run the PayPal
+        choice stays hidden on every form, even with the PayPal keys set.
 
 Tick these off once you've run them.
 
@@ -291,6 +295,7 @@ Tick these off once you've run them.
 | `schema-v55-balance-reminders.sql` | Balance reminder emails: `registrations.balance_reminder_log` / `_last_at`, `events.balance_reminder_days` |
 | `schema-v56-raffles.sql` | Fundraising raffles: `raffles`, `raffle_orders`, `raffle_tickets`, `raffle_secrets` (fair-draw seed, service role only) |
 | `schema-v57-raffle-live-updates.sql` | Raffle live updates: `raffles.tickets_changed_at` (bumped on every ticket change so public pages re-fetch) + raffle tables added to the realtime publication |
+| `schema-v58-paypal.sql` | PayPal payment option: `payment_provider` on registrations / club_members / raffle_orders, `registrations.balance_payment_provider` |
 
 ## For whoever updates the code next
 

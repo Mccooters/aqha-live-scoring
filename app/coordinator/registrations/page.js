@@ -105,7 +105,7 @@ export default function RegistrationsPage() {
   }, [session, eventId, load]);
 
   const cancelRegistration = async (reg) => {
-    if (!confirm(`Cancel ${reg.contact_name}'s unpaid registration?\n\nTheir Square checkout link will stop working and no entries will be created. They can always submit a fresh entry. This can't be undone.`)) return;
+    if (!confirm(`Cancel ${reg.contact_name}'s unpaid registration?\n\nTheir checkout link will stop working and no entries will be created. They can always submit a fresh entry. This can't be undone.`)) return;
     const { data: sessionData } = await supabase.auth.getSession();
     const res = await fetch("/api/registrations/cancel", {
       method: "POST",
@@ -366,9 +366,10 @@ export default function RegistrationsPage() {
       alert(`That's more than is left to refund (${fmtMoney(refundableCents)}).`);
       return;
     }
+    const providerName = reg.payment_provider === "paypal" ? "PayPal" : "Square";
     const confirmMsg = manual
-      ? `Record a ${fmtMoney(cents)} refund for ${reg.contact_name} that you gave OUTSIDE Square (cash, bank transfer, etc.)?\n\nThis does NOT move any money — it just records the refund so your totals are right.`
-      : `Refund ${fmtMoney(cents)} to ${reg.contact_name} via Square?\n\nThis sends the money back to their card and can't be undone here. Remember to also Delete or Scratch the affected entry on the dashboard if they're out of a class.`;
+      ? `Record a ${fmtMoney(cents)} refund for ${reg.contact_name} that you gave OUTSIDE ${providerName} (cash, bank transfer, etc.)?\n\nThis does NOT move any money — it just records the refund so your totals are right.`
+      : `Refund ${fmtMoney(cents)} to ${reg.contact_name} via ${providerName}?\n\nThis sends the money back to ${providerName === "PayPal" ? "their PayPal account / card" : "their card"} and can't be undone here. Remember to also Delete or Scratch the affected entry on the dashboard if they're out of a class.`;
     if (!confirm(confirmMsg)) return;
     setRefunding(reg.id);
     const { data: sessionData } = await supabase.auth.getSession();
@@ -385,14 +386,14 @@ export default function RegistrationsPage() {
     else {
       setRefundAmount((prev) => ({ ...prev, [reg.id]: "" }));
       if (!manual && data.recorded === false) {
-        alert("Refunded at Square, but the amount couldn't be recorded in the app — run schema-v36 so it shows here.");
+        alert(`Refunded at ${providerName}, but the amount couldn't be recorded in the app — run schema-v36 so it shows here.`);
       } else if (!manual) {
         const st = data.refund_status ?? "PENDING";
         alert(
-          `Square accepted the ${fmtMoney(cents)} refund.\n\nSquare refund ID: ${data.refund_id ?? "—"}\nStatus: ${st}` +
+          `${providerName} accepted the ${fmtMoney(cents)} refund.\n\n${providerName} refund ID: ${data.refund_id ?? "—"}\nStatus: ${st}` +
           (st === "COMPLETED"
-            ? "\n\nThe money has been sent back to the card."
-            : "\n\nSquare usually completes card refunds within 1–2 business days (the bank can take up to 10). Press “Check with Square” under the registration any time to confirm it shows COMPLETED.")
+            ? "\n\nThe money has been sent back."
+            : `\n\n${providerName} usually completes refunds within 1–2 business days (the bank can take up to 10). Press “Check with ${providerName}” under the registration any time to confirm it shows COMPLETED.`)
         );
       }
       await load();
@@ -421,8 +422,8 @@ export default function RegistrationsPage() {
 
   const REFUND_STATUS_LABEL = {
     COMPLETED: { text: "COMPLETED — money returned to card", color: "#2D7A52" },
-    PENDING: { text: "PENDING — Square is still processing", color: "#A05000" },
-    REJECTED: { text: "REJECTED by Square — not refunded", color: "var(--clay)" },
+    PENDING: { text: "PENDING — still being processed", color: "#A05000" },
+    REJECTED: { text: "REJECTED — not refunded", color: "var(--clay)" },
     FAILED: { text: "FAILED — not refunded", color: "var(--clay)" },
     RECORDED: { text: "recorded (given outside Square)", color: "var(--quiet)" },
   };
@@ -798,6 +799,9 @@ export default function RegistrationsPage() {
                       {isPaid ? "paid" : "pending"}
                     </span>
                   )}
+                  {reg.payment_provider === "paypal" && (
+                    <span className="badge" style={{ background: "#003087", color: "#fff" }} title="Paid through PayPal">PayPal</span>
+                  )}
                   <span style={{ fontSize: 13, color: "var(--quiet)" }}>{isExpanded ? "▲" : "▼"}</span>
                 </div>
               </div>
@@ -884,7 +888,7 @@ export default function RegistrationsPage() {
                         </div>
                         {b.payments.length > 0 && (
                           <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 4 }}>
-                            Payments: {b.payments.map((p, i) => `${fmtMoney(p.amount_cents)} on ${fmtWhen(p.at)} (${p.method === "manual" ? "recorded by staff" : "Square"})`).join(" · ")}
+                            Payments: {b.payments.map((p, i) => `${fmtMoney(p.amount_cents)} on ${fmtWhen(p.at)} (${p.method === "manual" ? "recorded by staff" : p.method === "paypal" ? "PayPal" : "Square"})`).join(" · ")}
                           </div>
                         )}
                         {!b.paid && (
@@ -929,8 +933,10 @@ export default function RegistrationsPage() {
                         {refundedCents > 0 && (() => {
                           const log = Array.isArray(reg.refund_log) ? reg.refund_log : [];
                           const loggedCents = log.reduce((sum, r) => sum + (r.amount_cents ?? 0), 0);
-                          const hasSquareRefund = log.some((r) => r.method === "square" && r.refund_id);
-                          const unconfirmed = log.some((r) => r.method === "square" && r.status !== "COMPLETED");
+                          const providerName = reg.payment_provider === "paypal" ? "PayPal" : "Square";
+                          const viaProvider = (r) => r.method === "square" || r.method === "paypal";
+                          const hasSquareRefund = log.some((r) => viaProvider(r) && r.refund_id);
+                          const unconfirmed = log.some((r) => viaProvider(r) && r.status !== "COMPLETED");
                           return (
                             <div style={{ margin: "0 0 10px" }}>
                               <p style={{ fontSize: 12.5, color: "var(--clay)", fontWeight: 700, margin: "0 0 4px" }}>
@@ -941,12 +947,12 @@ export default function RegistrationsPage() {
                                 return (
                                   <div key={i} style={{ fontSize: 12, color: "var(--ink)", margin: "2px 0", lineHeight: 1.4 }}>
                                     <strong>{fmtMoney(r.amount_cents ?? 0)}</strong>
-                                    {" · "}{r.method === "square" ? "Square refund" : "Outside Square"}
+                                    {" · "}{r.method === "paypal" ? "PayPal refund" : r.method === "square" ? "Square refund" : "Given outside Square/PayPal"}
                                     {r.at ? ` · ${new Date(r.at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" })}` : ""}
                                     {" · "}<span style={{ color: st.color, fontWeight: 700 }}>{st.text}</span>
                                     {r.refund_id && (
                                       <span style={{ display: "block", color: "var(--quiet)", fontSize: 11, wordBreak: "break-all" }}>
-                                        Square refund ID {r.refund_id}
+                                        {r.method === "paypal" ? "PayPal" : "Square"} refund ID {r.refund_id}
                                       </span>
                                     )}
                                   </div>
@@ -960,8 +966,8 @@ export default function RegistrationsPage() {
                               {hasSquareRefund && (
                                 <button className="btn-ghost" style={{ marginTop: 6, fontSize: 12.5 }}
                                   onClick={() => checkRefunds(reg)} disabled={checkingRefunds === reg.id}
-                                  title="Asks Square for the current status of each refund">
-                                  {checkingRefunds === reg.id ? "Checking…" : unconfirmed ? "↻ Check with Square" : "↻ Re-check with Square"}
+                                  title={`Asks ${providerName} for the current status of each refund`}>
+                                  {checkingRefunds === reg.id ? "Checking…" : unconfirmed ? `↻ Check with ${providerName}` : `↻ Re-check with ${providerName}`}
                                 </button>
                               )}
                             </div>
@@ -997,7 +1003,7 @@ export default function RegistrationsPage() {
                                   onClick={() => refund(reg, refundableCents)}
                                   disabled={refunding === reg.id}
                                 >
-                                  {refunding === reg.id ? "Working…" : "Refund via Square"}
+                                  {refunding === reg.id ? "Working…" : `Refund via ${reg.payment_provider === "paypal" ? "PayPal" : "Square"}`}
                                 </button>
                               )}
                               <button
@@ -1007,7 +1013,7 @@ export default function RegistrationsPage() {
                                 disabled={refunding === reg.id}
                                 title="Record a refund you already gave by cash, bank transfer, etc."
                               >
-                                {refunding === reg.id ? "Working…" : "Record refund given outside Square"}
+                                {refunding === reg.id ? "Working…" : `Record refund given outside ${reg.payment_provider === "paypal" ? "PayPal" : "Square"}`}
                               </button>
                             </div>
                           </>

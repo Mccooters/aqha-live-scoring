@@ -5,6 +5,7 @@ import { markMembershipPaid } from "../../_lib/memberships";
 import { escapeIlike } from "../../_lib/memberAuth";
 import { assignHorseNumber, cleanHorseFields, registerHorseInRegistry } from "../../_lib/horseNumbers";
 import { createSquarePaymentLink } from "../../_lib/squarePayments";
+import { createPayPalOrder, saveCheckout } from "../../_lib/paypal";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
 export async function POST(req) {
@@ -14,6 +15,7 @@ export async function POST(req) {
       aqha_member_number, other_memberships, association_registrations,
       emergency_contact_name, emergency_contact_phone,
       interests, applicant_notes, horses, people,
+      payment_method, // "square" (default) | "paypal" (schema-v58)
     } = await req.json();
     const cleanRegs = (list) => {
       if (!Array.isArray(list)) return undefined;
@@ -245,17 +247,35 @@ export async function POST(req) {
       pre_populated_data: { buyer_email: cleanedEmail },
     };
 
-    const { link, error: squareError, status: squareStatus } =
-      await createSquarePaymentLink(db, squarePayload);
+    const usePayPal = payment_method === "paypal";
+    let link = null, squareError = null, squareStatus = null;
+    if (usePayPal) {
+      const pp = await createPayPalOrder({
+        amountCents: totalCents,
+        description: `HCQHA membership — ${type.name} (${season} season)`,
+        referenceId: member.id,
+        customId: member.id,
+        returnUrl: `${baseUrl}/api/paypal/return?next=${encodeURIComponent(`/membership/success?m=${member.id}`)}`,
+        cancelUrl: `${baseUrl}/membership?paypal=cancelled`,
+        buyerEmail: cleanedEmail,
+      });
+      if (pp.error) { squareError = pp.error; squareStatus = pp.status; }
+      else link = { order_id: pp.order_id, url: pp.url };
+    } else {
+      ({ link, error: squareError, status: squareStatus } = await createSquarePaymentLink(db, squarePayload));
+    }
     if (squareError) {
       return NextResponse.json({ error: squareError }, { status: squareStatus ?? 500 });
     }
 
-    // Save the Square order ID so the webhook can find this application
-    await db
-      .from("club_members")
-      .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
-      .eq("id", member.id);
+    // Save the checkout order ID (and which provider issued it) so the
+    // payment can be matched back to this application.
+    const { error: saveErr, status: saveStatus } = await saveCheckout(
+      db, "club_members", member.id,
+      { square_order_id: link?.order_id, square_checkout_url: link?.url },
+      usePayPal ? "paypal" : "square"
+    );
+    if (saveErr) return NextResponse.json({ error: saveErr }, { status: saveStatus ?? 500 });
 
     return NextResponse.json({ checkout_url: link?.url });
   } catch (err) {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { adminClient } from "../../_lib/registrations";
 import { createSquarePaymentLink } from "../../_lib/squarePayments";
+import { createPayPalOrder } from "../../_lib/paypal";
 import {
   balanceDueLabel,
   balanceOwingCents,
@@ -23,7 +24,8 @@ import {
 // everything still owing, exactly as before.
 export async function POST(req) {
   try {
-    const { registration_id, amount_cents } = await req.json();
+    const { registration_id, amount_cents, payment_method } = await req.json();
+    const method = payment_method === "paypal" ? "paypal" : "square";
     if (!registration_id) {
       return NextResponse.json({ error: "registration_id required" }, { status: 400 });
     }
@@ -84,14 +86,28 @@ export async function POST(req) {
     // link stays valid until paid. A different amount gets a fresh link; the
     // old one stays matched via balance_order_ids so paying it is still
     // recorded (schema-v50), never lost.
-    if (reg.balance_checkout_url && (reg.balance_checkout_cents ?? owedFull) === amount) {
+    const storedProvider = reg.balance_payment_provider ?? "square";
+    if (reg.balance_checkout_url && storedProvider === method && (reg.balance_checkout_cents ?? owedFull) === amount) {
       return NextResponse.json({ checkout_url: reg.balance_checkout_url });
     }
 
     const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
     const dueLabel = balanceDueLabel(reg.event?.starts_on);
     const isPart = amount < owing;
-    const { link, error: squareError, status: squareStatus } = await createSquarePaymentLink(db, {
+    let link = null, squareError = null, squareStatus = null;
+    if (method === "paypal") {
+      const pp = await createPayPalOrder({
+        amountCents: amount,
+        description: `${isPart ? "Balance part payment" : "Balance"} — ${reg.event?.name ?? "clinic"} (${reg.contact_name})`,
+        referenceId: reg.id,
+        customId: reg.id,
+        returnUrl: `${baseUrl}/api/paypal/return?next=${encodeURIComponent(`/event/${reg.event?.id ?? reg.event_id}/register/success?reg=${reg.id}`)}`,
+        cancelUrl: `${baseUrl}/event/${reg.event?.id ?? reg.event_id}/register/success?reg=${reg.id}`,
+        buyerEmail: reg.contact_email,
+      });
+      if (pp.error) { squareError = pp.error; squareStatus = pp.status; }
+      else link = { order_id: pp.order_id, url: pp.url };
+    } else ({ link, error: squareError, status: squareStatus } = await createSquarePaymentLink(db, {
       idempotency_key: randomUUID(),
       order: {
         location_id: process.env.SQUARE_LOCATION_ID,
@@ -112,7 +128,7 @@ export async function POST(req) {
         ask_for_shipping_address: false,
       },
       pre_populated_data: { buyer_email: reg.contact_email },
-    });
+    }));
     if (squareError) {
       return NextResponse.json({ error: squareError }, { status: squareStatus ?? 500 });
     }
@@ -125,8 +141,18 @@ export async function POST(req) {
       balance_checkout_url: link?.url,
       balance_checkout_cents: amount,
       balance_order_ids: [...(Array.isArray(reg.balance_order_ids) ? reg.balance_order_ids : []), link?.order_id].filter(Boolean),
+      balance_payment_provider: method,
     };
     let { error: saveErr } = await db.from("registrations").update(patch).eq("id", reg.id);
+    if (saveErr && /balance_payment_provider/i.test(saveErr.message ?? "")) {
+      // Pre-v58 database: PayPal can't be tracked here — refuse it; Square
+      // carries on without the flag.
+      if (method === "paypal") {
+        return NextResponse.json({ error: "PayPal isn't switched on yet — the database needs schema-v58. Please pay by card instead." }, { status: 503 });
+      }
+      delete patch.balance_payment_provider;
+      ({ error: saveErr } = await db.from("registrations").update(patch).eq("id", reg.id));
+    }
     if (saveErr && /balance_checkout_cents|balance_order_ids|does not exist|schema cache/i.test(saveErr.message ?? "")) {
       // Pre-v50 database: store what it has columns for (full-balance links
       // only reach here, since part payments were refused above).

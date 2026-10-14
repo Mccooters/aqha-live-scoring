@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes } from "crypto";
 import { createSquarePaymentLink, deleteSquarePaymentLink } from "./squarePayments";
+import { createPayPalOrder } from "./paypal";
 
 // Raffles (schema-v56). Server-side pieces shared by the public order route,
 // the Square webhook, and the staff draw route.
@@ -92,8 +93,21 @@ export function drawWinners({ seed, salt, soldNumbers, prizeCount }) {
   return results;
 }
 
-export async function createRaffleCheckout(db, { raffle, order, baseUrl }) {
+export async function createRaffleCheckout(db, { raffle, order, baseUrl, method = "square" }) {
   const numbers = order.numbers;
+  if (method === "paypal") {
+    const pp = await createPayPalOrder({
+      amountCents: order.total_cents,
+      description: `${raffle.name} — raffle ticket${numbers.length === 1 ? "" : "s"} ${numbers.join(", ")}`,
+      referenceId: order.id,
+      customId: order.id,
+      returnUrl: `${baseUrl}/api/paypal/return?next=${encodeURIComponent(`/raffle/${raffle.id}/success?order=${order.id}`)}`,
+      cancelUrl: `${baseUrl}/raffle/${raffle.id}?paypal=cancelled`,
+      buyerEmail: order.buyer_email,
+    });
+    if (pp.error) return { error: pp.error, status: pp.status };
+    return { link: { order_id: pp.order_id, url: pp.url } };
+  }
   const payload = {
     idempotency_key: order.id,
     order: {
