@@ -139,6 +139,42 @@ PR with a clear plain-English description.
   same webhook: an order that doesn't match a registration is looked up in
   `club_members` and marked paid (→ awaiting committee approval) via
   `markMembershipPaid()` in `app/api/_lib/memberships.js`.
+- **PayPal (schema-v58)** — the second way to pay, chosen by the buyer at
+  checkout ("💳 Card (Square)" / "PayPal" buttons on the entry form,
+  membership form, raffle page and the clinic balance buttons on the
+  registration success page; shown only when `/api/payments/options` says
+  PayPal is on = `PAYPAL_CLIENT_ID` + `PAYPAL_CLIENT_SECRET` set AND
+  schema-v58 run). Owner's decision, Oct 2026. `app/api/_lib/paypal.js`
+  (Orders v2, plain fetch, no SDK): `createPayPalOrder()` → the buyer goes
+  to PayPal's approve link → PayPal returns them to
+  `app/api/paypal/return?next=<our success page>` (PayPal appends
+  `token=<order id>`), which CAPTURES the order (the moment money moves)
+  and settles it; `app/api/webhooks/paypal` (verified with PayPal via
+  `PAYPAL_WEBHOOK_ID`; fail-closed) handles CHECKOUT.ORDER.APPROVED
+  (capture + settle — the buyer closed the tab) and
+  PAYMENT.CAPTURE.COMPLETED (settle) as the safety net. **Settlement is
+  shared**: `app/api/_lib/settlement.js` `settleCompletedPayment(db,
+  payment, orderId, { provider })` is the Square webhook's logic moved
+  verbatim (registrations → approveRegistration, clinic balances,
+  raffles, memberships); PayPal captures are translated into Square's
+  payment shape by `paymentFromCapture()`. **Storage**: the existing
+  `square_order_id` / `square_checkout_url` / `square_payment_id`
+  (+ `balance_square_order_id` / `balance_order_ids`) columns hold the
+  PayPal order id / approve URL / capture id too — the column names stay;
+  v58's `payment_provider` ('square' default | 'paypal') on
+  registrations, club_members and raffle_orders, plus
+  `registrations.balance_payment_provider`, say which provider
+  (`saveCheckout()` in paypal.js writes them, tolerating a pre-v58
+  database for Square; PayPal is refused there). Balance part-payment
+  log entries carry `method: "paypal"`. Refunds: `registrations/refund`
+  branches on `payment_provider` (`refundPayPalCapture` /
+  `getPayPalRefund` on the capture id; log `method: "paypal"`); the
+  staff Registrations page shows a PayPal badge and provider-named
+  buttons. Square's app fee (`SQUARE_APP_FEE_BPS`) does NOT apply to
+  PayPal payments. Env: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`,
+  `PAYPAL_ENVIRONMENT` (live|sandbox, default sandbox),
+  `PAYPAL_WEBHOOK_ID`; `PAYPAL_API_BASE` overrides the host for tests.
+  Health page lists all of them + the v58 probe.
 - **Booking confirmation email** — after `approveRegistration()` creates the
   real `entries` rows and marks the registration paid, it sends an app-owned
   booking confirmation through Resend. This is separate from Square's payment

@@ -33,6 +33,15 @@ export default function RafflePage() {
   const [accountMine, setAccountMine] = useState([]); // numbers bought under the signed-in member's email (any device)
   const [memberAccount, setMemberAccount] = useState(null); // { email, name } when signed in to the member portal
   const [useDifferentDetails, setUseDifferentDetails] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState("square"); // "square" | "paypal" (schema-v58)
+  const [paypalAvailable, setPaypalAvailable] = useState(false);
+  // Which ways to pay are switched on (PayPal needs its keys + schema-v58).
+  useEffect(() => {
+    fetch("/api/payments/options", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.paypal) setPaypalAvailable(true); })
+      .catch(() => {});
+  }, []);
   const [selected, setSelected] = useState([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -149,7 +158,7 @@ export default function RafflePage() {
     try {
       const res = await fetch(`/api/raffle/${id}/order`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numbers: selected, name, email, phone }),
+        body: JSON.stringify({ numbers: selected, name, email, phone, payment_method: paypalAvailable ? paymentMethod : "square" }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -391,12 +400,27 @@ export default function RafflePage() {
                   </label>
                 </>
               )}
-              {error && <div style={{ color: "#B03030", fontSize: 14, fontWeight: 600 }}>{error}</div>}
+              {total > 0 && paypalAvailable && (
+              <div style={{ marginBottom: 2 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>How would you like to pay?</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {[["square", "💳 Card (Square)"], ["paypal", "PayPal"]].map(([v, label]) => (
+                    <button key={v} type="button" onClick={() => setPaymentMethod(v)} aria-pressed={paymentMethod === v}
+                      style={{ fontFamily: "inherit", fontSize: 14, fontWeight: 700, padding: "9px 14px", borderRadius: 10, cursor: "pointer",
+                        border: `2px solid ${paymentMethod === v ? "var(--leather)" : "var(--line)"}`,
+                        background: paymentMethod === v ? "var(--leather)" : "#fff", color: paymentMethod === v ? "#F2EADB" : "var(--leather)" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {error && <div style={{ color: "#B03030", fontSize: 14, fontWeight: 600 }}>{error}</div>}
               <button className="btn" type="submit" disabled={submitting || !selected.length || takenState !== "ok"}>
-                {submitting ? "Taking you to payment…" : total > 0 ? `Pay ${fmtMoney(total)} by card` : "Claim tickets"}
+                {submitting ? "Taking you to payment…" : total > 0 ? (paypalAvailable && paymentMethod === "paypal" ? `Pay ${fmtMoney(total)} with PayPal` : `Pay ${fmtMoney(total)} by card`) : "Claim tickets"}
               </button>
               <div style={{ fontSize: 12, color: "var(--quiet)" }}>
-                Card payments are handled securely by Square. You'll come back here once it's done.
+                {paypalAvailable && paymentMethod === "paypal" ? "You'll pay on PayPal's site and come back here once it's done." : "Card payments are handled securely by Square. You'll come back here once it's done."}
               </div>
             </form>
           </section>

@@ -4,6 +4,7 @@ import { adminClient, approveRegistration, expireStaleRegistrations } from "../.
 import { membershipRequirement, hasMembershipForEvent, renewalOffer, markMembershipPaid } from "../../_lib/memberships";
 import { getMemberAccount } from "../../_lib/memberAuth";
 import { appFlatFeeCents, createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squarePayments";
+import { createPayPalOrder, saveCheckout } from "../../_lib/paypal";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
 
@@ -27,6 +28,7 @@ export async function POST(req) {
       membership_renewal, membership_renewal_type_id,
       annual_membership_type_id,
       payment_plan, // "full" (default) | "deposit" — clinics only (schema-v47)
+      payment_method, // "square" (default) | "paypal" (schema-v58)
     } = await req.json();
 
     if (!event_id || !contact_name?.trim() || !contact_email?.trim() || !entries?.length) {
@@ -776,8 +778,28 @@ export async function POST(req) {
     // admin fee itself) and never exceeds the admin fee it comes out of.
     const websiteFeeCents = feesCents > 0 ? Math.min(appFlatFeeCents(), adminFee) : 0;
 
-    const { link, error: squareError, status: squareStatus } =
-      await createSquarePaymentLink(db, squarePayload, { flatFeeCents: websiteFeeCents });
+    const usePayPal = payment_method === "paypal";
+    let link = null, squareError = null, squareStatus = null;
+    if (usePayPal) {
+      // PayPal (schema-v58): one order for the whole checkout. PayPal sends
+      // the buyer back through /api/paypal/return, which takes the money and
+      // settles exactly as the Square webhook does.
+      const count = normalEntries.length;
+      const pp = await createPayPalOrder({
+        amountCents: chargeCents,
+        description: `${event.name} — ${count === 1 ? (isClinic ? "1 clinic spot" : "1 class entry") : `${count} ${isClinic ? "clinic spots" : "class entries"}`}${wantsDeposit ? " (deposit)" : ""}`,
+        referenceId: reg.id,
+        customId: reg.id,
+        returnUrl: `${baseUrl}/api/paypal/return?next=${encodeURIComponent(`/event/${event_id}/register/success?reg=${reg.id}`)}`,
+        cancelUrl: `${baseUrl}/event/${event_id}/register?paypal=cancelled`,
+        buyerEmail: contact_email.trim(),
+      });
+      if (pp.error) { squareError = pp.error; squareStatus = pp.status; }
+      else link = { order_id: pp.order_id, url: pp.url, id: null };
+    } else {
+      ({ link, error: squareError, status: squareStatus } =
+        await createSquarePaymentLink(db, squarePayload, { flatFeeCents: websiteFeeCents }));
+    }
 
     if (squareError) {
       // Remove the membership applications we just created — they never got
@@ -805,18 +827,19 @@ export async function POST(req) {
     // registration — the customer would pay and get no entries. So on failure
     // we void the payment link (so it can't be paid) and error out BEFORE
     // sending them to checkout, rather than redirect into a broken payment.
-    const { error: orderSaveErr } = await db
-      .from("registrations")
-      .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
-      .eq("id", reg.id);
+    const { error: orderSaveErr, status: orderSaveStatus } = await saveCheckout(
+      db, "registrations", reg.id,
+      { square_order_id: link?.order_id, square_checkout_url: link?.url },
+      usePayPal ? "paypal" : "square"
+    );
     if (orderSaveErr) {
-      console.error("Could not store square_order_id — voiding the payment link:", orderSaveErr.message);
-      try { await deleteSquarePaymentLink(db, link?.id); } catch (e) { console.error("Void link failed:", e.message); }
+      console.error("Could not store the checkout order id — voiding the payment link:", orderSaveErr);
+      if (link?.id) { try { await deleteSquarePaymentLink(db, link.id); } catch (e) { console.error("Void link failed:", e.message); } }
       if (renewalMember) await db.from("club_members").delete().eq("id", renewalMember.id).eq("status", "pending");
       if (annualMember) await db.from("club_members").delete().eq("id", annualMember.id).eq("status", "pending");
       return NextResponse.json(
-        { error: "Something went wrong setting up payment. Please try again — you have not been charged." },
-        { status: 500 }
+        { error: orderSaveStatus === 503 ? orderSaveErr : "Something went wrong setting up payment. Please try again — you have not been charged." },
+        { status: orderSaveStatus ?? 500 }
       );
     }
 
@@ -835,16 +858,12 @@ export async function POST(req) {
     // it paid by this id, and the portal can reopen the checkout while it's
     // still pending.
     if (renewalMember) {
-      await db
-        .from("club_members")
-        .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
-        .eq("id", renewalMember.id);
+      await saveCheckout(db, "club_members", renewalMember.id,
+        { square_order_id: link?.order_id, square_checkout_url: link?.url }, usePayPal ? "paypal" : "square");
     }
     if (annualMember) {
-      await db
-        .from("club_members")
-        .update({ square_order_id: link?.order_id, square_checkout_url: link?.url })
-        .eq("id", annualMember.id);
+      await saveCheckout(db, "club_members", annualMember.id,
+        { square_order_id: link?.order_id, square_checkout_url: link?.url }, usePayPal ? "paypal" : "square");
     }
 
     return NextResponse.json({ checkout_url: link?.url });

@@ -97,7 +97,7 @@ function SuccessContent() {
                   Thanks, {member.member_name} — your application is in.
                 </p>
                 <p style={{ fontSize: 13.5, color: "var(--quiet)", marginTop: 0 }}>
-                  {hasPayment ? "Your payment has been received and Square will email your receipt. " : ""}
+                  {hasPayment ? "Your payment has been received — your receipt comes from Square or PayPal, whichever you paid with. " : ""}
                   Your <strong>{member.membership_type_name || "membership"}</strong> for the {seasonLabel(member.season)} now
                   goes to the committee for approval — we&apos;ll email <strong>{member.email}</strong> once it&apos;s confirmed.
                 </p>

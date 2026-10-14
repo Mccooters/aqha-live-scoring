@@ -21,6 +21,14 @@ function SuccessContent() {
   const [payingBalance, setPayingBalance] = useState(false);
   const [showPartForm, setShowPartForm] = useState(false);
   const [partAmount, setPartAmount] = useState(""); // dollars, typed
+  const [paypalAvailable, setPaypalAvailable] = useState(false); // schema-v58
+  // Which ways to pay are switched on (PayPal needs its keys + schema-v58).
+  useEffect(() => {
+    fetch("/api/payments/options", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.paypal) setPaypalAvailable(true); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!regId) { setLoading(false); return; }
@@ -80,7 +88,7 @@ function SuccessContent() {
   const hasReplacementNumbers = !!reg.replacement_numbers;
   const balance = reg.balance; // clinic deposit plan (schema-v47)
 
-  const payBalance = async (amountCents) => {
+  const payBalance = async (amountCents, method = "square") => {
     setPayingBalance(true);
     try {
       const res = await fetch("/api/registrations/pay-balance", {
@@ -88,6 +96,7 @@ function SuccessContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           registration_id: regId,
+          payment_method: method,
           ...(amountCents != null ? { amount_cents: amountCents } : {}),
         }),
       });
@@ -102,7 +111,7 @@ function SuccessContent() {
     }
   };
 
-  const payPart = () => {
+  const payPart = (method = "square") => {
     const dollars = parseFloat(partAmount);
     if (!Number.isFinite(dollars) || dollars <= 0) {
       window.alert("Enter the amount you'd like to pay.");
@@ -118,7 +127,7 @@ function SuccessContent() {
       window.alert(`Only $${((balance?.owing_cents ?? 0) / 100).toFixed(2)} is owing — enter that or less.`);
       return;
     }
-    payBalance(cents);
+    payBalance(cents, method);
   };
 
   return (
@@ -143,7 +152,7 @@ function SuccessContent() {
                   Your entries are confirmed and have been added to the draw.
                 </p>
                 <p style={{ fontSize: 13.5, color: "var(--quiet)", marginTop: 0 }}>
-                  {hasPayment ? "Square will email your payment receipt, and we will email your booking confirmation" : "We will email your booking confirmation"} to <strong>{reg.contact_email}</strong>.
+                  {hasPayment ? "Your payment receipt comes from Square or PayPal (whichever you paid with), and we will email your booking confirmation" : "We will email your booking confirmation"} to <strong>{reg.contact_email}</strong>.
                   If you don&apos;t see it within a few minutes, check your spam folder.
                 </p>
                 {hasDayMembership && (
@@ -174,8 +183,13 @@ function SuccessContent() {
                     </p>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                       <button className="btn" style={{ background: "var(--leather)" }} onClick={() => payBalance()} disabled={payingBalance}>
-                        {payingBalance ? "Opening payment…" : `Pay the ${`$${(balance.owing_cents / 100).toFixed(2)}`} balance now`}
+                        {payingBalance ? "Opening payment…" : `Pay the ${`$${(balance.owing_cents / 100).toFixed(2)}`} balance${paypalAvailable ? " by card" : " now"}`}
                       </button>
+                      {paypalAvailable && (
+                        <button className="btn" style={{ background: "#003087" }} onClick={() => payBalance(undefined, "paypal")} disabled={payingBalance}>
+                          {payingBalance ? "Opening payment…" : "Pay with PayPal"}
+                        </button>
+                      )}
                       {balance.partial_allowed && !showPartForm && (
                         <button onClick={() => setShowPartForm(true)}
                           style={{ border: "none", background: "transparent", color: "var(--brass)", fontWeight: 700, fontSize: 13, cursor: "pointer", padding: "6px 4px" }}>
@@ -190,9 +204,14 @@ function SuccessContent() {
                           value={partAmount} onChange={(e) => setPartAmount(e.target.value)}
                           placeholder={`${((balance.min_part_cents ?? 1000) / 100).toFixed(0)} – ${(balance.owing_cents / 100).toFixed(2)}`}
                           style={{ width: 120, fontSize: 15, padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8 }} />
-                        <button className="btn" style={{ background: "var(--leather)" }} onClick={payPart} disabled={payingBalance}>
-                          {payingBalance ? "Opening payment…" : "Pay this amount"}
+                        <button className="btn" style={{ background: "var(--leather)" }} onClick={() => payPart()} disabled={payingBalance}>
+                          {payingBalance ? "Opening payment…" : paypalAvailable ? "Pay this amount by card" : "Pay this amount"}
                         </button>
+                        {paypalAvailable && (
+                          <button className="btn" style={{ background: "#003087" }} onClick={() => payPart("paypal")} disabled={payingBalance}>
+                            {payingBalance ? "Opening payment…" : "Pay with PayPal"}
+                          </button>
+                        )}
                         <span style={{ flexBasis: "100%", fontSize: 12, color: "var(--quiet)" }}>
                           Minimum ${((balance.min_part_cents ?? 1000) / 100).toFixed(0)} per payment. What you&apos;ve paid counts down the balance — come back any time for the rest.
                         </span>

@@ -89,7 +89,7 @@ function Content() {
             )}
             {pending && (
               <>
-                <p style={{ margin: "0 0 8px" }}>We're waiting for Square to confirm your payment. This usually takes a few seconds.</p>
+                <p style={{ margin: "0 0 8px" }}>We're waiting for your payment to be confirmed. This usually takes a few seconds.</p>
                 <p style={{ fontSize: 14, color: "var(--quiet)", margin: 0 }}>
                   Numbers {numbers.join(", ")} are held for you. If you didn't finish paying,{" "}
                   {order.square_checkout_url ? <a href={order.square_checkout_url} style={{ color: "var(--brass)" }}>finish payment here</a> : "go back and try again"}.

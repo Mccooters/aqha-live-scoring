@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminClient } from "../../../_lib/registrations";
 import { takenNumbers, createRaffleCheckout, settleRaffleOrder, touchRaffle } from "../../../_lib/raffles";
+import { saveCheckout } from "../../../_lib/paypal";
 
 // Public: buy raffle tickets. Reserves the chosen numbers (the unique index
 // on raffle_tickets is the referee if two people pick the same number at the
@@ -13,6 +14,7 @@ export async function POST(req, { params }) {
     const name = String(body?.name ?? "").trim().replace(/\s+/g, " ");
     const email = String(body?.email ?? "").trim().toLowerCase();
     const phone = String(body?.phone ?? "").trim();
+    const method = body?.payment_method === "paypal" ? "paypal" : "square";
     if (!numbers.length) return NextResponse.json({ error: "Pick at least one number." }, { status: 400 });
     if (numbers.length > 20) return NextResponse.json({ error: "You can buy up to 20 tickets in one go." }, { status: 400 });
     if (!name) return NextResponse.json({ error: "Please enter your name." }, { status: 400 });
@@ -58,16 +60,22 @@ export async function POST(req, { params }) {
     }
 
     const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
-    const { link, error: sqErr, status } = await createRaffleCheckout(db, { raffle, order, baseUrl });
+    const { link, error: sqErr, status } = await createRaffleCheckout(db, { raffle, order, baseUrl, method });
     if (sqErr || !link?.url) {
       await db.from("raffle_tickets").delete().eq("order_id", order.id);
       await db.from("raffle_orders").update({ status: "cancelled" }).eq("id", order.id);
       await touchRaffle(db, raffle.id);
       return NextResponse.json({ error: sqErr ?? "Could not start the payment." }, { status: status ?? 500 });
     }
-    await db.from("raffle_orders")
-      .update({ square_order_id: link.order_id, square_checkout_url: link.url })
-      .eq("id", order.id);
+    const { error: saveErr, status: saveStatus } = await saveCheckout(
+      db, "raffle_orders", order.id, { square_order_id: link.order_id, square_checkout_url: link.url }, method
+    );
+    if (saveErr) {
+      await db.from("raffle_tickets").delete().eq("order_id", order.id);
+      await db.from("raffle_orders").update({ status: "cancelled" }).eq("id", order.id);
+      await touchRaffle(db, raffle.id);
+      return NextResponse.json({ error: saveErr }, { status: saveStatus ?? 500 });
+    }
     return NextResponse.json({ ok: true, order_id: order.id, checkout_url: link.url });
   } catch (err) {
     console.error("raffle/order error:", err);

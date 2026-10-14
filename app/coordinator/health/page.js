@@ -41,6 +41,7 @@ const MIGRATION_CHECKS = [
   { m: "v55", what: "Balance reminder emails", probe: () => supabase.from("registrations").select("balance_reminder_log").limit(1) },
   { m: "v56", what: "Fundraising raffles", probe: () => supabase.from("raffles").select("id").limit(1) },
   { m: "v57", what: "Raffle live updates (ticket board)", probe: () => supabase.from("raffles").select("tickets_changed_at").limit(1) },
+  { m: "v58", what: "PayPal payment option", probe: () => supabase.from("registrations").select("payment_provider").limit(1) },
 ];
 
 const CONFIG_LABELS = {
@@ -55,6 +56,9 @@ const CONFIG_LABELS = {
   push_vapid: "Push notifications key",
   service_role: "Supabase service role key (online entries)",
   cron_secret: "CRON_SECRET (automatic balance reminder emails)",
+  paypal: "PayPal client ID + secret (PayPal payment option)",
+  paypal_environment: "PayPal environment (live/sandbox)",
+  paypal_webhook_id: "PayPal webhook ID (PayPal payments confirmed if the buyer closes the tab)",
 };
 
 export default function HealthPage() {

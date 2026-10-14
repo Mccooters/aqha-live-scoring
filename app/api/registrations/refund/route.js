@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 import { refundSquarePayment, getSquareRefund } from "../../_lib/squarePayments";
+import { refundPayPalCapture, getPayPalRefund } from "../../_lib/paypal";
 
 // Issuing a refund moves real money, so only signed-in show staff may call it.
 // The dashboard sends the coordinator's login token; we verify it with
@@ -41,8 +42,11 @@ export async function POST(req) {
       let lookupError = null;
       const next = [];
       for (const item of log) {
-        if (item.method !== "square" || !item.refund_id || item.status === "COMPLETED") { next.push(item); continue; }
-        const { refund, error } = await getSquareRefund(db, item.refund_id);
+        const viaProvider = item.method === "square" || item.method === "paypal";
+        if (!viaProvider || !item.refund_id || item.status === "COMPLETED") { next.push(item); continue; }
+        const { refund, error } = item.method === "paypal"
+          ? await getPayPalRefund(item.refund_id)
+          : await getSquareRefund(db, item.refund_id);
         if (error) { lookupError = error; next.push(item); continue; }
         const status = refund?.status ?? item.status;
         if (status !== item.status) changed = true;
@@ -78,11 +82,14 @@ export async function POST(req) {
     if (reg.status !== "paid") {
       return NextResponse.json({ error: "Only a paid registration can be refunded." }, { status: 400 });
     }
-    // A Square refund needs the Square payment on file; a manual (already-given)
+    // A provider refund needs the payment on file (Square payment id, or the
+    // PayPal capture id — schema-v58 says which); a manual (already-given)
     // refund can be recorded against any paid registration.
+    const provider = reg.payment_provider === "paypal" ? "paypal" : "square";
+    const providerName = provider === "paypal" ? "PayPal" : "Square";
     if (!isManual && !reg.square_payment_id) {
       return NextResponse.json(
-        { error: "This registration has no Square payment on file (it may have been a free or manually-created entry). Record it as a refund given outside Square instead." },
+        { error: `This registration has no ${providerName} payment on file (it may have been a free or manually-created entry). Record it as a refund given outside ${providerName} instead.` },
         { status: 400 }
       );
     }
@@ -97,7 +104,17 @@ export async function POST(req) {
     }
 
     let refund = null;
-    if (!isManual) {
+    if (!isManual && provider === "paypal") {
+      const { refund: ppRefund, error: ppErr, status } = await refundPayPalCapture({
+        captureId: reg.square_payment_id,
+        amountCents: amount,
+        note: reason || `HCQHA refund`,
+      });
+      if (ppErr) {
+        return NextResponse.json({ error: ppErr }, { status: status ?? 502 });
+      }
+      refund = ppRefund;
+    } else if (!isManual) {
       const { refund: sqRefund, error: sqErr, status } = await refundSquarePayment(db, {
         paymentId: reg.square_payment_id,
         amountCents: amount,
@@ -114,7 +131,7 @@ export async function POST(req) {
     // database the columns don't exist yet — the money is already refunded at
     // Square, so don't fail; just report it couldn't be recorded. A MANUAL
     // record is only useful if it saves, so it treats that as an error.
-    const noteReason = reason || (isManual ? "Refunded outside Square" : null);
+    const noteReason = reason || (isManual ? `Refunded outside ${providerName}` : null);
     const patch = {
       refunded_cents: alreadyRefunded + amount,
       last_refund_at: new Date().toISOString(),
@@ -127,7 +144,7 @@ export async function POST(req) {
     const logEntry = {
       amount_cents: amount,
       at: new Date().toISOString(),
-      method: isManual ? "manual" : "square",
+      method: isManual ? "manual" : provider,
       refund_id: refund?.id ?? null,
       status: isManual ? "RECORDED" : (refund?.status ?? "PENDING"),
       reason: noteReason ? String(noteReason).slice(0, 200) : null,
@@ -146,7 +163,7 @@ export async function POST(req) {
       recorded = false;
       const note = isManual
         ? "could not record the manual refund"
-        : "refund succeeded at Square but could not be recorded";
+        : `refund succeeded at ${providerName} but could not be recorded`;
       console.error(`${note} (run schema-v36):`, updErr.message);
       if (isManual) {
         return NextResponse.json(
@@ -162,6 +179,7 @@ export async function POST(req) {
       total_refunded_cents: alreadyRefunded + amount,
       refund_status: refund?.status ?? null,
       refund_id: refund?.id ?? null,
+      provider: isManual ? "manual" : provider,
       recorded,
     });
   } catch (err) {

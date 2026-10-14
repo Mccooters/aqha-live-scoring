@@ -36,6 +36,9 @@ export async function GET(req) {
       push_vapid: has("NEXT_PUBLIC_VAPID_PUBLIC_KEY"),
       service_role: has("SUPABASE_SERVICE_ROLE_KEY"),
       cron_secret: has("CRON_SECRET"),
+      paypal: has("PAYPAL_CLIENT_ID") && has("PAYPAL_CLIENT_SECRET"),
+      paypal_environment: has("PAYPAL_ENVIRONMENT"),
+      paypal_webhook_id: has("PAYPAL_WEBHOOK_ID"),
     },
   });
 }

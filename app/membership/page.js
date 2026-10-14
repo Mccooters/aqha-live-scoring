@@ -48,6 +48,15 @@ export default function MembershipPage() {
   const [people, setPeople] = useState([]);
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState("square"); // "square" | "paypal" (schema-v58)
+  const [paypalAvailable, setPaypalAvailable] = useState(false);
+  // Which ways to pay are switched on (PayPal needs its keys + schema-v58).
+  useEffect(() => {
+    fetch("/api/payments/options", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.paypal) setPaypalAvailable(true); })
+      .catch(() => {});
+  }, []);
   const [error, setError] = useState("");
   const [accountStep, setAccountStep] = useState("email"); // email | code
   const [accountCode, setAccountCode] = useState("");
@@ -296,6 +305,7 @@ export default function MembershipPage() {
           emergency_contact_phone: emergencyPhone.trim(),
           interests: interests.join(", "),
           applicant_notes: applicantNotes.trim(),
+          payment_method: paypalAvailable ? paymentMethod : "square",
           horses: horses
             .filter((h) => h.horse_name.trim())
             .map((h) => ({
@@ -704,7 +714,7 @@ export default function MembershipPage() {
                     )}
                     {(fee + additionalNumbersCents) > 0 && (
                       <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                        Paid securely via Square · receipt emailed to you
+                        Paid securely via {paypalAvailable && paymentMethod === "paypal" ? "PayPal" : "Square"} · receipt emailed to you
                       </div>
                     )}
                   </div>
@@ -717,7 +727,22 @@ export default function MembershipPage() {
                     {error}
                   </p>
                 )}
-                <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
+                {(fee + additionalNumbersCents) > 0 && paypalAvailable && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>How would you like to pay?</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {[["square", "💳 Card (Square)"], ["paypal", "PayPal"]].map(([v, label]) => (
+                    <button key={v} type="button" onClick={() => setPaymentMethod(v)} aria-pressed={paymentMethod === v}
+                      style={{ fontFamily: "inherit", fontSize: 14, fontWeight: 700, padding: "9px 14px", borderRadius: 10, cursor: "pointer",
+                        border: `2px solid ${paymentMethod === v ? "var(--leather)" : "var(--line)"}`,
+                        background: paymentMethod === v ? "var(--leather)" : "#fff", color: paymentMethod === v ? "#F2EADB" : "var(--leather)" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
                   <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)}
                     style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
                   <span>I/we have read, understood and agree to the membership terms, liability waiver and declaration above, agree to abide by the Constitution and the Rules and Regulations of AQHA and HCQHA, and understand my application is subject to committee approval.</span>
@@ -727,7 +752,7 @@ export default function MembershipPage() {
                   {submitting
                     ? "Submitting…"
                     : (fee + additionalNumbersCents) > 0
-                    ? `Join & Pay ${fmtMoney(fee + additionalNumbersCents)}`
+                    ? `Join & Pay ${fmtMoney(fee + additionalNumbersCents)}${paypalAvailable && paymentMethod === "paypal" ? " with PayPal" : ""}`
                     : "Submit application"}
                 </button>
                 <p style={{ fontSize: 11.5, color: "var(--quiet)", lineHeight: 1.45, margin: "10px 0 0" }}>
