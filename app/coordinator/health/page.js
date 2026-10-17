@@ -67,6 +67,8 @@ export default function HealthPage() {
   const [config, setConfig] = useState(null);
   const [wallets, setWallets] = useState(null);     // Square's answer to "which wallets will you show?"
   const [walletsBusy, setWalletsBusy] = useState(false);
+  const [testLinks, setTestLinks] = useState(null);  // two $1 test checkouts to open on a phone
+  const [testBusy, setTestBusy] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -100,6 +102,30 @@ export default function HealthPage() {
       setWallets(res.ok ? data : { error: data.error ?? `Square check failed (${res.status})` });
     } catch (err) { setWallets({ error: err.message ?? "Could not reach the site." }); }
     setWalletsBusy(false);
+  };
+
+  const walletsPost = async (payload) => {
+    const res = await fetch("/api/square/wallets-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? `Square check failed (${res.status})`);
+    return data;
+  };
+  const makeTestLinks = async () => {
+    setTestBusy(true);
+    try { const data = await walletsPost({ action: "test-links" }); setTestLinks(data.links ?? []); }
+    catch (err) { setTestLinks([{ kind: "error", error: err.message }]); }
+    setTestBusy(false);
+  };
+  const deleteTestLinks = async () => {
+    const ids = (testLinks ?? []).map((l) => l.id).filter(Boolean);
+    setTestBusy(true);
+    try { await walletsPost({ action: "delete", link_ids: ids }); setTestLinks(null); }
+    catch (err) { window.alert(err.message); }
+    setTestBusy(false);
   };
 
   if (!session) {
@@ -197,6 +223,36 @@ export default function HealthPage() {
                 </div>
               );
             })()}
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed var(--line)" }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Compare on the phone or iPad that isn't showing Apple Pay</div>
+              <p style={{ fontSize: 12, color: "var(--quiet)", margin: "0 0 8px" }}>
+                Makes two $1 "do not pay" test checkouts: A is built exactly like the site's real ones, B is Square's simpler style (like links made in the Square dashboard). Open each in Safari on that device and see which shows an Apple Pay button. Delete them when you're done — nothing is charged unless someone actually pays one.
+              </p>
+              {!testLinks && (
+                <button className="btn-ghost" onClick={makeTestLinks} disabled={testBusy || !config} style={{ fontSize: 13 }}>
+                  {testBusy ? "Making test links…" : "Make two test links"}
+                </button>
+              )}
+              {testLinks && (
+                <div style={{ display: "grid", gap: 6 }}>
+                  {testLinks.map((l, i) => l.error ? (
+                    <div key={i} style={{ color: "var(--clay)", fontSize: 13 }}>Link {l.kind === "order" ? "A" : l.kind === "quick_pay" ? "B" : ""}: {l.error}</div>
+                  ) : (
+                    <div key={i} style={{ fontSize: 13 }}>
+                      <a href={l.url} target="_blank" rel="noreferrer" style={{ color: "var(--brass)", fontWeight: 700 }}>
+                        Open test link {l.kind === "order" ? "A (built like real checkouts)" : "B (simple style)"} ↗
+                      </a>
+                      <span style={{ color: "var(--quiet)", marginLeft: 8 }}>Square says Apple Pay {l.accepted_payment_methods?.apple_pay === true ? "on" : l.accepted_payment_methods?.apple_pay === false ? "off" : "not mentioned"}</span>
+                    </div>
+                  ))}
+                  <div>
+                    <button className="btn-ghost danger" onClick={deleteTestLinks} disabled={testBusy} style={{ fontSize: 12.5 }}>
+                      {testBusy ? "Deleting…" : "Delete the test links"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </main>

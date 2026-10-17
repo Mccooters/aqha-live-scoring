@@ -26,15 +26,44 @@ export async function POST(req) {
     if (await isCommitteeViewer(db, staff.id)) {
       return NextResponse.json({ error: "This account has read-only committee access." }, { status: 403 });
     }
-    const { link, error, status } = await createSquarePaymentLink(db, {
+    const body = await req.json().catch(() => ({}));
+    const orderPayload = (name) => ({
       idempotency_key: randomUUID(),
       order: {
         location_id: process.env.SQUARE_LOCATION_ID,
         reference_id: "wallet-check",
-        line_items: [{ name: "Wallet check — do not pay", quantity: "1", base_price_money: { amount: 100, currency: "AUD" } }],
+        line_items: [{ name, quantity: "1", base_price_money: { amount: 100, currency: "AUD" } }],
       },
       checkout_options: { ask_for_shipping_address: false },
     });
+
+    // "delete": remove test links made by "test-links" below.
+    if (body?.action === "delete") {
+      let removed = 0;
+      for (const id of Array.isArray(body.link_ids) ? body.link_ids : []) {
+        try { if (await deleteSquarePaymentLink(db, id)) removed += 1; } catch (e) { console.error("Wallet check: delete failed:", e.message); }
+      }
+      return NextResponse.json({ ok: true, removed });
+    }
+
+    // "test-links": two $1 "do not pay" links to OPEN on a phone and compare —
+    // A is built exactly like the site's real checkouts (an order with line
+    // items); B is Square's simpler "quick pay" style, the way links made in
+    // the Square dashboard tend to be. They stay until "delete" is called.
+    if (body?.action === "test-links") {
+      const a = await createSquarePaymentLink(db, orderPayload("Wallet check A — do not pay"));
+      const b = await createSquarePaymentLink(db, {
+        idempotency_key: randomUUID(),
+        quick_pay: { name: "Wallet check B — do not pay", price_money: { amount: 100, currency: "AUD" }, location_id: process.env.SQUARE_LOCATION_ID },
+        checkout_options: { ask_for_shipping_address: false },
+      });
+      const info = (kind, r) => (r.error
+        ? { kind, error: r.error }
+        : { kind, id: r.link?.id ?? null, url: r.link?.url ?? null, accepted_payment_methods: r.link?.checkout_options?.accepted_payment_methods ?? null });
+      return NextResponse.json({ ok: true, links: [info("order", a), info("quick_pay", b)] });
+    }
+
+    const { link, error, status } = await createSquarePaymentLink(db, orderPayload("Wallet check — do not pay"));
     if (error) return NextResponse.json({ error }, { status: status ?? 502 });
     let deleted = false;
     try { deleted = await deleteSquarePaymentLink(db, link?.id); } catch (e) { console.error("Wallet check: could not delete the test link:", e.message); }
