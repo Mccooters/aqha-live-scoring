@@ -262,9 +262,7 @@ export async function POST(req) {
       if (pp.error) { squareError = pp.error; squareStatus = pp.status; }
       else link = { order_id: pp.order_id, url: pp.url };
     } else {
-      ({ link, error: squareError, status: squareStatus } = await createSquarePaymentLink(db, squarePayload, {
-        summary: `HCQHA membership — ${type.name}, ${season} season${additionalNumbersCount > 0 ? ` + ${additionalNumbersCount} additional horse number${additionalNumbersCount === 1 ? "" : "s"}` : ""}`,
-      }));
+      ({ link, error: squareError, status: squareStatus } = await createSquarePaymentLink(db, squarePayload));
     }
     if (squareError) {
       return NextResponse.json({ error: squareError }, { status: squareStatus ?? 500 });

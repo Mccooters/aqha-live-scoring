@@ -101,22 +101,23 @@ PR with a clear plain-English description.
   out of the admin fee the club collects, and never rides membership,
   clinic-balance or fee-waived checkouts. The combined app fee is capped at
   90% of the order total so Square never rejects a small checkout.
-  **Every link goes out as Square "quick pay"** (`toQuickPay()` in
-  `squarePayments.js` folds the caller's `order.line_items` into one named
-  line + the total; callers may pass `opts.summary` for a nicer line —
-  registrations and memberships do): Square's hosted checkout shows Apple
-  Pay on quick-pay links but NOT on itemised order links (owner's test, Oct
-  2026 — same iPad, same minute: quick pay had Apple Pay, order style had
-  Google Pay only, even with `accepted_payment_methods = { apple_pay: true,
-  google_pay: true }`, which every link also sends). Matching is unaffected
-  (the webhook keys on the order id Square returns either way; order
-  `reference_id` was never used). `opts.itemised = true` keeps the old style
-  — only the Health page's comparison uses it. The Health page's
-  "Digital wallets" tools (`app/api/square/wallets-check`, staff JWT):
-  "Ask Square which wallets it will show" (makes + deletes a $1 link, shows
-  the echoed accepted_payment_methods) and "Make two test links" (A old
-  style, B current style, openable on a phone; delete button). Apple Pay
-  still needs Safari on an Apple device with a card in Wallet.
+  **Apple Pay and the website fee are mutually exclusive** (owner's tests,
+  Oct 2026 — identical $1 test links with and without `app_fee_money`,
+  opened in Safari on an iPhone and an iPad: the fee-free link showed
+  Apple Pay + Google Pay, the fee-carrying link showed Google Pay only).
+  Square's hosted checkout drops Apple Pay from any link that carries an
+  app fee, regardless of `accepted_payment_methods` (every link still
+  requests `{ apple_pay: true, google_pay: true }`). The link style makes
+  no difference (an interim switch to quick-pay links was reverted; links
+  stay itemised orders). So: website fee ON → no Apple Pay; unset both
+  `SQUARE_APP_FEE_BPS` and `SQUARE_APP_FLAT_FEE_CENTS` → fee off → Apple
+  Pay back. The Health page's "Digital wallets" tools
+  (`app/api/square/wallets-check`, staff JWT) show the fee setup in use,
+  "Ask Square which wallets it will show" (makes + deletes a $1 link,
+  reports the echoed accepted_payment_methods and app fee) and "Make two
+  test links" (A as real checkouts with the fee, B without via
+  `opts.noAppFee`; openable; delete button). Apple Pay still needs Safari
+  on an Apple device with a card in Wallet.
   Env vars for the connection: `SQUARE_APP_ID`, `SQUARE_APP_SECRET`,
   `SQUARE_APP_FEE_BPS` (unset/0 = no fee), `SQUARE_APP_FLAT_FEE_CENTS`
   (unset/0 = none). NOTE: once OAuth is live, the

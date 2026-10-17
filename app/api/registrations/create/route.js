@@ -798,10 +798,7 @@ export async function POST(req) {
       else link = { order_id: pp.order_id, url: pp.url, id: null };
     } else {
       ({ link, error: squareError, status: squareStatus } =
-        await createSquarePaymentLink(db, squarePayload, {
-          flatFeeCents: websiteFeeCents,
-          summary: `${event.name}: ${lineItems.map((i) => (parseInt(i.quantity ?? "1", 10) > 1 ? `${i.quantity}× ${i.name}` : i.name)).join(" + ")}`,
-        }));
+        await createSquarePaymentLink(db, squarePayload, { flatFeeCents: websiteFeeCents }));
     }
 
     if (squareError) {
