@@ -239,28 +239,6 @@ export async function getSquareRefund(db, refundId) {
 // body minus authentication. `opts.flatFeeCents` adds a fixed amount to the
 // application fee for this one checkout (the once-per-event website fee that
 // comes out of the admin fee). Returns { link } or { error, status }.
-// Square's hosted checkout shows Apple Pay on "quick pay" links (one named
-// line, one price) but NOT on itemised order links — owner's test, Oct 2026:
-// the same iPad, the same minute, a quick-pay test link had Apple Pay and an
-// order-style one had only Google Pay. So every link goes out as quick pay:
-// the line items are folded into one line that lists them ("Class 12: Trail
-// + Class 15: Showmanship + Day membership"), or `opts.summary` when the
-// caller gives a better one. The webhook never needed the itemised order —
-// it matches on the order id Square returns either way. `opts.itemised =
-// true` keeps the old style (used only by the Health page's comparison).
-function toQuickPay(payload, opts = {}) {
-  const items = payload.order?.line_items ?? [];
-  if (opts.itemised || !items.length) return payload;
-  const qty = (i) => parseInt(i.quantity ?? "1", 10) || 1;
-  const total = items.reduce((sum, i) => sum + (i.base_price_money?.amount ?? 0) * qty(i), 0);
-  const currency = items[0]?.base_price_money?.currency ?? "AUD";
-  const joined = items.map((i) => (qty(i) > 1 ? `${qty(i)}× ${i.name}` : i.name)).join(" + ");
-  const full = String(opts.summary ?? joined).trim() || "Payment";
-  const name = full.length > 250 ? `${full.slice(0, 249)}…` : full;
-  const { order, ...rest } = payload;
-  return { ...rest, quick_pay: { name, price_money: { amount: total, currency }, location_id: order.location_id } };
-}
-
 export async function createSquarePaymentLink(db, payload, opts = {}) {
   const { connection, token } = await resolveSquareToken(db);
   if (!token || !process.env.SQUARE_LOCATION_ID) {
@@ -270,13 +248,16 @@ export async function createSquarePaymentLink(db, payload, opts = {}) {
     };
   }
 
-  const body = toQuickPay({ ...payload }, opts);
+  const body = { ...payload };
   // Digital wallets: ask Square to offer Apple Pay and Google Pay on every
   // link. Square only shows each one when the buyer's browser supports it
-  // (Apple Pay = Safari on an Apple device with a card in Wallet), but
-  // unless a link opts in explicitly some checkouts showed Google Pay only
-  // (owner's report, Oct 2026 — an iPad raffle checkout). Callers can
-  // still override per link.
+  // (Apple Pay = Safari on an Apple device with a card in Wallet). NOTE:
+  // Square's hosted checkout drops Apple Pay from any link that carries
+  // app_fee_money (the website fee below) — proven with identical test
+  // links with and without the fee on an iPhone and an iPad (owner's tests,
+  // Oct 2026). So the website fee and Apple Pay are mutually exclusive;
+  // the club chooses via SQUARE_APP_FEE_BPS / SQUARE_APP_FLAT_FEE_CENTS.
+  // Callers can still override the wallet request per link.
   body.checkout_options = {
     ...(payload.checkout_options ?? {}),
     accepted_payment_methods: {
