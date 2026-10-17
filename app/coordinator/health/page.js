@@ -65,6 +65,8 @@ export default function HealthPage() {
   const [session, setSession] = useState(null);
   const [rows, setRows] = useState(null);
   const [config, setConfig] = useState(null);
+  const [wallets, setWallets] = useState(null);     // Square's answer to "which wallets will you show?"
+  const [walletsBusy, setWalletsBusy] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -87,6 +89,18 @@ export default function HealthPage() {
       } catch { setConfig(null); }
     })();
   }, [session]);
+
+  // Creates a $1 test link the way the site does, reads back which wallets
+  // Square attached to it, deletes it again. Nothing is charged.
+  const checkWallets = async () => {
+    setWalletsBusy(true); setWallets(null);
+    try {
+      const res = await fetch("/api/square/wallets-check", { method: "POST", headers: { Authorization: `Bearer ${session.access_token}` } });
+      const data = await res.json().catch(() => ({}));
+      setWallets(res.ok ? data : { error: data.error ?? `Square check failed (${res.status})` });
+    } catch (err) { setWallets({ error: err.message ?? "Could not reach the site." }); }
+    setWalletsBusy(false);
+  };
 
   if (!session) {
     return (
@@ -158,6 +172,32 @@ export default function HealthPage() {
               </p>
             </div>
           )}
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>Digital wallets on Square checkouts</div>
+            <button className="btn-ghost" onClick={checkWallets} disabled={walletsBusy || !config} style={{ fontSize: 13 }}>
+              {walletsBusy ? "Asking Square…" : "Ask Square which wallets it will show"}
+            </button>
+            <p style={{ fontSize: 12, color: "var(--quiet)", margin: "6px 0 0" }}>
+              Makes a $1 test link the same way real checkouts are made, reads back what Square attached to it, then deletes it. Nothing is charged.
+            </p>
+            {wallets?.error && <p style={{ color: "var(--clay)", fontWeight: 700, fontSize: 13, margin: "8px 0 0" }}>{wallets.error}</p>}
+            {wallets && !wallets.error && (() => {
+              const apm = wallets.accepted_payment_methods;
+              const word = (v) => (v === true ? "✓ on" : v === false ? "✗ off" : "— not mentioned");
+              const appleOn = apm?.apple_pay === true;
+              return (
+                <div style={{ marginTop: 8, fontSize: 13, background: appleOn ? "#E6F2EA" : "#FBE9E4", border: `1px solid ${appleOn ? "#2D7A52" : "var(--clay)"}`, borderRadius: 8, padding: "8px 10px" }}>
+                  <div><strong>Square's answer:</strong> Apple Pay {word(apm?.apple_pay)} · Google Pay {word(apm?.google_pay)} · Cash App Pay {word(apm?.cash_app_pay)} · Afterpay {word(apm?.afterpay_clearpay)}</div>
+                  <div style={{ marginTop: 6, color: "var(--quiet)" }}>
+                    {appleOn
+                      ? "Square is putting Apple Pay on this account's links. If a buyer still can't see it, it's their device: Apple Pay only appears in Safari on an iPhone, iPad or Mac that has a card in Apple Wallet, with Settings → Safari → \"Check for Apple Pay\" switched on. Browsers inside apps (Facebook, Instagram, Messenger) never show it."
+                      : "The site asked for Apple Pay but Square did not switch it on. Check the account setting first: Square Dashboard → Payments & orders → Payment links → Settings → General → Payments → Apple Pay. If that's already on, this is a known Square-side problem with links made by software — contact Square support and quote this result."}
+                  </div>
+                  {!wallets.deleted && <div style={{ marginTop: 6, color: "var(--quiet)" }}>The $1 test link couldn't be deleted automatically — it's harmless, but you can remove it from Square's Payment links list.</div>}
+                </div>
+              );
+            })()}
+          </div>
         </section>
       </main>
     </>
