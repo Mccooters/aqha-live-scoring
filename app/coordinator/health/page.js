@@ -214,6 +214,17 @@ export default function HealthPage() {
               return (
                 <div style={{ marginTop: 8, fontSize: 13, background: appleOn ? "#E6F2EA" : "#FBE9E4", border: `1px solid ${appleOn ? "#2D7A52" : "var(--clay)"}`, borderRadius: 8, padding: "8px 10px" }}>
                   <div><strong>Square's answer:</strong> Apple Pay {word(apm?.apple_pay)} · Google Pay {word(apm?.google_pay)} · Cash App Pay {word(apm?.cash_app_pay)} · Afterpay {word(apm?.afterpay_clearpay)}</div>
+          <div style={{ marginTop: 4 }}>
+            <strong>Website fee on this link:</strong>{" "}
+            {wallets.app_fee_cents > 0 ? `yes — $${(wallets.app_fee_cents / 100).toFixed(2)} on this $1 test` : "none"}
+            {wallets.fee_setup && (
+              <span style={{ color: "var(--quiet)" }}>
+                {" "}(setup: {wallets.fee_setup.via_connection ? "Square connected" : "using the club's own token — fees never apply"}
+                {wallets.fee_setup.bps > 0 ? `, ${(wallets.fee_setup.bps / 100).toFixed(2)}%` : ", no percentage"}
+                {wallets.fee_setup.flat_cents > 0 ? ` + $${(wallets.fee_setup.flat_cents / 100).toFixed(2)} on admin-fee checkouts` : ""})
+              </span>
+            )}
+          </div>
                   <div style={{ marginTop: 6, color: "var(--quiet)" }}>
                     {appleOn
                       ? "Square is putting Apple Pay on this account's links. If a buyer still can't see it, it's their device: Apple Pay only appears in Safari on an iPhone, iPad or Mac that has a card in Apple Wallet, with Settings → Safari → \"Check for Apple Pay\" switched on. Browsers inside apps (Facebook, Instagram, Messenger) never show it."
@@ -226,7 +237,7 @@ export default function HealthPage() {
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed var(--line)" }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Compare on the phone or iPad that isn't showing Apple Pay</div>
               <p style={{ fontSize: 12, color: "var(--quiet)", margin: "0 0 8px" }}>
-                Makes two $1 "do not pay" test checkouts: A is the old itemised style (Square left Apple Pay off it), B is the style every real checkout uses now. Open each in Safari on that device and see which shows an Apple Pay button — B should. Delete them when you're done — nothing is charged unless someone actually pays one.
+                Makes two $1 "do not pay" test checkouts: A is exactly what real checkouts send (including the website fee, if one is set up), B is the same link without the website fee. Open each in Safari on that device and see which shows an Apple Pay button. Delete them when you're done — nothing is charged unless someone actually pays one.
               </p>
               {!testLinks && (
                 <button className="btn-ghost" onClick={makeTestLinks} disabled={testBusy || !config} style={{ fontSize: 13 }}>
@@ -236,13 +247,15 @@ export default function HealthPage() {
               {testLinks && (
                 <div style={{ display: "grid", gap: 6 }}>
                   {testLinks.map((l, i) => l.error ? (
-                    <div key={i} style={{ color: "var(--clay)", fontSize: 13 }}>Link {l.kind === "order" ? "A" : l.kind === "quick_pay" ? "B" : ""}: {l.error}</div>
+                    <div key={i} style={{ color: "var(--clay)", fontSize: 13 }}>Link {l.kind === "with_fee" ? "A" : l.kind === "no_fee" ? "B" : ""}: {l.error}</div>
                   ) : (
                     <div key={i} style={{ fontSize: 13 }}>
                       <a href={l.url} target="_blank" rel="noreferrer" style={{ color: "var(--brass)", fontWeight: 700 }}>
-                        Open test link {l.kind === "order" ? "A (old itemised style)" : "B (what real checkouts use now)"} ↗
+                        Open test link {l.kind === "with_fee" ? "A (as real checkouts, with the website fee)" : "B (same, without the website fee)"} ↗
                       </a>
-                      <span style={{ color: "var(--quiet)", marginLeft: 8 }}>Square says Apple Pay {l.accepted_payment_methods?.apple_pay === true ? "on" : l.accepted_payment_methods?.apple_pay === false ? "off" : "not mentioned"}</span>
+                      <span style={{ color: "var(--quiet)", marginLeft: 8 }}>
+              Apple Pay {l.accepted_payment_methods?.apple_pay === true ? "requested" : "not requested"} · website fee {l.app_fee_cents > 0 ? `$${(l.app_fee_cents / 100).toFixed(2)}` : "none"}
+            </span>
                     </div>
                   ))}
                   <div>

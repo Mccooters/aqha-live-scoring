@@ -291,7 +291,7 @@ export async function createSquarePaymentLink(db, payload, opts = {}) {
   // payment total) so a small order can never make Square reject the link.
   const bps = appFeeBps();
   const flat = Math.max(0, Math.floor(opts.flatFeeCents ?? 0));
-  if (connection && (bps > 0 || flat > 0)) {
+  if (connection && !opts.noAppFee && (bps > 0 || flat > 0)) {
     const orderTotal = body.quick_pay
       ? (body.quick_pay.price_money?.amount ?? 0)
       : (payload.order?.line_items ?? []).reduce(
