@@ -47,16 +47,13 @@ export async function POST(req) {
     }
 
     // "test-links": two $1 "do not pay" links to OPEN on a phone and compare —
-    // A is built exactly like the site's real checkouts (an order with line
-    // items); B is Square's simpler "quick pay" style, the way links made in
-    // the Square dashboard tend to be. They stay until "delete" is called.
+    // A is the old itemised order style, B is the quick-pay style every real
+    // checkout now uses. They stay until "delete" is called.
     if (body?.action === "test-links") {
-      const a = await createSquarePaymentLink(db, orderPayload("Wallet check A — do not pay"));
-      const b = await createSquarePaymentLink(db, {
-        idempotency_key: randomUUID(),
-        quick_pay: { name: "Wallet check B — do not pay", price_money: { amount: 100, currency: "AUD" }, location_id: process.env.SQUARE_LOCATION_ID },
-        checkout_options: { ask_for_shipping_address: false },
-      });
+      // A: the old itemised order style (Square left Apple Pay off it);
+      // B: exactly what real checkouts send now (quick pay).
+      const a = await createSquarePaymentLink(db, orderPayload("Wallet check A — do not pay"), { itemised: true });
+      const b = await createSquarePaymentLink(db, orderPayload("Wallet check B — do not pay"));
       const info = (kind, r) => (r.error
         ? { kind, error: r.error }
         : { kind, id: r.link?.id ?? null, url: r.link?.url ?? null, accepted_payment_methods: r.link?.checkout_options?.accepted_payment_methods ?? null });

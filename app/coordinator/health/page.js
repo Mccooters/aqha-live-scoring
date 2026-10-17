@@ -226,7 +226,7 @@ export default function HealthPage() {
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed var(--line)" }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Compare on the phone or iPad that isn't showing Apple Pay</div>
               <p style={{ fontSize: 12, color: "var(--quiet)", margin: "0 0 8px" }}>
-                Makes two $1 "do not pay" test checkouts: A is built exactly like the site's real ones, B is Square's simpler style (like links made in the Square dashboard). Open each in Safari on that device and see which shows an Apple Pay button. Delete them when you're done — nothing is charged unless someone actually pays one.
+                Makes two $1 "do not pay" test checkouts: A is the old itemised style (Square left Apple Pay off it), B is the style every real checkout uses now. Open each in Safari on that device and see which shows an Apple Pay button — B should. Delete them when you're done — nothing is charged unless someone actually pays one.
               </p>
               {!testLinks && (
                 <button className="btn-ghost" onClick={makeTestLinks} disabled={testBusy || !config} style={{ fontSize: 13 }}>
@@ -240,7 +240,7 @@ export default function HealthPage() {
                   ) : (
                     <div key={i} style={{ fontSize: 13 }}>
                       <a href={l.url} target="_blank" rel="noreferrer" style={{ color: "var(--brass)", fontWeight: 700 }}>
-                        Open test link {l.kind === "order" ? "A (built like real checkouts)" : "B (simple style)"} ↗
+                        Open test link {l.kind === "order" ? "A (old itemised style)" : "B (what real checkouts use now)"} ↗
                       </a>
                       <span style={{ color: "var(--quiet)", marginLeft: 8 }}>Square says Apple Pay {l.accepted_payment_methods?.apple_pay === true ? "on" : l.accepted_payment_methods?.apple_pay === false ? "off" : "not mentioned"}</span>
                     </div>
