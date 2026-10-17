@@ -101,6 +101,14 @@ PR with a clear plain-English description.
   out of the admin fee the club collects, and never rides membership,
   clinic-balance or fee-waived checkouts. The combined app fee is capped at
   90% of the order total so Square never rejects a small checkout.
+  Every link also sends `checkout_options.accepted_payment_methods =
+  { apple_pay: true, google_pay: true }` (owner's report, Oct 2026: an
+  iPad checkout offered Google Pay only). Square still shows Apple Pay
+  only in Safari on an Apple device with a card in Wallet, and Square's
+  own forums carry unresolved reports of API-made links omitting Apple
+  Pay even when asked — if it stays missing, the Square dashboard's
+  Online Checkout payment-method settings and Square support are the
+  next stops.
   Env vars for the connection: `SQUARE_APP_ID`, `SQUARE_APP_SECRET`,
   `SQUARE_APP_FEE_BPS` (unset/0 = no fee), `SQUARE_APP_FLAT_FEE_CENTS`
   (unset/0 = none). NOTE: once OAuth is live, the
