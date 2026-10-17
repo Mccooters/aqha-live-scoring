@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
-import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squarePayments";
+import { createSquarePaymentLink, deleteSquarePaymentLink, appFeeBps, appFlatFeeCents, resolveSquareToken } from "../../_lib/squarePayments";
 
 // Staff: ask Square which digital wallets it will put on this account's
 // payment links. Creates a $1 "do not pay" link exactly the way the site
@@ -50,24 +50,33 @@ export async function POST(req) {
     // A is the old itemised order style, B is the quick-pay style every real
     // checkout now uses. They stay until "delete" is called.
     if (body?.action === "test-links") {
-      // A: the old itemised order style (Square left Apple Pay off it);
-      // B: exactly what real checkouts send now (quick pay).
-      const a = await createSquarePaymentLink(db, orderPayload("Wallet check A — do not pay"), { itemised: true });
-      const b = await createSquarePaymentLink(db, orderPayload("Wallet check B — do not pay"));
+      // A: exactly what real checkouts send (quick pay, WITH the website fee
+      // when one is configured); B: the same link WITHOUT the website fee.
+      // The fee is the one thing that differed when Apple Pay came and went
+      // (owner's tests, Oct 2026).
+      const a = await createSquarePaymentLink(db, orderPayload("Wallet check A — do not pay"));
+      const b = await createSquarePaymentLink(db, orderPayload("Wallet check B — do not pay"), { noAppFee: true });
       const info = (kind, r) => (r.error
         ? { kind, error: r.error }
-        : { kind, id: r.link?.id ?? null, url: r.link?.url ?? null, accepted_payment_methods: r.link?.checkout_options?.accepted_payment_methods ?? null });
-      return NextResponse.json({ ok: true, links: [info("order", a), info("quick_pay", b)] });
+        : {
+          kind, id: r.link?.id ?? null, url: r.link?.url ?? null,
+          accepted_payment_methods: r.link?.checkout_options?.accepted_payment_methods ?? null,
+          app_fee_cents: r.link?.checkout_options?.app_fee_money?.amount ?? 0,
+        });
+      return NextResponse.json({ ok: true, links: [info("with_fee", a), info("no_fee", b)] });
     }
 
     const { link, error, status } = await createSquarePaymentLink(db, orderPayload("Wallet check — do not pay"));
     if (error) return NextResponse.json({ error }, { status: status ?? 502 });
     let deleted = false;
     try { deleted = await deleteSquarePaymentLink(db, link?.id); } catch (e) { console.error("Wallet check: could not delete the test link:", e.message); }
+    const { connection } = await resolveSquareToken(db);
     return NextResponse.json({
       ok: true,
       requested: { apple_pay: true, google_pay: true },
       accepted_payment_methods: link?.checkout_options?.accepted_payment_methods ?? null,
+      app_fee_cents: link?.checkout_options?.app_fee_money?.amount ?? 0,
+      fee_setup: { via_connection: Boolean(connection), bps: appFeeBps(), flat_cents: appFlatFeeCents() },
       deleted,
     });
   } catch (err) {
