@@ -249,6 +249,20 @@ export async function createSquarePaymentLink(db, payload, opts = {}) {
   }
 
   const body = { ...payload };
+  // Digital wallets: ask Square to offer Apple Pay and Google Pay on every
+  // link. Square only shows each one when the buyer's browser supports it
+  // (Apple Pay = Safari on an Apple device with a card in Wallet), but
+  // unless a link opts in explicitly some checkouts showed Google Pay only
+  // (owner's report, Oct 2026 — an iPad raffle checkout). Callers can
+  // still override per link.
+  body.checkout_options = {
+    ...(payload.checkout_options ?? {}),
+    accepted_payment_methods: {
+      apple_pay: true,
+      google_pay: true,
+      ...(payload.checkout_options?.accepted_payment_methods ?? {}),
+    },
+  };
   // The developer fee rides on OAuth payments only (Square's rule):
   // percentage of the order total plus any flat amount for this checkout,
   // capped well inside Square's own limit (the fee must stay below the
@@ -263,7 +277,7 @@ export async function createSquarePaymentLink(db, payload, opts = {}) {
     const fee = Math.min(Math.round((orderTotal * bps) / 10000) + flat, Math.floor(orderTotal * 0.9));
     if (fee > 0) {
       body.checkout_options = {
-        ...(payload.checkout_options ?? {}),
+        ...body.checkout_options,
         app_fee_money: { amount: fee, currency: "AUD" },
       };
     }
