@@ -1428,6 +1428,20 @@ export default function Coordinator() {
     await loadClasses();
   };
 
+  // "No membership needed" for ONE spot type (schema-v59) — fence sitting is
+  // open to everyone while rider spots keep the club's membership rule.
+  const toggleMembershipExempt = async (cls) => {
+    const exempt = !cls.membership_exempt;
+    const { error } = await supabase.from("classes").update({ membership_exempt: exempt }).eq("id", cls.id);
+    if (error) {
+      window.alert(/membership_exempt|does not exist|schema cache/i.test(error.message ?? "")
+        ? 'This needs a one-time database update — run "schema-v59-spot-type-membership-exempt.sql" in the Supabase SQL Editor first.'
+        : error.message);
+      return;
+    }
+    await loadClasses();
+  };
+
   // Close / reopen bookings for ONE spot type (schema-v51) — e.g. shut the
   // rider spots once their deadline passes while fence sitting, which has no
   // limit, keeps taking bookings until "Close entries" shuts the lot.
@@ -3021,7 +3035,7 @@ export default function Coordinator() {
                       }
                     </div>
                   )}
-                  {(cls.capacity != null || cls.entries_closed) && (
+                  {(cls.capacity != null || cls.entries_closed || cls.membership_exempt) && (
                     <div style={{ fontSize: 12, marginTop: 2, display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {cls.capacity != null && (
                         <span style={{ background: isFull ? "var(--clay)" : confirmedSpots >= cls.capacity * 0.8 ? "#A05000" : "var(--green)", color: "#fff", borderRadius: 8, padding: "1px 8px", fontWeight: 700 }}>
@@ -3032,6 +3046,12 @@ export default function Coordinator() {
                         <span style={{ background: "#F3EEE4", border: "1px solid #D8D0C3", color: "#6E6254", borderRadius: 8, padding: "0 8px", fontWeight: 800, fontSize: 11 }}
                           title="Staff closed online bookings for this spot type — reopen from the ⋯ menu">
                           BOOKINGS CLOSED
+                        </span>
+                      )}
+                      {cls.membership_exempt && (
+                        <span style={{ background: "#E6F2EA", border: "1px solid #2D7A52", color: "#2D7A52", borderRadius: 8, padding: "0 8px", fontWeight: 800, fontSize: 11 }}
+                          title="Anyone can book this spot type — no club membership needed (change from the ⋯ menu)">
+                          NO MEMBERSHIP NEEDED
                         </span>
                       )}
                     </div>
@@ -3074,6 +3094,7 @@ export default function Coordinator() {
                           { label: "✓ Mark completed", show: cls.status === "upcoming" && !isClinic, onClick: () => completeClassManual(cls) },
                           { label: "Reopen (back to upcoming)", show: cls.status === "completed" && !isClinic, onClick: () => reopenClass(cls) },
                           { label: cls.entries_closed ? "Reopen bookings for this spot type" : "Close bookings for this spot type", show: isClinic && cls.status === "upcoming", onClick: () => toggleBookingsClosed(cls) },
+                          { label: cls.membership_exempt ? "Membership needed again for this spot type" : "No membership needed for this spot type", show: isClinic && cls.status === "upcoming", onClick: () => toggleMembershipExempt(cls) },
                           { label: "Hide from schedule", show: cls.status === "upcoming", onClick: () => hideClass(cls) },
                           { label: "Delete class", show: cls.status === "upcoming", danger: true, onClick: () => deleteClass(cls) },
                         ].filter((a) => a.show).map((a) => (

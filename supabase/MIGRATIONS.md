@@ -229,6 +229,9 @@ hasn't been run.
       → **PayPal as a payment option**: records which provider (Square or
         PayPal) each checkout went through. Until it's run the PayPal
         choice stays hidden on every form, even with the PayPal keys set.
+- [ ] **v59** — `schema-v59-spot-type-membership-exempt.sql`
+      → **"No membership needed" per clinic spot type** (e.g. fence
+        sitting). Without it the ⋯ menu option shows a reminder to run it.
 
 Tick these off once you've run them.
 
@@ -296,6 +299,7 @@ Tick these off once you've run them.
 | `schema-v56-raffles.sql` | Fundraising raffles: `raffles`, `raffle_orders`, `raffle_tickets`, `raffle_secrets` (fair-draw seed, service role only) |
 | `schema-v57-raffle-live-updates.sql` | Raffle live updates: `raffles.tickets_changed_at` (bumped on every ticket change so public pages re-fetch) + raffle tables added to the realtime publication |
 | `schema-v58-paypal.sql` | PayPal payment option: `payment_provider` on registrations / club_members / raffle_orders, `registrations.balance_payment_provider` |
+| `schema-v59-spot-type-membership-exempt.sql` | `classes.membership_exempt` — a clinic spot type anyone can book without a club membership |
 
 ## For whoever updates the code next
 

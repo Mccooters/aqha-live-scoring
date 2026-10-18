@@ -536,7 +536,11 @@ export default function RegisterPage() {
 
   const isClinic = event?.event_type === "clinic";
   const isMultiMode = !isClinic && entryMode === "multi";
-  const membershipRequired = membershipSetting.enabled && (!isClinic || membershipSetting.include_clinics);
+  // Spot types marked "no membership needed" (schema-v59, e.g. fence sitting):
+  // when every chosen spot type is exempt, the membership rule doesn't apply.
+  const chosenExemptOnly = isClinic && entries.some((e) => e.class_id) &&
+    entries.filter((e) => e.class_id).every((e) => classes.find((c) => c.id === e.class_id)?.membership_exempt === true);
+  const membershipRequired = membershipSetting.enabled && (!isClinic || membershipSetting.include_clinics) && !chosenExemptOnly;
 
   // Early membership check on email blur — the server enforces this again at
   // submission; this just saves people filling in a whole form first.

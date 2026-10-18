@@ -291,6 +291,7 @@ export default function EventPage() {
                               : remaining != null
                                 ? full ? " — Full" : ` — ${remaining} spot${remaining === 1 ? "" : "s"} remaining`
                                 : null}
+                            {cls.membership_exempt && !closed && !full && <span style={{ color: "#2D7A52", fontWeight: 700 }}> · no membership needed</span>}
                           </div>
                         );
                       })}
