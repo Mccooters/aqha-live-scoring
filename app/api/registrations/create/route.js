@@ -115,7 +115,20 @@ export async function POST(req) {
     // required", only email addresses with an approved, current club
     // membership may enter. Any lookup failure fails open so entries are
     // never blocked by a technical problem.
-    const requiresMembership = await membershipRequirement(db, event);
+    // Spot types marked "no membership needed" (schema-v59 — e.g. fence
+    // sitting): when EVERY requested spot type is exempt, the membership rule
+    // doesn't apply to this booking. A pre-v59 database (no column) simply
+    // applies the rule as before.
+    let allExempt = false;
+    const requestedClassIds = [...new Set((entries ?? []).map((e) => e?.class_id).filter(Boolean))];
+    if (event.event_type === "clinic" && requestedClassIds.length) {
+      const { data: exemptRows, error: exemptErr } = await db
+        .from("classes").select("id, membership_exempt").in("id", requestedClassIds);
+      if (!exemptErr) {
+        allExempt = (exemptRows?.length ?? 0) === requestedClassIds.length && exemptRows.every((c) => c.membership_exempt === true);
+      }
+    }
+    const requiresMembership = allExempt ? false : await membershipRequirement(db, event);
     const eventDate = event.starts_on ? new Date(event.starts_on) : new Date();
     // A membership covers the event when its season is active for the event —
     // its own season, plus (at the July boundary) the coming season, so a

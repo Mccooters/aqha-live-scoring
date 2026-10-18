@@ -676,6 +676,17 @@ each with its own `capacity`) instead of a normal scored show.
   form reads "Bookings closed" rather than "Sold out" when every type is
   staff-closed, and `registrations/create` rejects entries into a closed
   type. The event-level "Close entries" still shuts everything at once.
+- **No membership needed per spot type (schema-v59)**: `classes.
+  membership_exempt` (owner's rule, Oct 2026 — fence sitting is open to
+  everyone; rider spots keep the club's membership rule). Toggled from the
+  spot type's ⋯ menu ("No membership needed for this spot type", green
+  NO MEMBERSHIP NEEDED badge; the public clinic page says "no membership
+  needed" on the spot line). When EVERY spot type in a booking is exempt,
+  the entry form drops the membership warning / day-membership / join
+  options (`chosenExemptOnly`) and `registrations/create` skips
+  `membershipRequirement()` (basis recorded as `not_required`); a mixed
+  booking (rider spot + fence sitting) still needs membership. Pre-v59
+  databases apply the rule as before.
 - Capacity is enforced server-side in `app/api/registrations/create/route.js`
   by counting non-scratched `entries` rows against `classes.capacity` —
   there's a small race window under simultaneous submissions right at the
