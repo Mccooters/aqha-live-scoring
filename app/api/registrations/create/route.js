@@ -7,7 +7,7 @@ import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squ
 import { createPayPalOrder, saveCheckout } from "../../_lib/paypal";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
-import { extraNights, extraAmountCents, nightLabel, MAX_QUANTITY } from "../../../../lib/eventExtras";
+import { extraNights, extraAmountCents, nightLabel, MAX_QUANTITY, isDated, unitNoun } from "../../../../lib/eventExtras";
 import { bookedExtraCounts } from "../../_lib/extras";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
@@ -485,18 +485,18 @@ export async function POST(req) {
           return NextResponse.json({ error: `Please choose how many "${def.name}" you need (1 to ${MAX_QUANTITY}).` }, { status: 400 });
         }
         let nights = [];
-        if (def.unit === "night") {
+        if (isDated(def)) {
           const allowed = extraNights(def, event);
           nights = [...new Set((Array.isArray(want.nights) ? want.nights : []).map((n) => String(n ?? "").slice(0, 10)))]
             .filter((n) => allowed.includes(n))
             .sort();
           if (!nights.length) {
-            return NextResponse.json({ error: `Please pick at least one night for "${def.name}".` }, { status: 400 });
+            return NextResponse.json({ error: `Please pick at least one ${unitNoun(def)} for "${def.name}".` }, { status: 400 });
           }
         }
         if (def.capacity != null) {
           const counts = booked[def.id] ?? { nights: {}, total: 0 };
-          if (def.unit === "night") {
+          if (isDated(def)) {
             for (const n of nights) {
               const taken = counts.nights[n] ?? 0;
               if (taken + quantity > def.capacity) {
@@ -837,10 +837,10 @@ export async function POST(req) {
     for (const x of extrasRows) {
       if (!(x.amount > 0)) continue;
       lineItems.push({
-        name: `${x.def.name} × ${x.quantity}${x.def.unit === "night" ? ` — ${x.nights.length} night${x.nights.length === 1 ? "" : "s"}` : ""}`,
+        name: `${x.def.name} × ${x.quantity}${isDated(x.def) ? ` — ${x.nights.length} ${unitNoun(x.def, x.nights.length)}` : ""}`,
         quantity: "1",
         base_price_money: { amount: x.amount, currency: "AUD" },
-        note: [x.def.unit === "night" ? x.nights.map(nightLabel).join(", ") : "Whole event", x.notes].filter(Boolean).join(" · ").slice(0, 500),
+        note: [isDated(x.def) ? x.nights.map(nightLabel).join(", ") : "Whole event", x.notes].filter(Boolean).join(" · ").slice(0, 500),
       });
     }
     // One-off fees appear as their own lines on the Square receipt

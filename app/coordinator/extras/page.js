@@ -3,10 +3,10 @@ import { useEffect, useState, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
-import { KIND_ICON, extraNights, nightLabel, priceLabel } from "../../../lib/eventExtras";
+import { KIND_ICON, extraNights, nightLabel, priceLabel, isDated, unitNoun } from "../../../lib/eventExtras";
 
-// Staff: who has booked which yards and camping sites for an event, night
-// by night (schema-v61) — the list the ground steward works from. Paid
+// Staff: who has booked which yards and camping sites for an event, day by
+// day (schema-v61) — the list the ground steward works from. Paid
 // bookings only. Printable (A4) like the member list.
 
 const fmtMoney = (cents) => `$${((cents ?? 0) / 100).toFixed(2)}`;
@@ -148,12 +148,12 @@ function ExtrasListInner() {
               <section key={x.id}>
                 <h2>
                   {KIND_ICON[x.kind] ?? ""} {x.name} — {priceLabel(x)}
-                  {x.capacity != null ? ` · ${x.capacity} available${x.unit === "night" ? " each night" : ""}` : ""}
+                  {x.capacity != null ? ` · ${x.capacity} available${isDated(x) ? ` each ${unitNoun(x)}` : ""}` : ""}
                   {!x.active ? " · switched off" : ""}
                   {x.pool ? ` · shared: ${x.pool}` : ""}
                 </h2>
                 {list.length === 0 && <p style={{ fontSize: 11, color: "#555", margin: "4px 0" }}>No bookings yet.</p>}
-                {x.unit === "night" ? nights.map((n) => {
+                {isDated(x) ? nights.map((n) => {
                   const rows = list.filter((b) => Array.isArray(b.nights) && b.nights.includes(n));
                   if (!rows.length) return null;
                   const booked = totalBooked(rows);
@@ -168,7 +168,7 @@ function ExtrasListInner() {
                               <td className="n">{b.quantity}</td>
                               <td>{who(b)}</td>
                               <td>{b.notes ?? ""}</td>
-                              <td>{fmtMoney(b.amount_cents)} for {b.nights.length} night{b.nights.length === 1 ? "" : "s"}</td>
+                              <td>{fmtMoney(b.amount_cents)} for {b.nights.length} {unitNoun(x, b.nights.length)}</td>
                             </tr>
                           ))}
                         </tbody>

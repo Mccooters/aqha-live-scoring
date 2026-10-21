@@ -2,20 +2,20 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
-import { EXTRA_KINDS, KIND_ICON, extraNights, nightLabel, priceLabel, addDays } from "../../lib/eventExtras";
+import { EXTRA_KINDS, EXTRA_UNITS, KIND_ICON, extraNights, nightLabel, priceLabel, addDays, isDated, unitNoun } from "../../lib/eventExtras";
 
 // Staff: what exhibitors can book with their entry for this event — yards
-// and camping sites per night, or anything with one price for the whole
+// per day, camping sites per night, or anything with one price for the whole
 // event (schema-v61). Opened from the dashboard's "🏕 Camping & yards"
 // button; rendered inside the dashboard's modal sheet.
 
-const blankDraft = () => ({ name: "", kind: "yard", unit: "night", price: "", capacity: "", first_night: "", last_night: "", description: "", pool: "" });
+const blankDraft = () => ({ name: "", kind: "yard", unit: "day", price: "", capacity: "", first_night: "", last_night: "", description: "", pool: "" });
 
 function draftFrom(row) {
   return {
     name: row.name ?? "",
     kind: row.kind ?? "other",
-    unit: row.unit ?? "night",
+    unit: EXTRA_UNITS[row.unit] ? row.unit : "night",
     price: row.price_cents ? (row.price_cents / 100).toFixed(2) : "",
     capacity: row.capacity == null ? "" : String(row.capacity),
     first_night: row.first_night ?? "",
@@ -27,6 +27,13 @@ function draftFrom(row) {
 
 function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, busy, event, poolNames = [] }) {
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+  // Yards are per day, camping per night (owner's rule): picking the type
+  // switches the pricing to match unless it's one price for the event.
+  const setKind = (e) => {
+    const kind = e.target.value;
+    setDraft((d) => ({ ...d, kind, unit: d.unit === "event" ? "event" : kind === "camping" ? "night" : kind === "yard" ? "day" : d.unit }));
+  };
+  const noun = unitNoun(draft);
   const defaultFirst = event?.starts_on ? addDays(event.starts_on, -1) : "";
   const defaultLast = event?.ends_on || event?.starts_on || "";
   return (
@@ -37,15 +44,14 @@ function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, bu
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div>
           <label className="modal-label">Type</label>
-          <select className="field" style={{ width: "100%", fontSize: 15 }} value={draft.kind} onChange={set("kind")}>
+          <select className="field" style={{ width: "100%", fontSize: 15 }} value={draft.kind} onChange={setKind}>
             {Object.entries(EXTRA_KINDS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
           </select>
         </div>
         <div>
           <label className="modal-label">Priced</label>
           <select className="field" style={{ width: "100%", fontSize: 15 }} value={draft.unit} onChange={set("unit")}>
-            <option value="night">Per night</option>
-            <option value="event">One price for the event</option>
+            {Object.entries(EXTRA_UNITS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
           </select>
         </div>
         <div>
@@ -53,18 +59,18 @@ function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, bu
           <input className="field" type="number" step="0.01" min="0" style={{ width: "100%", fontSize: 15 }} value={draft.price} onChange={set("price")} placeholder="0.00" />
         </div>
         <div>
-          <label className="modal-label">How many exist{draft.unit === "night" ? " (per night)" : ""}</label>
+          <label className="modal-label">How many exist{isDated(draft) ? ` (per ${noun})` : ""}</label>
           <input className="field" type="number" min="0" style={{ width: "100%", fontSize: 15 }} value={draft.capacity} onChange={set("capacity")} placeholder="blank = no limit" />
         </div>
-        {draft.unit === "night" && (
+        {isDated(draft) && (
           <>
             <div>
-              <label className="modal-label">First night</label>
+              <label className="modal-label">First {noun}</label>
               <input className="field" type="date" style={{ width: "100%", fontSize: 14 }} value={draft.first_night} onChange={set("first_night")} />
-              <div style={{ fontSize: 11.5, color: "var(--quiet)", marginTop: 3 }}>Blank = {defaultFirst ? nightLabel(defaultFirst) : "the night before the event"}</div>
+              <div style={{ fontSize: 11.5, color: "var(--quiet)", marginTop: 3 }}>Blank = {defaultFirst ? nightLabel(defaultFirst) : `the ${noun} before the event`}</div>
             </div>
             <div>
-              <label className="modal-label">Last night</label>
+              <label className="modal-label">Last {noun}</label>
               <input className="field" type="date" style={{ width: "100%", fontSize: 14 }} value={draft.last_night} onChange={set("last_night")} />
               <div style={{ fontSize: 11.5, color: "var(--quiet)", marginTop: 3 }}>Blank = {defaultLast ? nightLabel(defaultLast) : "the event's last day"}</div>
             </div>
@@ -121,11 +127,11 @@ export default function ExtrasManager({ event, onClose }) {
   const toRow = (d) => ({
     name: d.name.trim(),
     kind: EXTRA_KINDS[d.kind] ? d.kind : "other",
-    unit: d.unit === "event" ? "event" : "night",
+    unit: EXTRA_UNITS[d.unit] ? d.unit : "day",
     price_cents: Math.max(0, Math.round(parseFloat(d.price || "0") * 100) || 0),
     capacity: d.capacity === "" ? null : Math.max(0, parseInt(d.capacity, 10) || 0),
-    first_night: d.unit === "night" && d.first_night ? d.first_night : null,
-    last_night: d.unit === "night" && d.last_night ? d.last_night : null,
+    first_night: isDated(d) && d.first_night ? d.first_night : null,
+    last_night: isDated(d) && d.last_night ? d.last_night : null,
     description: d.description.trim() || null,
     pool: String(d.pool ?? "").trim() || null,
   });
@@ -143,7 +149,7 @@ export default function ExtrasManager({ event, onClose }) {
   };
   const validate = (d) => {
     if (!d.name.trim()) return "Give it a name, e.g. Yard or Powered camping site.";
-    if (d.unit === "night" && d.first_night && d.last_night && d.first_night > d.last_night) return "The first night must be before the last night.";
+    if (isDated(d) && d.first_night && d.last_night && d.first_night > d.last_night) return `The first ${unitNoun(d)} must be before the last ${unitNoun(d)}.`;
     return "";
   };
 
@@ -196,9 +202,10 @@ export default function ExtrasManager({ event, onClose }) {
     <>
       <h2 className="display modal-title">🏕 Camping &amp; yards</h2>
       <p style={{ fontSize: 13, color: "var(--quiet)", margin: "-8px 0 12px" }}>
-        What exhibitors can book with their entry for <strong>{event?.name}</strong>: yards or camping sites per night,
-        or anything with one price for the whole event. Say how many exist and the site stops selling when they are gone.
-        Per-night items are offered from the night before the event to its last day unless you set the nights.
+        What exhibitors can book with their entry for <strong>{event?.name}</strong>: yards per day, camping sites per
+        night, or anything with one price for the whole event. Say how many exist and the site stops selling when they
+        are gone. Per-day and per-night items are offered from the day before the event (arrival day) to its last day
+        unless you set the dates.
       </p>
       {missing && <p className="modal-error">Run <code>supabase/schema-v61-event-extras.sql</code> in the Supabase SQL editor first, then reopen this.</p>}
       {error && <p className="modal-error">{error}</p>}
@@ -228,8 +235,8 @@ export default function ExtrasManager({ event, onClose }) {
                   <div style={{ fontSize: 13, fontWeight: 700 }}>{priceLabel(r)}</div>
                 </div>
                 <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                  {r.capacity == null ? "No limit" : `${r.capacity} available${r.unit === "night" ? " each night" : ""}`}
-                  {r.unit === "night" && nights.length ? ` · ${nights.length === 1 ? nightLabel(nights[0]) : `${nightLabel(nights[0])} to ${nightLabel(nights[nights.length - 1])} (${nights.length} nights)`}` : ""}
+                  {r.capacity == null ? "No limit" : `${r.capacity} available${isDated(r) ? ` each ${unitNoun(r)}` : ""}`}
+                  {isDated(r) && nights.length ? ` · ${nights.length === 1 ? nightLabel(nights[0]) : `${nightLabel(nights[0])} to ${nightLabel(nights[nights.length - 1])} (${nights.length} ${unitNoun(r, nights.length)})`}` : ""}
                   {r.description ? ` · ${r.description}` : ""}
                   {r.pool ? ` · shared: ${r.pool}` : ""}
                 </div>

@@ -1042,20 +1042,29 @@ post-deadline reminders are a pending follow-up.
 ## Camping & yards (schema-v61)
 
 Bookable extras for shows AND clinics (owner's request, Oct 2026): yards
-and camping sites priced per night, or anything with one price for the
-whole event. `event_extras` (event_id, name, kind yard|camping|other, unit
-night|event, price_cents, capacity — per night for night items, null =
-unlimited — first_night/last_night overriding the default run of nights,
+priced per DAY, camping sites priced per night (owner's rule, Oct 2026:
+"Yards are per day" — the manager defaults a Yard to per day and a Camping
+item to per night, switching when the type changes unless it's one price),
+or anything with one price for the whole event. `event_extras` (event_id,
+name, kind yard|camping|other, unit day|night|event — a plain text column
+with no check constraint, so `day` needed no migration; price_cents,
+capacity — per day/night for dated items, null = unlimited —
+first_night/last_night overriding the default run of dates (the v61 column
+names stay and hold DAYS for per-day items),
 description, active, sort_order; public read, staff write) and
 `registration_extras` (registration_id cascade, extra_id — NO cascade, so
 an item with bookings can't be deleted, staff switch it off instead;
 quantity, nights jsonb ["YYYY-MM-DD"], amount_cents, notes; staff read
 only — the public success page gets them through
 `app/api/registrations/status` as `extras`). Shared helpers in
-`lib/eventExtras.js`: `extraNights(extra, event)` (first_night..last_night,
-defaulting to the night BEFORE `starts_on` through `ends_on`, max 14),
-`extraAmountCents` (price × quantity × nights for night items), `nightLabel`
-("Fri 14 Nov"), `priceLabel`, `bookingSummary`. `app/api/_lib/extras.js`
+`lib/eventExtras.js`: `isDated(extra)` (unit day|night — booked for
+particular dates, stored in `nights` either way), `unitNoun(extra, n)`
+("day"/"nights"… for wording — never hard-code "night"), `EXTRA_UNITS`,
+`extraNights(extra, event)` (first_night..last_night, defaulting to the day
+BEFORE `starts_on` — arrival day, when horses go into yards — through
+`ends_on`, max 14), `extraAmountCents` (price × quantity × dates for dated
+items), `nightLabel` ("Fri 14 Nov"), `priceLabel`, `bookingSummary`.
+`app/api/_lib/extras.js`
 `bookedExtraCounts(db, eventId)` counts PAID registrations' bookings per
 extra per night; `app/api/registrations/extras-status?event=` exposes
 those numbers (never names) so the entry form can show what's left.
