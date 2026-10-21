@@ -68,6 +68,8 @@ You don't need to write any code to launch this. Budget about 30–45 minutes.
    | `SQUARE_LOCATION_ID` | your Square location ID |
    | `SQUARE_ENVIRONMENT` | `sandbox` while testing, `production` for real payments |
    | `SQUARE_WEBHOOK_SIGNATURE_KEY` | from your Square webhook subscription — **required**: payments will not confirm without it |
+   | `WEBSITE_FEE_BPS` | optional — the website fee as a share of each online payment, e.g. `50` = 0.5%. Recorded for the monthly "Website fees" statement, never taken out of the payment |
+   | `WEBSITE_FEE_FLAT_CENTS` | optional — a flat website fee once per person per event, e.g. `500` = $5 (comes out of the event's admin fee) |
 
    For push notifications ("Notify me" on the spectator page), add this one to
    **Vercel Environment Variables**:

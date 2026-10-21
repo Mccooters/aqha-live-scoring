@@ -232,6 +232,11 @@ hasn't been run.
 - [ ] **v59** — `schema-v59-spot-type-membership-exempt.sql`
       → **"No membership needed" per clinic spot type** (e.g. fence
         sitting). Without it the ⋯ menu option shows a reminder to run it.
+- [ ] **v60** — `schema-v60-website-fees.sql`
+      → **Website fees statement**: records the website fee earned on each
+        online payment (Square and PayPal) so the "💵 Website fees" page can
+        produce the monthly bill for the club. Until it's run no fee lines
+        are recorded (the page says so).
 
 Tick these off once you've run them.
 
@@ -300,6 +305,7 @@ Tick these off once you've run them.
 | `schema-v57-raffle-live-updates.sql` | Raffle live updates: `raffles.tickets_changed_at` (bumped on every ticket change so public pages re-fetch) + raffle tables added to the realtime publication |
 | `schema-v58-paypal.sql` | PayPal payment option: `payment_provider` on registrations / club_members / raffle_orders, `registrations.balance_payment_provider` |
 | `schema-v59-spot-type-membership-exempt.sql` | `classes.membership_exempt` — a clinic spot type anyone can book without a club membership |
+| `schema-v60-website-fees.sql` | Website fees ledger (`website_fees`, one line per online payment / refund) + `website_fee_months` (billed / paid status) for the monthly statement |
 
 ## For whoever updates the code next
 

@@ -4,12 +4,15 @@
 // Two ways of being connected to Square, in order of preference:
 //   1. OAuth (schema-v31): the club has authorised the developer's Square
 //      application from the coordinator Registrations page. Payments run on
-//      the OAuth token, and each checkout can carry an application fee
-//      (SQUARE_APP_FEE_BPS, e.g. 50 = 0.5%) that Square automatically pays
-//      to the account that owns the application.
+//      the OAuth token.
 //   2. The club's own access token in SQUARE_ACCESS_TOKEN — the original
-//      setup, still the fallback whenever no OAuth connection exists. No
-//      application fee is possible this way (Square requires OAuth for it).
+//      setup, still the fallback whenever no OAuth connection exists.
+//
+// No checkout carries a Square "app fee" any more (owner's decision, Oct
+// 2026): the website fee is recorded per payment in the website_fees ledger
+// (app/api/_lib/websiteFees.js, schema-v60) and billed to the club monthly
+// instead — which also means Square shows Apple Pay again (it hid Apple Pay
+// on every link that carried an app fee).
 
 export function squareBase() {
   return process.env.SQUARE_ENVIRONMENT === "sandbox"
@@ -19,8 +22,9 @@ export function squareBase() {
 
 export const SQUARE_VERSION = "2024-01-18";
 
-// OAuth scopes the club grants. PAYMENTS_WRITE_ADDITIONAL_RECIPIENTS is the
-// one that permits the application fee.
+// OAuth scopes the club grants. PAYMENTS_WRITE_ADDITIONAL_RECIPIENTS was for
+// the old app fee; it stays in the list so the existing connection never
+// needs re-authorising, and is simply unused now.
 export const OAUTH_SCOPES = [
   "PAYMENTS_WRITE",
   "PAYMENTS_READ",
@@ -29,22 +33,6 @@ export const OAUTH_SCOPES = [
   "ORDERS_WRITE",
   "MERCHANT_PROFILE_READ",
 ];
-
-export function appFeeBps() {
-  const bps = parseInt(process.env.SQUARE_APP_FEE_BPS ?? "", 10);
-  return Number.isFinite(bps) && bps > 0 ? bps : 0;
-}
-
-// Flat website fee (cents, e.g. 500 = $5) added to the application fee on
-// checkouts that carry the event's one-off admin fee — so, like the admin
-// fee itself, each person pays it at most once per event, and it comes out
-// of the admin fee the club collects rather than costing the exhibitor more.
-// The registrations/create route passes it in via opts.flatFeeCents, already
-// capped at the admin fee actually charged.
-export function appFlatFeeCents() {
-  const cents = parseInt(process.env.SQUARE_APP_FLAT_FEE_CENTS ?? "", 10);
-  return Number.isFinite(cents) && cents > 0 ? cents : 0;
-}
 
 // Exchange or refresh an OAuth token. Returns Square's JSON (throws on error).
 async function obtainToken(body) {
@@ -234,13 +222,12 @@ export async function getSquareRefund(db, refundId) {
   return { refund: data.refund };
 }
 
-// Create a Square Payment Link for an order. Applies the developer fee when
-// the OAuth connection is in use. `payload` is the normal CreatePaymentLink
-// body minus authentication. `opts.flatFeeCents` adds a fixed amount to the
-// application fee for this one checkout (the once-per-event website fee that
-// comes out of the admin fee). Returns { link } or { error, status }.
-export async function createSquarePaymentLink(db, payload, opts = {}) {
-  const { connection, token } = await resolveSquareToken(db);
+// Create a Square Payment Link for an order. `payload` is the normal
+// CreatePaymentLink body minus authentication. Returns { link } or
+// { error, status }. Nothing is added for the website fee — that's recorded
+// at settlement (websiteFees.js), never taken out of the payment.
+export async function createSquarePaymentLink(db, payload) {
+  const { token } = await resolveSquareToken(db);
   if (!token || !process.env.SQUARE_LOCATION_ID) {
     return {
       error: "Payment is not configured yet. Please contact the club.",
@@ -253,11 +240,10 @@ export async function createSquarePaymentLink(db, payload, opts = {}) {
   // link. Square only shows each one when the buyer's browser supports it
   // (Apple Pay = Safari on an Apple device with a card in Wallet). NOTE:
   // Square's hosted checkout drops Apple Pay from any link that carries
-  // app_fee_money (the website fee below) — proven with identical test
-  // links with and without the fee on an iPhone and an iPad (owner's tests,
-  // Oct 2026). So the website fee and Apple Pay are mutually exclusive;
-  // the club chooses via SQUARE_APP_FEE_BPS / SQUARE_APP_FLAT_FEE_CENTS.
-  // Callers can still override the wallet request per link.
+  // app_fee_money — proven with identical test links with and without a
+  // fee on an iPhone and an iPad (owner's tests, Oct 2026). That is why no
+  // link carries one any more. Callers can still override the wallet
+  // request per link.
   body.checkout_options = {
     ...(payload.checkout_options ?? {}),
     accepted_payment_methods: {
@@ -266,28 +252,6 @@ export async function createSquarePaymentLink(db, payload, opts = {}) {
       ...(payload.checkout_options?.accepted_payment_methods ?? {}),
     },
   };
-  // The developer fee rides on OAuth payments only (Square's rule):
-  // percentage of the order total plus any flat amount for this checkout,
-  // capped well inside Square's own limit (the fee must stay below the
-  // payment total) so a small order can never make Square reject the link.
-  const bps = appFeeBps();
-  const flat = Math.max(0, Math.floor(opts.flatFeeCents ?? 0));
-  if (connection && !opts.noAppFee && (bps > 0 || flat > 0)) {
-    const orderTotal = body.quick_pay
-      ? (body.quick_pay.price_money?.amount ?? 0)
-      : (payload.order?.line_items ?? []).reduce(
-        (sum, item) => sum + (item.base_price_money?.amount ?? 0) * parseInt(item.quantity ?? "1", 10),
-        0
-      );
-    const fee = Math.min(Math.round((orderTotal * bps) / 10000) + flat, Math.floor(orderTotal * 0.9));
-    if (fee > 0) {
-      body.checkout_options = {
-        ...body.checkout_options,
-        app_fee_money: { amount: fee, currency: "AUD" },
-      };
-    }
-  }
-
   const res = await fetch(`${squareBase()}/v2/online-checkout/payment-links`, {
     method: "POST",
     headers: {

@@ -578,9 +578,8 @@ export default function RegistrationsPage() {
                   Online payments run through the club&apos;s authorised Square connection
                   (merchant {squareStatus.merchant_id}
                   {squareStatus.connected_at ? `, connected ${fmtDate(squareStatus.connected_at)}` : ""}).
-                  {squareStatus.fee_bps > 0
-                    ? ` A ${(squareStatus.fee_bps / 100).toFixed(2)}% platform fee applies to each payment.`
-                    : " No platform fee is currently configured."}
+                  {" Nothing is taken out of these payments — website fees are tallied for the monthly statement on the "}
+                  <Link href="/coordinator/fees" style={{ color: "var(--brass)" }}>Website fees page</Link>.
                 </p>
               ) : (
                 <p style={{ margin: "0 0 10px" }}>
@@ -588,9 +587,7 @@ export default function RegistrationsPage() {
                     ? "Online payments currently use the club's own Square access token."
                     : "Online payments are not configured yet."}
                   {" "}Connecting Square authorises this app with the club&apos;s Square account
-                  {squareStatus.fee_bps > 0
-                    ? ` and enables the ${(squareStatus.fee_bps / 100).toFixed(2)}% platform fee per payment.`
-                    : "."}
+                  {"."}
                 </p>
               )}
               {squareStatus.diagnostics && (

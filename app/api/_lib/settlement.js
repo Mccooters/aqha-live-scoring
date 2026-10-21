@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { approveRegistration } from "./registrations";
 import { markMembershipPaid } from "./memberships";
+import { recordWebsiteFee } from "./websiteFees";
 
 // Settlement of a COMPLETED payment — the one place that turns "money
 // arrived for order X" into entries / a paid membership / sold raffle tickets
@@ -15,6 +16,11 @@ import { markMembershipPaid } from "./memberships";
 // — the columns keep their Square names whichever provider issued the id).
 // Returns a NextResponse: 2xx = handled (or nothing to do), 5xx = transient
 // problem, the caller should let the provider retry.
+//
+// Every payment settled here also leaves one line in the website_fees ledger
+// (schema-v60) with the fee the website earned on it — Square and PayPal
+// alike — for the monthly statement to the club. Recording never blocks the
+// settlement (see websiteFees.js).
 export async function settleCompletedPayment(db, payment, orderId, { provider = "square" } = {}) {
   // Find our registration by the Square order ID stored at checkout creation time
   const { data: reg, error: regLookupErr } = await db
@@ -38,15 +44,15 @@ export async function settleCompletedPayment(db, payment, orderId, { provider = 
   if (!reg) {
     const balanceRes = await handleBalancePayment(db, payment, orderId, provider);
     if (balanceRes) return balanceRes;
-    const raffleRes = await handleRafflePayment(db, payment, orderId);
+    const raffleRes = await handleRafflePayment(db, payment, orderId, provider);
     if (raffleRes) return raffleRes;
-    return handleMembershipPayment(db, payment, orderId);
+    return handleMembershipPayment(db, payment, orderId, provider);
   }
 
   // Already handled — but a Square retry may arrive after the entries were
   // placed and before a same-order membership renewal was settled, so give
   // the renewal another chance (no-op when there isn't one).
-  if (reg.status === "paid") return handleMembershipPayment(db, payment, orderId);
+  if (reg.status === "paid") return handleMembershipPayment(db, payment, orderId, provider);
 
   // The completed payment must cover what was due — the full total, or the
   // deposit when the payer chose the deposit plan (schema-v47; the balance
@@ -67,16 +73,65 @@ export async function settleCompletedPayment(db, payment, orderId, { provider = 
     .eq("id", reg.id);
 
   await approveRegistration(db, reg.id);
+  await recordEntryFee(db, reg, payment, orderId, provider);
 
   // A membership renewal bought in the same checkout shares this Square
   // order — settle it too (does nothing when no membership matches).
-  return handleMembershipPayment(db, payment, orderId);
+  return handleMembershipPayment(db, payment, orderId, provider);
+}
+
+// Website fee line (schema-v60) for a registration's first payment. The
+// flat part of the fee rides only the checkout that carried the event's
+// one-off admin fee (so, once per person per event) and never exceeds it —
+// the same rule the old Square app fee followed. One line covers the whole
+// payment, including a membership bought in the same checkout.
+async function recordEntryFee(db, reg, payment, orderId, provider) {
+  let ev = null;
+  try {
+    ({ data: ev } = await db.from("events").select("name, event_type, admin_fee_cents").eq("id", reg.event_id).maybeSingle());
+  } catch { /* the line still records without the event name */ }
+  let withMembership = false;
+  try {
+    const { data: m, error } = await db.from("club_members").select("id").eq("square_order_id", orderId).limit(1);
+    withMembership = !error && (m?.length ?? 0) > 0;
+  } catch { /* club_members is optional (schema-v23) */ }
+  const isClinic = ev?.event_type === "clinic";
+  await recordWebsiteFee(db, {
+    provider,
+    paymentId: payment.id,
+    kind: "entry",
+    description: `${ev?.name ?? "Event"} — ${isClinic ? "clinic booking" : "entries"}${(reg.deposit_cents ?? 0) > 0 ? " (deposit)" : ""}${withMembership ? " + membership" : ""}`,
+    payerName: reg.contact_name,
+    eventId: reg.event_id,
+    registrationId: reg.id,
+    amountCents: payment.amount_money.amount,
+    flatEligibleCents: (reg.fees_cents ?? 0) > 0 ? (ev?.admin_fee_cents ?? 0) : 0,
+  });
+}
+
+// Website fee line (schema-v60) for a clinic balance payment — percentage
+// only; the flat part rode the first checkout.
+async function recordBalanceFee(db, reg, payment, provider) {
+  let ev = null;
+  try {
+    ({ data: ev } = await db.from("events").select("name").eq("id", reg.event_id).maybeSingle());
+  } catch { /* name only */ }
+  await recordWebsiteFee(db, {
+    provider,
+    paymentId: payment.id,
+    kind: "balance",
+    description: `${ev?.name ?? "Clinic"} — balance payment`,
+    payerName: reg.contact_name,
+    eventId: reg.event_id,
+    registrationId: reg.id,
+    amountCents: payment.amount_money.amount,
+  });
 }
 
 // A raffle ticket purchase (schema-v56): created by /api/raffle/[id]/order.
 // Marks the order paid and its reserved numbers sold, then emails the buyer
 // their numbers. null = not a raffle order (fall through to memberships).
-async function handleRafflePayment(db, payment, orderId) {
+async function handleRafflePayment(db, payment, orderId, provider = "square") {
   const { data: order, error } = await db
     .from("raffle_orders").select("*").eq("square_order_id", orderId).maybeSingle();
   if (error) {
@@ -101,6 +156,17 @@ async function handleRafflePayment(db, payment, orderId) {
   }
   await settleRaffleOrder(db, order.id, { paymentId: payment.id });
   if (!wasPaid) {
+    const { data: raffle } = await db.from("raffles").select("name").eq("id", order.raffle_id).maybeSingle();
+    const count = (order.numbers ?? []).length;
+    await recordWebsiteFee(db, {
+      provider,
+      paymentId: payment.id,
+      kind: "raffle",
+      description: `${raffle?.name ?? "Raffle"} — ${count} ticket${count === 1 ? "" : "s"}`,
+      payerName: order.buyer_name,
+      raffleOrderId: order.id,
+      amountCents: paidCents,
+    });
     try { await sendRaffleReceipt(db, order); } catch (e) { console.error("Raffle receipt email failed:", e?.message ?? e); }
   }
   return NextResponse.json({ ok: true });
@@ -190,6 +256,7 @@ async function handleBalancePayment(db, payment, orderId, provider = "square") {
       console.error("Payment settlement: recording balance payment failed, asking the provider to retry:", updErr.message);
       return NextResponse.json({ error: "Update failed" }, { status: 500 });
     }
+    await recordBalanceFee(db, reg, payment, provider);
     return NextResponse.json({ ok: true });
   }
 
@@ -217,6 +284,7 @@ async function handleBalancePayment(db, payment, orderId, provider = "square") {
     console.error("Payment settlement: recording balance payment failed, asking the provider to retry:", updErr.message);
     return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }
+  await recordBalanceFee(db, reg, payment, provider);
   return NextResponse.json({ ok: true });
 }
 
@@ -224,10 +292,10 @@ async function handleBalancePayment(db, payment, orderId, provider = "square") {
 // Marking one paid does NOT make the person a member yet — it moves the
 // application to "awaiting committee approval" on the coordinator's
 // Memberships page.
-async function handleMembershipPayment(db, payment, orderId) {
+async function handleMembershipPayment(db, payment, orderId, provider = "square") {
   const { data: member, error } = await db
     .from("club_members")
-    .select("id, status, total_cents")
+    .select("id, status, total_cents, member_name, membership_type_name, season")
     .eq("square_order_id", orderId)
     .maybeSingle();
 
@@ -263,6 +331,18 @@ async function handleMembershipPayment(db, payment, orderId) {
     .eq("id", member.id);
 
   await markMembershipPaid(db, member.id);
+  // Website fee line (schema-v60). When the membership shared an entry
+  // checkout, the entry line already covers this payment — the ledger's
+  // unique (provider, payment_id) index makes this a no-op then.
+  await recordWebsiteFee(db, {
+    provider,
+    paymentId: payment.id,
+    kind: "membership",
+    description: `${member.membership_type_name ?? "Club"} membership${member.season ? ` ${member.season}` : ""}`,
+    payerName: member.member_name,
+    memberId: member.id,
+    amountCents: paidCents,
+  });
 
   return NextResponse.json({ ok: true });
 }
