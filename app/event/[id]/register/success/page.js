@@ -150,7 +150,7 @@ function SuccessContent() {
             {isPaid ? (
               <>
                 <p style={{ fontSize: 15, fontWeight: 600, color: "var(--leather)", marginTop: 4 }}>
-                  Your entries are confirmed and have been added to the draw.
+                  {(reg?.registration_entries ?? []).length === 0 && (reg?.extras ?? []).length > 0 ? "Your camping & yards booking is confirmed." : "Your entries are confirmed and have been added to the draw."}
                 </p>
                 <p style={{ fontSize: 13.5, color: "var(--quiet)", marginTop: 0 }}>
                   {hasPayment ? "Your payment receipt comes from Square or PayPal (whichever you paid with), and we will email your booking confirmation" : "We will email your booking confirmation"} to <strong>{reg.contact_email}</strong>.
