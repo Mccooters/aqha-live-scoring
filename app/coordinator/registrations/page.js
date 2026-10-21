@@ -5,7 +5,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
 import { activeSeasons } from "../../../lib/membershipSeason";
 import { balanceDueDate, balanceDueLabel, balancePaidCents } from "../../../lib/clinicPayments";
-import { nightLabel } from "../../../lib/eventExtras";
+import { nightLabel, isDated } from "../../../lib/eventExtras";
 
 const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
 // "AQHA 12345 · PHAA 678" from an entry's stored registration numbers.
@@ -562,7 +562,7 @@ export default function RegistrationsPage() {
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             {eventId && (
               <Link href={`/coordinator/extras?event=${eventId}`} style={{ color: "var(--brass-soft)", fontSize: 13 }}
-                title="Who has booked yards and camping, night by night">
+                title="Who has booked yards and camping, day by day">
                 🏕 Camping &amp; yards list
               </Link>
             )}
@@ -875,7 +875,7 @@ export default function RegistrationsPage() {
                       {reg.registration_extras.map((x) => (
                         <div key={x.id}>
                           {x.event_extras?.name ?? "Extra"} × {x.quantity}
-                          {x.event_extras?.unit === "night" && Array.isArray(x.nights) && x.nights.length ? ` · ${x.nights.map(nightLabel).join(", ")}` : ""}
+                          {isDated(x.event_extras) && Array.isArray(x.nights) && x.nights.length ? ` · ${x.nights.map(nightLabel).join(", ")}` : ""}
                           {" — "}{fmtMoney(x.amount_cents)}
                           {x.notes ? <span style={{ color: "var(--quiet)" }}> · {x.notes}</span> : null}
                         </div>

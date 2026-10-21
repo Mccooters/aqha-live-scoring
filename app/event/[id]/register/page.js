@@ -7,7 +7,7 @@ import { groupedByProgramCategory } from "../../../../lib/classCategories";
 import { signupSeason, currentSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
-import { extraNights, nightLabel, extraAmountCents, priceLabel, KIND_ICON, MAX_QUANTITY } from "../../../../lib/eventExtras";
+import { extraNights, nightLabel, extraAmountCents, priceLabel, KIND_ICON, MAX_QUANTITY, isDated, unitNoun } from "../../../../lib/eventExtras";
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 // "2026-2027" → "2026–27"
 const shortSeason = (season) => {
@@ -999,8 +999,8 @@ export default function RegisterPage() {
       ? submissionEntries.filter((e) => e.class_id && e.exhibitor.trim())
       : submissionEntries.filter((e) => e.class_id && hasNumber(e) && e.horse_name.trim() && e.exhibitor.trim());
     for (const { extra, booking } of bookedExtras) {
-      if (extra.unit === "night" && !(booking.nights?.length)) {
-        setError(`Please pick at least one night for ${extra.name}.`);
+      if (isDated(extra) && !(booking.nights?.length)) {
+        setError(`Please pick at least one ${unitNoun(extra)} for ${extra.name}.`);
         return;
       }
     }
@@ -1080,7 +1080,7 @@ export default function RegisterPage() {
           extras: bookedExtras.map(({ extra, booking }) => ({
             extra_id: extra.id,
             quantity: booking.quantity,
-            nights: extra.unit === "night" ? (booking.nights ?? []) : [],
+            nights: isDated(extra) ? (booking.nights ?? []) : [],
             notes: booking.notes?.trim() || null,
           })),
           entries: valid.map((e) => {
@@ -1629,7 +1629,7 @@ export default function RegisterPage() {
                 {myExtras.map((m, i) => (
                   <div key={i}>
                     {m.name} × {m.quantity}
-                    {m.unit === "night" && m.nights?.length ? ` · ${m.nights.map(nightLabel).join(", ")}` : ""}
+                    {isDated(m) && m.nights?.length ? ` · ${m.nights.map(nightLabel).join(", ")}` : ""}
                     {m.event_name && m.event_id !== eventId ? ` (booked with ${m.event_name})` : ""}
                   </div>
                 ))}
@@ -1643,7 +1643,7 @@ export default function RegisterPage() {
                 const counts = extrasBooked[x.id] ?? { nights: {}, total: 0 };
                 const leftFor = (n) => (x.capacity == null ? null : Math.max(0, x.capacity - (counts.nights?.[n] ?? 0)));
                 const leftTotal = x.capacity == null ? null : Math.max(0, x.capacity - (counts.total ?? 0));
-                const soldOut = x.unit === "night"
+                const soldOut = isDated(x)
                   ? (x.capacity != null && nights.every((n) => leftFor(n) === 0))
                   : leftTotal === 0;
                 const setB = (patch) => setExtraBookings((b) => ({ ...b, [x.id]: { ...booking, ...patch } }));
@@ -1654,7 +1654,7 @@ export default function RegisterPage() {
                   .reduce((s, m) => s + ((m.nights ?? []).includes(n) ? (Number(m.quantity) || 0) : 0), 0);
                 const sharedWith = extrasShared[x.id] ?? [];
                 const sharedText = sharedWith.length > 1 ? `${sharedWith.slice(0, -1).join(", ")} and ${sharedWith[sharedWith.length - 1]}` : sharedWith[0];
-                const maxQty = x.unit === "night"
+                const maxQty = isDated(x)
                   ? Math.min(MAX_QUANTITY, ...(chosen.length ? chosen.map((n) => leftFor(n) ?? MAX_QUANTITY) : [x.capacity ?? MAX_QUANTITY]))
                   : Math.min(MAX_QUANTITY, leftTotal ?? MAX_QUANTITY);
                 return (
@@ -1681,13 +1681,13 @@ export default function RegisterPage() {
                               {Array.from({ length: Math.max(0, maxQty) + 1 }, (_, i) => <option key={i} value={i}>{i}</option>)}
                             </select>
                           </label>
-                          {x.unit !== "night" && leftTotal != null && (
+                          {!isDated(x) && leftTotal != null && (
                             <span style={{ fontSize: 12, color: "var(--quiet)" }}>{leftTotal} left</span>
                           )}
                         </div>
-                        {x.unit === "night" && booking.quantity > 0 && (
+                        {isDated(x) && booking.quantity > 0 && (
                           <div style={{ marginTop: 8 }}>
-                            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>Which nights?</div>
+                            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>Which {unitNoun(x, 2)}?</div>
                             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               {nights.map((n) => {
                                 const on = chosen.includes(n);
@@ -1755,7 +1755,7 @@ export default function RegisterPage() {
                 {bookedExtras.map(({ extra, booking }) => (
                   <div key={extra.id} style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
                     {extra.name} × {booking.quantity}
-                    {extra.unit === "night" ? ` · ${(booking.nights ?? []).length} night${(booking.nights ?? []).length === 1 ? "" : "s"}` : ""}
+                    {isDated(extra) ? ` · ${(booking.nights ?? []).length} ${unitNoun(extra, (booking.nights ?? []).length)}` : ""}
                     {" — "}{fmtMoney(extraAmountCents(extra, booking.quantity, booking.nights ?? []))}
                   </div>
                 ))}
