@@ -47,6 +47,7 @@ export default function RafflePage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [policyAccepted, setPolicyAccepted] = useState(false); // "I have read the refund policy" — ticket sales are final
   const [error, setError] = useState("");
   const formRef = useRef(null);
 
@@ -153,6 +154,7 @@ export default function RafflePage() {
   const buy = async (e) => {
     e.preventDefault();
     if (!selected.length) { setError("Tap the numbers you'd like first."); return; }
+    if (!policyAccepted) { setError("Please tick that you've read the refund policy — raffle ticket sales are final."); return; }
     if (takenState !== "ok") { setError("The ticket board hasn't loaded yet — please wait a moment and try again."); await loadTaken(); return; }
     setSubmitting(true); setError("");
     try {
@@ -415,6 +417,11 @@ export default function RafflePage() {
                 </div>
               </div>
             )}
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 9, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
+                <input type="checkbox" checked={policyAccepted} onChange={(e) => setPolicyAccepted(e.target.checked)}
+                  style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
+                <span>I have read the <Link href="/refunds" target="_blank" rel="noreferrer" style={{ color: "var(--brass)" }}>refund policy</Link> — raffle ticket sales are final once paid.</span>
+              </label>
             {error && <div style={{ color: "#B03030", fontSize: 14, fontWeight: 600 }}>{error}</div>}
               <button className="btn" type="submit" disabled={submitting || !selected.length || takenState !== "ok"}>
                 {submitting ? "Taking you to payment…" : total > 0 ? (paypalAvailable && paymentMethod === "paypal" ? `Pay ${fmtMoney(total)} with PayPal` : `Pay ${fmtMoney(total)} by card`) : "Claim tickets"}

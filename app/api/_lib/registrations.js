@@ -271,6 +271,7 @@ async function sendBookingConfirmation(db, registrationId) {
     ? `- Replacement numbers: ${formatMoney(replacementNumbersAmount)}`
     : null;
 
+  const policyUrl = `${(process.env.NEXT_PUBLIC_BASE_URL ?? "").replace(/\/$/, "")}/refunds`;
   const html = `
     <div style="font-family:Arial,sans-serif;color:#2f261d;line-height:1.45;">
       <h1 style="font-size:22px;margin:0 0 12px;">Booking confirmed</h1>
@@ -294,6 +295,7 @@ async function sendBookingConfirmation(db, registrationId) {
       </div>
       ` : `<p>Total paid: <strong>${escapeHtml(formatMoney(reg.total_cents))}</strong></p>`}
       ${hasPayment ? `<p style="color:#6e6254;">Square sends the payment receipt separately.</p>` : ""}
+      <p style="color:#6e6254;font-size:13px;">Refunds and cancellations follow the club's refund policy: <a href="${policyUrl}">${policyUrl}</a></p>
     </div>
   `;
 
@@ -315,6 +317,7 @@ async function sendBookingConfirmation(db, registrationId) {
       ? `Balance to pay: ${formatMoney(balanceInfo.owing)}${balanceInfo.dueLabel ? ` - due by ${balanceInfo.dueLabel}` : " - due 2 weeks before the clinic"}. Pay any time at ${balanceInfo.url}`
       : null,
     hasPayment ? "Square sends the payment receipt separately." : null,
+    `Refunds and cancellations follow the club's refund policy: ${policyUrl}`,
   ].filter((line) => line != null).join("\n");
 
   const body = {

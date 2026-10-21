@@ -223,6 +223,9 @@ export default function Home() {
             </div>
           </details>
         )}
+        <p style={{ textAlign: "center", marginTop: 28, fontSize: 12.5, color: "var(--quiet)" }}>
+          <Link href="/refunds" style={{ color: "var(--brass)" }}>Refund policy</Link>
+        </p>
       </main>
     </>
   );

@@ -197,6 +197,9 @@ function SuccessContent() {
                         </button>
                       )}
                     </div>
+                    <p style={{ fontSize: 12, color: "var(--quiet)", margin: "8px 0 0" }}>
+                      Deposits are non-refundable and balances follow the club&apos;s <Link href="/refunds" style={{ color: "var(--brass)" }}>refund policy</Link>.
+                    </p>
                     {balance.partial_allowed && showPartForm && (
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
                         <span style={{ fontSize: 16, fontWeight: 700 }}>$</span>
