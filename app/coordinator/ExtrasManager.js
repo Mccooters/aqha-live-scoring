@@ -9,7 +9,7 @@ import { EXTRA_KINDS, KIND_ICON, extraNights, nightLabel, priceLabel, addDays } 
 // event (schema-v61). Opened from the dashboard's "🏕 Camping & yards"
 // button; rendered inside the dashboard's modal sheet.
 
-const blankDraft = () => ({ name: "", kind: "yard", unit: "night", price: "", capacity: "", first_night: "", last_night: "", description: "" });
+const blankDraft = () => ({ name: "", kind: "yard", unit: "night", price: "", capacity: "", first_night: "", last_night: "", description: "", pool: "" });
 
 function draftFrom(row) {
   return {
@@ -21,10 +21,11 @@ function draftFrom(row) {
     first_night: row.first_night ?? "",
     last_night: row.last_night ?? "",
     description: row.description ?? "",
+    pool: row.pool ?? "",
   };
 }
 
-function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, busy, event }) {
+function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, busy, event, poolNames = [] }) {
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
   const defaultFirst = event?.starts_on ? addDays(event.starts_on, -1) : "";
   const defaultLast = event?.ends_on || event?.starts_on || "";
@@ -72,6 +73,14 @@ function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, bu
       </div>
       <label className="modal-label">Description (optional)</label>
       <input className="field" style={{ width: "100%", fontSize: 14 }} value={draft.description} onChange={set("description")} placeholder="e.g. Steel yards near the arena. Bring your own feed bins." maxLength={200} />
+      <label className="modal-label">Shared with another event (optional)</label>
+      <input className="field" list="extra-pool-names" style={{ width: "100%", fontSize: 14 }} value={draft.pool ?? ""} onChange={set("pool")} placeholder="e.g. November weekend yards" maxLength={80} />
+      <datalist id="extra-pool-names">{poolNames.map((p) => <option key={p} value={p} />)}</datalist>
+      <div style={{ fontSize: 11.5, color: "var(--quiet)", marginTop: 3 }}>
+        Two events on the same weekend selling the same yards or sites? Give the matching item on each event the same
+        shared name (and the same number available). What&apos;s left is then counted across both events, and someone
+        entering the second event sees what they already booked with the first.
+      </div>
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button className="btn" style={{ fontSize: 14, padding: "8px 16px" }} onClick={onSubmit} disabled={busy}>{busy ? "Saving…" : submitLabel}</button>
         {onCancel && <button className="btn-ghost" style={{ fontSize: 13 }} onClick={onCancel} disabled={busy}>Cancel</button>}
@@ -87,6 +96,13 @@ export default function ExtrasManager({ event, onClose }) {
   const [draft, setDraft] = useState(blankDraft());
   const [editing, setEditing] = useState(null); // { id, draft }
   const [busy, setBusy] = useState(false);
+  const [poolNames, setPoolNames] = useState([]); // shared names already in use on any event (schema-v62)
+  useEffect(() => {
+    supabase.from("event_extras").select("pool").not("pool", "is", null).then(({ data, error }) => {
+      if (error) return;
+      setPoolNames([...new Set((data ?? []).map((r) => String(r.pool ?? "").trim()).filter(Boolean))].sort());
+    });
+  }, []);
 
   const load = useCallback(async () => {
     if (!event?.id) return;
@@ -111,7 +127,20 @@ export default function ExtrasManager({ event, onClose }) {
     first_night: d.unit === "night" && d.first_night ? d.first_night : null,
     last_night: d.unit === "night" && d.last_night ? d.last_night : null,
     description: d.description.trim() || null,
+    pool: String(d.pool ?? "").trim() || null,
   });
+  // A database without schema-v62 has no "pool" column: save the rest and
+  // say so when a shared name was typed.
+  const POOL_HINT = "Saved, but sharing with another event needs the database update — run supabase/schema-v62-extras-pool.sql, then edit the item and set the shared name again.";
+  const writeRow = async (run, row) => {
+    let { error: err } = await run(row);
+    if (err && /pool/i.test(err.message ?? "")) {
+      const { pool, ...rest } = row;
+      ({ error: err } = await run(rest));
+      if (!err && pool) err = { message: POOL_HINT, soft: true };
+    }
+    return err;
+  };
   const validate = (d) => {
     if (!d.name.trim()) return "Give it a name, e.g. Yard or Powered camping site.";
     if (d.unit === "night" && d.first_night && d.last_night && d.first_night > d.last_night) return "The first night must be before the last night.";
@@ -121,18 +150,21 @@ export default function ExtrasManager({ event, onClose }) {
   const add = async () => {
     const msg = validate(draft); if (msg) { setError(msg); return; }
     setBusy(true); setError("");
-    const { error: err } = await supabase.from("event_extras").insert({ ...toRow(draft), event_id: event.id, sort_order: (rows?.length ?? 0) + 1 });
+    const err = await writeRow((row) => supabase.from("event_extras").insert(row), { ...toRow(draft), event_id: event.id, sort_order: (rows?.length ?? 0) + 1 });
     setBusy(false);
-    if (err) { setError(err.message); return; }
+    if (err && !err.soft) { setError(err.message); return; }
+    if (err?.soft) setError(err.message);
     setDraft(blankDraft());
     await load();
   };
   const saveEdit = async () => {
     const msg = validate(editing.draft); if (msg) { setError(msg); return; }
     setBusy(true); setError("");
-    const { error: err } = await supabase.from("event_extras").update(toRow(editing.draft)).eq("id", editing.id);
+    const id = editing.id;
+    const err = await writeRow((row) => supabase.from("event_extras").update(row).eq("id", id), toRow(editing.draft));
     setBusy(false);
-    if (err) { setError(err.message); return; }
+    if (err && !err.soft) { setError(err.message); return; }
+    if (err?.soft) setError(err.message);
     setEditing(null);
     await load();
   };
@@ -182,7 +214,7 @@ export default function ExtrasManager({ event, onClose }) {
               return (
                 <ExtraForm key={r.id} title={`Edit ${r.name}`} draft={editing.draft}
                   setDraft={(fn) => setEditing((e) => ({ ...e, draft: typeof fn === "function" ? fn(e.draft) : fn }))}
-                  onSubmit={saveEdit} onCancel={() => setEditing(null)} submitLabel="Save" busy={busy} event={event} />
+                  onSubmit={saveEdit} onCancel={() => setEditing(null)} submitLabel="Save" busy={busy} event={event} poolNames={poolNames} />
               );
             }
             const nights = extraNights(r, event);
@@ -199,6 +231,7 @@ export default function ExtrasManager({ event, onClose }) {
                   {r.capacity == null ? "No limit" : `${r.capacity} available${r.unit === "night" ? " each night" : ""}`}
                   {r.unit === "night" && nights.length ? ` · ${nights.length === 1 ? nightLabel(nights[0]) : `${nightLabel(nights[0])} to ${nightLabel(nights[nights.length - 1])} (${nights.length} nights)`}` : ""}
                   {r.description ? ` · ${r.description}` : ""}
+                  {r.pool ? ` · shared: ${r.pool}` : ""}
                 </div>
                 <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
                   <button className="btn-ghost" onClick={() => { setError(""); setEditing({ id: r.id, draft: draftFrom(r) }); }} disabled={busy}>Edit</button>
@@ -212,7 +245,7 @@ export default function ExtrasManager({ event, onClose }) {
       )}
 
       {!missing && !editing && (
-        <ExtraForm title="Add something bookable" draft={draft} setDraft={setDraft} onSubmit={add} submitLabel="Add" busy={busy} event={event} />
+        <ExtraForm title="Add something bookable" draft={draft} setDraft={setDraft} onSubmit={add} submitLabel="Add" busy={busy} event={event} poolNames={poolNames} />
       )}
 
       <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>

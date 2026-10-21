@@ -242,6 +242,10 @@ hasn't been run.
         yards" button and the entry form's booking section need it. Until
         it's run the button says so and the entry form simply shows nothing
         to book.
+- [ ] **v62** — `schema-v62-extras-pool.sql`
+      → **Yards/camping shared between two events on the same weekend**: the
+        "Shared with another event" name on each item. Until it's run the
+        manager saves the item without the shared name and says so.
 
 Tick these off once you've run them.
 
@@ -312,6 +316,7 @@ Tick these off once you've run them.
 | `schema-v59-spot-type-membership-exempt.sql` | `classes.membership_exempt` — a clinic spot type anyone can book without a club membership |
 | `schema-v60-website-fees.sql` | Website fees ledger (`website_fees`, one line per online payment / refund) + `website_fee_months` (billed / paid status) for the monthly statement |
 | `schema-v61-event-extras.sql` | Camping & yards: `event_extras` (what's bookable per event, per night or per event, with capacity) + `registration_extras` (what each registration booked, which nights) |
+| `schema-v62-extras-pool.sql` | `event_extras.pool` — a shared name that makes the matching items on two events one pool of yards/sites (capacity counted across both; "already booked" shown on the second event's form) |
 
 ## For whoever updates the code next
 
