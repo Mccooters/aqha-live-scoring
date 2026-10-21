@@ -284,7 +284,7 @@ export default function MembershipPage() {
       !h.horse_name.trim() && (h.breed.trim() || h.registrations.trim() || h.notes.trim())
     );
     if (incompleteHorse) return fail("One of your horses is missing its name. Please fill it in or remove that horse.");
-    if (!agreed) return fail("Please confirm you have read and agree to the membership terms, liability waiver and declaration.");
+    if (!agreed) return fail("Please confirm you have read and agree to the membership terms, liability waiver and declaration, and have read the refund policy.");
 
     setSubmitting(true);
     let navigating = false;
@@ -745,7 +745,7 @@ export default function MembershipPage() {
             <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
                   <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)}
                     style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
-                  <span>I/we have read, understood and agree to the membership terms, liability waiver and declaration above, agree to abide by the Constitution and the Rules and Regulations of AQHA and HCQHA, and understand my application is subject to committee approval.</span>
+                  <span>I/we have read, understood and agree to the membership terms, liability waiver and declaration above, agree to abide by the Constitution and the Rules and Regulations of AQHA and HCQHA, and understand my application is subject to committee approval. I/we have also read the <Link href="/refunds" target="_blank" rel="noreferrer" style={{ color: "var(--brass)" }}>refund policy</Link>.</span>
                 </label>
                 <button className="btn" style={{ width: "100%", fontSize: 17, padding: 14, background: "var(--leather)" }}
                   onClick={submit} disabled={submitting || !types.length}>

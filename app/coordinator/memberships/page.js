@@ -557,6 +557,9 @@ export default function MembershipsPage() {
           )}
         </section>
 
+        {/* Refund requests email — shown on the public /refunds page */}
+        <RefundEmailCard />
+
         {/* Membership types */}
         <section className="card">
           <div className="card-head">
@@ -962,5 +965,58 @@ export default function MembershipsPage() {
         </div>
       )}
     </>
+  );
+}
+
+// Where the public refund policy (/refunds) tells people to send refund
+// requests. Stored in site_settings ("refund_email") so staff can set it
+// without a code change — the policy went live before the committee had
+// chosen the address (owner, Oct 2026).
+function RefundEmailCard() {
+  const [email, setEmail] = useState("");
+  const [saved, setSaved] = useState(null);   // the value in the database
+  const [ready, setReady] = useState(true);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    supabase.from("site_settings").select("value").eq("key", "refund_email").maybeSingle().then(({ data, error }) => {
+      if (error) { setReady(false); return; }
+      const v = typeof data?.value?.email === "string" ? data.value.email : "";
+      setEmail(v); setSaved(v);
+    });
+  }, []);
+  const save = async () => {
+    const v = email.trim();
+    if (v && !v.includes("@")) { alert("That doesn't look like an email address."); return; }
+    setSaving(true);
+    const { error } = await supabase
+      .from("site_settings")
+      .upsert({ key: "refund_email", value: { email: v }, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    setSaving(false);
+    if (error) { alert("Could not save: " + error.message); return; }
+    setSaved(v);
+  };
+  return (
+    <section className="card">
+      <div className="card-head">
+        <div>
+          <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>Refund requests email</div>
+          <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+            The address the public <Link href="/refunds" style={{ color: "var(--brass)" }}>refund policy</Link> tells people to write to.
+            Until it is set, the policy says the address is coming.
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "0 16px 12px" }}>
+        <input className="field" type="email" style={{ fontSize: 14, padding: "8px 10px", minWidth: 260 }}
+          placeholder="e.g. secretary@hcqha.com.au" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!ready} />
+        <button className="btn-ghost" style={{ fontSize: 13 }} onClick={save} disabled={saving || !ready || email.trim() === (saved ?? "")}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        {ready && saved !== null && (
+          <span style={{ fontSize: 12, color: "var(--quiet)" }}>{saved ? `Currently: ${saved}` : "Not set yet."}</span>
+        )}
+        {!ready && <span style={{ fontSize: 12, color: "var(--clay)" }}>Run schema-v22-site-settings.sql to enable this.</span>}
+      </div>
+    </section>
   );
 }

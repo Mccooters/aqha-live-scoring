@@ -1000,7 +1000,7 @@ export default function RegisterPage() {
       return;
     }
     if (!rulesAccepted) {
-      setError("Please confirm you have read and agree to the entry conditions.");
+      setError("Please confirm you have read and agree to the entry conditions and the refund policy.");
       return;
     }
 
@@ -1703,7 +1703,7 @@ export default function RegisterPage() {
             <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginBottom: 10, color: "var(--leather)", fontSize: 13, fontWeight: 700 }}>
               <input type="checkbox" checked={rulesAccepted} onChange={(e) => setRulesAccepted(e.target.checked)}
                 style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
-              <span>I have read and agree to the entry conditions.</span>
+              <span>I have read and agree to the entry conditions and the <Link href="/refunds" target="_blank" rel="noreferrer" style={{ color: "var(--brass)" }}>refund policy</Link>.</span>
             </label>
             <button className="btn" style={{ width: "100%", fontSize: 17, padding: 14, background: "var(--leather)" }}
               onClick={submit} disabled={submitting}>
@@ -1715,8 +1715,8 @@ export default function RegisterPage() {
             </button>
             <p style={{ fontSize: 11.5, color: "var(--quiet)", lineHeight: 1.45, margin: "10px 0 0" }}>
               {isClinic
-                ? "By registering, you participate at your own risk and agree to follow organiser and official directions. Fees are payable before participation unless otherwise arranged."
-                : "By submitting entries, you agree to HCQHA rules: horses must be eligible for their entered classes, competitors participate at their own risk and follow official directions, the show manager may alter the program or order of classes, refunds require a vet certificate, unpaid entries may be refused, and results may be withheld until payment is received."}
+                ? "By registering, you participate at your own risk and agree to follow organiser and official directions. Fees are payable before participation unless otherwise arranged. Deposits, cancellations and refunds follow the club's refund policy."
+                : "By submitting entries, you agree to HCQHA rules: horses must be eligible for their entered classes, competitors participate at their own risk and follow official directions, the show manager may alter the program or order of classes, refunds follow the club's refund policy, unpaid entries may be refused, and results may be withheld until payment is received."}
             </p>
           </div>
         </section>

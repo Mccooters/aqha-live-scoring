@@ -1017,3 +1017,24 @@ Remove (confirm dialog) for by-hand lines only. Rates come from
 page shows the rate in use and which env names it was read from (the old
 SQUARE_APP_… names are fine to keep — Vercel can't rename a variable, so
 nobody is asked to; owner, Oct 2026), and has the v60 probe.
+
+## Refund policy page
+
+Public `/refunds` (`app/refunds/page.js` + `RefundPolicy.js`, a client
+component) carries the club's refund policy as approved on 21 Oct 2026
+(owner's instruction: "add to website as is"; the source is the owner's
+shared document "HCQHA Refund Policy"). Every change to that text changes
+what people agree to at checkout, so edit it deliberately and keep it in
+step with the document. The one moving part is the refund email address:
+`site_settings` key `refund_email` (`{email}`), set by staff from the
+Memberships page's "Refund requests email" card (`RefundEmailCard`); until
+set, the page says the address is coming. Linked from: the entry form's
+conditions tick box ("…and the refund policy", required — the fine print no
+longer says "refunds require a vet certificate"), the membership form's
+agreement tick box, a required tick box on the raffle order form
+(`policyAccepted`), the booking confirmation email (`policyUrl`), the
+registration success page's balance card and a footer link on the home
+page. The policy promises two balance reminders in the 5 days after a
+clinic's deposit deadline and a forfeit after that; today those are staff
+actions (the Registrations page's "Send reminder" / scratch) — automatic
+post-deadline reminders are a pending follow-up.
