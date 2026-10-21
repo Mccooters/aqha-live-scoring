@@ -1038,3 +1038,49 @@ page. The policy promises two balance reminders in the 5 days after a
 clinic's deposit deadline and a forfeit after that; today those are staff
 actions (the Registrations page's "Send reminder" / scratch) — automatic
 post-deadline reminders are a pending follow-up.
+
+## Camping & yards (schema-v61)
+
+Bookable extras for shows AND clinics (owner's request, Oct 2026): yards
+and camping sites priced per night, or anything with one price for the
+whole event. `event_extras` (event_id, name, kind yard|camping|other, unit
+night|event, price_cents, capacity — per night for night items, null =
+unlimited — first_night/last_night overriding the default run of nights,
+description, active, sort_order; public read, staff write) and
+`registration_extras` (registration_id cascade, extra_id — NO cascade, so
+an item with bookings can't be deleted, staff switch it off instead;
+quantity, nights jsonb ["YYYY-MM-DD"], amount_cents, notes; staff read
+only — the public success page gets them through
+`app/api/registrations/status` as `extras`). Shared helpers in
+`lib/eventExtras.js`: `extraNights(extra, event)` (first_night..last_night,
+defaulting to the night BEFORE `starts_on` through `ends_on`, max 14),
+`extraAmountCents` (price × quantity × nights for night items), `nightLabel`
+("Fri 14 Nov"), `priceLabel`, `bookingSummary`. `app/api/_lib/extras.js`
+`bookedExtraCounts(db, eventId)` counts PAID registrations' bookings per
+extra per night; `app/api/registrations/extras-status?event=` exposes
+those numbers (never names) so the entry form can show what's left.
+
+Flow: staff define items from the dashboard's "🏕 Camping & yards" button
+(`app/coordinator/ExtrasManager.js` in the modal: add / edit / switch off /
+delete, per-night defaults shown). The entry form's "🏕 Camping & yards"
+section (shown whenever the event has active items) takes a quantity per
+item, the nights (toggle buttons with "n left" per night, capped by what's
+left) and an optional note (horse names / vehicle); the money joins
+`extrasCents` so it is charged up front even on a clinic deposit plan. A
+booking may be extras-only (no classes — someone who already entered and
+now needs a yard): the form allows it, `registrations/create` accepts
+`extras` without `entries`, skips the membership rule for it, inserts
+`registration_extras` after the entries, adds one Square line per item,
+and the PayPal description says "camping & yards booking". Server-side
+validation: item belongs to the event and is active, quantity 1–20,
+nights within the allowed run, capacity per night (or total) against paid
+bookings — the same small race window as clinic spots. Shown on the
+success page, in the booking confirmation email (and an extras-only
+booking gets "Your camping & yards booking is confirmed" wording), on the
+public event page under "Register entries →" ("Camping & yards can be
+booked with your entry: …"), and in the staff Registrations page's
+expanded row. `/coordinator/extras?event=` (header link on Registrations,
+"Who booked what" in the manager) is the printable night-by-night list
+for the ground steward: paid bookings only, per item, per night, with
+booked-of-capacity counts, names, notes and amounts. The refund policy
+does not yet mention camping/yards (follow-up for the committee).

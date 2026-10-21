@@ -210,6 +210,17 @@ async function sendBookingConfirmation(db, registrationId) {
   if (error || !reg) throw new Error(error?.message ?? "Registration not found");
 
   const entries = reg.registration_entries ?? [];
+  // Camping & yards booked with the entry (schema-v61) — best-effort.
+  let extras = [];
+  try {
+    const { data: ex, error: exErr } = await db
+      .from("registration_extras")
+      .select("quantity, nights, amount_cents, notes, event_extras(name, unit)")
+      .eq("registration_id", registrationId);
+    if (!exErr) extras = ex ?? [];
+  } catch {}
+  const { bookingSummary } = await import("../../../lib/eventExtras");
+  const extraLabel = (x) => bookingSummary(x.event_extras, x) + (x.notes ? ` — ${x.notes}` : "");
   const eventName = reg.event?.name ?? "your event";
   const eventDate = formatDate(reg.event?.starts_on);
   const eventMeta = [eventDate, reg.event?.location].filter(Boolean).join(" - ");
@@ -259,7 +270,12 @@ async function sendBookingConfirmation(db, registrationId) {
       <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">Replacement numbers</td>
       <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">${escapeHtml(formatMoney(replacementNumbersAmount))}</td>
     </tr>
-  ` : "");
+  ` : "") + extras.map((x) => `
+    <tr>
+      <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">Camping &amp; yards</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #e6ded1;">${escapeHtml(extraLabel(x))} (${escapeHtml(formatMoney(x.amount_cents))})</td>
+    </tr>
+  `).join("");
 
   const entriesText = entries
     .map((entry) => `- ${classLabel(entry)}: ${entryLabel(entry)}`)
@@ -276,7 +292,9 @@ async function sendBookingConfirmation(db, registrationId) {
     <div style="font-family:Arial,sans-serif;color:#2f261d;line-height:1.45;">
       <h1 style="font-size:22px;margin:0 0 12px;">Booking confirmed</h1>
       <p>Hi ${escapeHtml(reg.contact_name)},</p>
-      <p>Your entries for <strong>${escapeHtml(eventName)}</strong> have been confirmed and added to the draw.</p>
+      <p>${entries.length
+        ? `Your entries for <strong>${escapeHtml(eventName)}</strong> have been confirmed and added to the draw.`
+        : `Your camping &amp; yards booking for <strong>${escapeHtml(eventName)}</strong> is confirmed.`}</p>
       ${eventMeta ? `<p style="color:#6e6254;">${escapeHtml(eventMeta)}</p>` : ""}
       <table style="border-collapse:collapse;width:100%;max-width:680px;margin:18px 0;border:1px solid #e6ded1;">
         <thead>
@@ -304,11 +322,12 @@ async function sendBookingConfirmation(db, registrationId) {
     eventMeta,
     "",
     `Hi ${reg.contact_name},`,
-    `Your entries have been confirmed and added to the draw.`,
+    entries.length ? `Your entries have been confirmed and added to the draw.` : `Your camping & yards booking is confirmed.`,
     "",
     entriesText,
     dayMembershipText,
     replacementNumbersText,
+    ...extras.map((x) => `- Camping & yards: ${extraLabel(x)} (${formatMoney(x.amount_cents)})`),
     "",
     balanceInfo
       ? `Deposit paid (non-refundable): ${formatMoney(balanceInfo.deposit)}`

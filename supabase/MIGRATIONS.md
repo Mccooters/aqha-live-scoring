@@ -237,6 +237,11 @@ hasn't been run.
         online payment (Square and PayPal) so the "💵 Website fees" page can
         produce the monthly bill for the club. Until it's run no fee lines
         are recorded (the page says so).
+- [ ] **v61** — `schema-v61-event-extras.sql`
+      → **Camping & yards bookable online**: the dashboard's "🏕 Camping &
+        yards" button and the entry form's booking section need it. Until
+        it's run the button says so and the entry form simply shows nothing
+        to book.
 
 Tick these off once you've run them.
 
@@ -306,6 +311,7 @@ Tick these off once you've run them.
 | `schema-v58-paypal.sql` | PayPal payment option: `payment_provider` on registrations / club_members / raffle_orders, `registrations.balance_payment_provider` |
 | `schema-v59-spot-type-membership-exempt.sql` | `classes.membership_exempt` — a clinic spot type anyone can book without a club membership |
 | `schema-v60-website-fees.sql` | Website fees ledger (`website_fees`, one line per online payment / refund) + `website_fee_months` (billed / paid status) for the monthly statement |
+| `schema-v61-event-extras.sql` | Camping & yards: `event_extras` (what's bookable per event, per night or per event, with capacity) + `registration_extras` (what each registration booked, which nights) |
 
 ## For whoever updates the code next
 

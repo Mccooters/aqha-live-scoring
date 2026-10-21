@@ -11,6 +11,7 @@ import { suggestHpCategory } from "../../lib/hpCategory";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 import ImportResults from "./ImportResults";
+import ExtrasManager from "./ExtrasManager";
 
 // "called" = been through the ring, in EVERY mode (owner's rule, Sept 2026:
 // the gate marshal must be able to call the next horse on a scored class
@@ -2640,6 +2641,12 @@ export default function Coordinator() {
                 Manage patterns PDF
               </button>
             )}
+            {eventId && (
+              <button className="btn-ghost" onClick={() => openModal("extras")}
+                title="Yards and camping sites exhibitors can book with their entry">
+                🏕 Camping &amp; yards
+              </button>
+            )}
             <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
             <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
             {!isClinic && (
@@ -3313,6 +3320,10 @@ export default function Coordinator() {
         <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
           <div className="modal-sheet">
             <ProgramCategoryDatalist />
+
+            {modal.type === "extras" && (
+              <ExtrasManager event={currentEvent} onClose={closeModal} />
+            )}
 
             {modal.type === "event" && (
               <>

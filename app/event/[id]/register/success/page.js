@@ -2,6 +2,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { nightLabel } from "../../../../../lib/eventExtras";
 
 // Poll for up to ~5 minutes (2s early, then 10s) — the Square webhook can lag
 // under load, and stopping at 30s while still telling the user "this updates
@@ -253,6 +254,22 @@ function SuccessContent() {
                         {e.back_number != null ? `Back #${String(e.back_number).padStart(3, "0")} · ` : ""}{e.horse_name}
                       </div>
                       <div style={{ color: "var(--quiet)", fontSize: 13 }}>{e.exhibitor}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(reg?.extras ?? []).length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>🏕 Camping &amp; yards</div>
+                <div style={{ border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+                  {reg.extras.map((x, i) => (
+                    <div key={x.id} style={{ padding: "10px 14px", borderBottom: i < reg.extras.length - 1 ? "1px solid var(--line)" : "none", fontSize: 14 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        {x.name} × {x.quantity}{x.unit === "night" && x.nights?.length ? ` · ${x.nights.map(nightLabel).join(", ")}` : ""}
+                      </div>
+                      {x.notes && <div style={{ color: "var(--quiet)", fontSize: 13 }}>{x.notes}</div>}
                     </div>
                   ))}
                 </div>
