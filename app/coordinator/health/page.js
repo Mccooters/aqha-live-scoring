@@ -44,6 +44,7 @@ const MIGRATION_CHECKS = [
   { m: "v58", what: "PayPal payment option", probe: () => supabase.from("registrations").select("payment_provider").limit(1) },
   { m: "v59", what: "No-membership spot types (fence sitting)", probe: () => supabase.from("classes").select("membership_exempt").limit(1) },
   { m: "v60", what: "Website fees ledger + monthly statement", probe: () => supabase.from("website_fees").select("id").limit(1) },
+  { m: "v61", what: "Camping & yards bookable with entries", probe: () => supabase.from("event_extras").select("id").limit(1) },
 ];
 
 const CONFIG_LABELS = {

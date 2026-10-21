@@ -5,6 +5,7 @@ import { supabase } from "../../../lib/supabaseClient";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
 import { activeSeasons } from "../../../lib/membershipSeason";
 import { balanceDueDate, balanceDueLabel, balancePaidCents } from "../../../lib/clinicPayments";
+import { nightLabel } from "../../../lib/eventExtras";
 
 const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
 // "AQHA 12345 · PHAA 678" from an entry's stored registration numbers.
@@ -58,12 +59,21 @@ export default function RegistrationsPage() {
   const load = useCallback(async () => {
     if (!eventId) return;
     setLoading(true);
+    // Camping & yards (schema-v61) come along when the tables exist; an
+    // older database answers the plain query.
+    const withExtras = await supabase
+      .from("registrations")
+      .select("*, registration_entries(*), registration_extras(*, event_extras(name, kind, unit))")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: false });
     const [{ data }, { data: clsRows }] = await Promise.all([
-      supabase
-        .from("registrations")
-        .select("*, registration_entries(*)")
-        .eq("event_id", eventId)
-        .order("created_at", { ascending: false }),
+      withExtras.error
+        ? supabase
+          .from("registrations")
+          .select("*, registration_entries(*)")
+          .eq("event_id", eventId)
+          .order("created_at", { ascending: false })
+        : Promise.resolve(withExtras),
       // Class number + name for each entry row (owner's request, Sept 2026 —
       // the entries table showed the horse four times with no way to tell
       // which class each line was for).
@@ -549,9 +559,17 @@ export default function RegistrationsPage() {
               Online Registrations
             </h1>
           </div>
-          <Link href="/coordinator" style={{ color: "var(--brass-soft)", fontSize: 13, alignSelf: "center" }}>
-            ← Dashboard
-          </Link>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            {eventId && (
+              <Link href={`/coordinator/extras?event=${eventId}`} style={{ color: "var(--brass-soft)", fontSize: 13 }}
+                title="Who has booked yards and camping, night by night">
+                🏕 Camping &amp; yards list
+              </Link>
+            )}
+            <Link href="/coordinator" style={{ color: "var(--brass-soft)", fontSize: 13, alignSelf: "center" }}>
+              ← Dashboard
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -850,6 +868,19 @@ export default function RegistrationsPage() {
                     </table>
                   ) : (
                     <p style={{ color: "var(--quiet)", fontSize: 13, padding: "4px 0 0" }}>No entry details found.</p>
+                  )}
+                  {(reg.registration_extras ?? []).length > 0 && (
+                    <div style={{ padding: "8px 0 0", fontSize: 13 }}>
+                      <div style={{ fontWeight: 800, color: "var(--leather)", marginBottom: 4 }}>🏕 Camping &amp; yards</div>
+                      {reg.registration_extras.map((x) => (
+                        <div key={x.id}>
+                          {x.event_extras?.name ?? "Extra"} × {x.quantity}
+                          {x.event_extras?.unit === "night" && Array.isArray(x.nights) && x.nights.length ? ` · ${x.nights.map(nightLabel).join(", ")}` : ""}
+                          {" — "}{fmtMoney(x.amount_cents)}
+                          {x.notes ? <span style={{ color: "var(--quiet)" }}> · {x.notes}</span> : null}
+                        </div>
+                      ))}
+                    </div>
                   )}
 
                   {!isPaid && !isCancelled && (

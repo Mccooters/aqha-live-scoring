@@ -7,6 +7,8 @@ import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squ
 import { createPayPalOrder, saveCheckout } from "../../_lib/paypal";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
+import { extraNights, extraAmountCents, nightLabel, MAX_QUANTITY } from "../../../../lib/eventExtras";
+import { bookedExtraCounts } from "../../_lib/extras";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
 const REPLACEMENT_NUMBERS_CENTS = 500;
@@ -29,9 +31,13 @@ export async function POST(req) {
       annual_membership_type_id,
       payment_plan, // "full" (default) | "deposit" — clinics only (schema-v47)
       payment_method, // "square" (default) | "paypal" (schema-v58)
+      extras: extrasInput, // camping & yards (schema-v61): [{ extra_id, quantity, nights, notes }]
     } = await req.json();
 
-    if (!event_id || !contact_name?.trim() || !contact_email?.trim() || !entries?.length) {
+    // Entries, or camping/yards on their own (someone who has already
+    // entered and now needs a yard) — never neither.
+    const extrasOnly = !entries?.length && Array.isArray(extrasInput) && extrasInput.length > 0;
+    if (!event_id || !contact_name?.trim() || !contact_email?.trim() || (!entries?.length && !extrasOnly)) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
@@ -128,7 +134,9 @@ export async function POST(req) {
         allExempt = (exemptRows?.length ?? 0) === requestedClassIds.length && exemptRows.every((c) => c.membership_exempt === true);
       }
     }
-    const requiresMembership = allExempt ? false : await membershipRequirement(db, event);
+    // A camping/yards-only booking is not an entry, so the membership rule
+    // for entering doesn't apply to it.
+    const requiresMembership = (allExempt || extrasOnly) ? false : await membershipRequirement(db, event);
     const eventDate = event.starts_on ? new Date(event.starts_on) : new Date();
     // A membership covers the event when its season is active for the event —
     // its own season, plus (at the July boundary) the coming season, so a
@@ -198,12 +206,14 @@ export async function POST(req) {
     // Load classes (with capacity) to build Square line items and enforce spot limits.
     // Filtered by event_id so a crafted request can't buy entries into another
     // event's classes at this event's fee.
-    const classIds = [...new Set(entries.map((e) => e.class_id))];
-    const { data: classes } = await db
-      .from("classes")
-      .select("*")
-      .eq("event_id", event_id)
-      .in("id", classIds);
+    const classIds = [...new Set((entries ?? []).map((e) => e.class_id))];
+    const { data: classes } = classIds.length
+      ? await db
+        .from("classes")
+        .select("*")
+        .eq("event_id", event_id)
+        .in("id", classIds)
+      : { data: [] };
     const classMap = Object.fromEntries((classes ?? []).map((c) => [c.id, c]));
 
     for (const classId of classIds) {
@@ -247,7 +257,7 @@ export async function POST(req) {
         .select("id", { count: "exact", head: true })
         .eq("class_id", classId)
         .eq("scratched", false);
-      const requestedForClass = entries.filter((e) => e.class_id === classId).length;
+      const requestedForClass = (entries ?? []).filter((e) => e.class_id === classId).length;
       if ((count ?? 0) + requestedForClass > cls.capacity) {
         const label = cls.name || `Class ${cls.num}`;
         return NextResponse.json(
@@ -271,7 +281,7 @@ export async function POST(req) {
         .filter((r) => r.club && r.number)
         .slice(0, 8);
     };
-    const normalEntries = entries.map((e) => ({
+    const normalEntries = (entries ?? []).map((e) => ({
       class_id: e.class_id,
       back_number: e.back_number == null || e.back_number === "" ? null : parseInt(e.back_number, 10),
       horse_name: String(e.horse_name ?? "").trim(),
@@ -353,11 +363,13 @@ export async function POST(req) {
         seenNewHorses.set(nameKey, true);
       }
 
-      const { data: existingEntries } = await db
-        .from("entries")
-        .select("class_id, back_number, horse, exhibitor")
-        .in("class_id", classIds)
-        .eq("scratched", false);
+      const { data: existingEntries } = classIds.length
+        ? await db
+          .from("entries")
+          .select("class_id, back_number, horse, exhibitor")
+          .in("class_id", classIds)
+          .eq("scratched", false)
+        : { data: [] };
 
       for (const entry of normalEntries) {
         const match = (existingEntries ?? []).find((existing) =>
@@ -439,6 +451,76 @@ export async function POST(req) {
     const includeReplacementNumbers = Boolean(replacement_numbers);
     const replacementNumbersCents = includeReplacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0;
 
+    // Camping & yards (schema-v61): extras booked with this registration —
+    // per-night items (yards, camping sites) with the nights chosen, or
+    // one-price-for-the-event items. Validated against the event's own list
+    // and its capacity (paid bookings only count, like clinic spots), and
+    // never trusted from the form.
+    const extrasRows = [];
+    let extrasCents = 0;
+    const requestedExtras = Array.isArray(extrasInput) ? extrasInput : [];
+    if (requestedExtras.length) {
+      const { data: extraDefs, error: extrasErr } = await db
+        .from("event_extras").select("*").eq("event_id", event_id).eq("active", true);
+      if (extrasErr) {
+        return NextResponse.json(
+          { error: "Camping and yards can't be booked yet — the database update (schema-v61) hasn't been run." },
+          { status: 500 }
+        );
+      }
+      const defById = Object.fromEntries((extraDefs ?? []).map((x) => [x.id, x]));
+      const booked = await bookedExtraCounts(db, event_id);
+      const seen = new Set();
+      for (const want of requestedExtras) {
+        const def = defById[want?.extra_id];
+        if (!def || seen.has(def.id)) {
+          return NextResponse.json(
+            { error: "One of the camping/yard options isn't available for this event. Please refresh the page and try again." },
+            { status: 400 }
+          );
+        }
+        seen.add(def.id);
+        const quantity = Math.floor(Number(want.quantity) || 0);
+        if (quantity < 1 || quantity > MAX_QUANTITY) {
+          return NextResponse.json({ error: `Please choose how many "${def.name}" you need (1 to ${MAX_QUANTITY}).` }, { status: 400 });
+        }
+        let nights = [];
+        if (def.unit === "night") {
+          const allowed = extraNights(def, event);
+          nights = [...new Set((Array.isArray(want.nights) ? want.nights : []).map((n) => String(n ?? "").slice(0, 10)))]
+            .filter((n) => allowed.includes(n))
+            .sort();
+          if (!nights.length) {
+            return NextResponse.json({ error: `Please pick at least one night for "${def.name}".` }, { status: 400 });
+          }
+        }
+        if (def.capacity != null) {
+          const counts = booked[def.id] ?? { nights: {}, total: 0 };
+          if (def.unit === "night") {
+            for (const n of nights) {
+              const taken = counts.nights[n] ?? 0;
+              if (taken + quantity > def.capacity) {
+                const left = Math.max(0, def.capacity - taken);
+                return NextResponse.json(
+                  { error: `Sorry — only ${left} "${def.name}" ${left === 1 ? "is" : "are"} left for ${nightLabel(n)}. Please adjust your booking.` },
+                  { status: 409 }
+                );
+              }
+            }
+          } else if (counts.total + quantity > def.capacity) {
+            const left = Math.max(0, def.capacity - counts.total);
+            return NextResponse.json(
+              { error: `Sorry — only ${left} "${def.name}" ${left === 1 ? "is" : "are"} left. Please adjust your booking.` },
+              { status: 409 }
+            );
+          }
+        }
+        const amount = extraAmountCents(def, quantity, nights);
+        extrasCents += amount;
+        extrasRows.push({ def, quantity, nights, amount, notes: String(want.notes ?? "").trim().slice(0, 300) || null });
+      }
+    }
+
     // One-off ground/admin fees (schema-v34): charged the first time this
     // person pays for this event, and skipped when they come back to add more
     // entries. We match by email, and only skip if an earlier PAID
@@ -467,11 +549,11 @@ export async function POST(req) {
     // Square order.
     const renewalCents = renewal ? (renewal.type.fee_cents ?? 0) : 0;
     const annualCents = annualJoin ? (annualJoin.type.fee_cents ?? 0) : 0;
-    const totalCents = entriesFeeCents + dayMembershipCents + replacementNumbersCents + feesCents;
+    const totalCents = entriesFeeCents + dayMembershipCents + replacementNumbersCents + feesCents + extrasCents;
     // The deposit charge is everything due now: each spot's deposit plus any
     // extras (fees/day membership) — only the spot balances wait.
     const depositCents = wantsDeposit
-      ? entryDepositCents + dayMembershipCents + replacementNumbersCents + feesCents
+      ? entryDepositCents + dayMembershipCents + replacementNumbersCents + feesCents + extrasCents
       : 0;
     const dueNowCents = wantsDeposit ? depositCents : totalCents;
     const chargeCents = dueNowCents + renewalCents + annualCents;
@@ -589,7 +671,7 @@ export async function POST(req) {
     const stripKeys = (rows, keys) => rows.map((r) => { const c = { ...r }; keys.forEach((k) => delete c[k]); return c; });
     let attempt = entryRows;
     let entErr;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 3 && attempt.length; i++) {
       ({ error: entErr } = await db.from("registration_entries").insert(attempt));
       if (!entErr) break;
       const m = `${entErr.message ?? ""} ${entErr.details ?? ""}`;
@@ -602,6 +684,19 @@ export async function POST(req) {
       attempt = stripKeys(attempt, keys);
     }
     if (entErr) return NextResponse.json({ error: entErr.message }, { status: 500 });
+
+    // Camping & yards booked with this registration (schema-v61).
+    if (extrasRows.length) {
+      const { error: exErr } = await db.from("registration_extras").insert(extrasRows.map((x) => ({
+        registration_id: reg.id,
+        extra_id: x.def.id,
+        quantity: x.quantity,
+        nights: x.nights,
+        amount_cents: x.amount,
+        notes: x.notes,
+      })));
+      if (exErr) return NextResponse.json({ error: exErr.message }, { status: 500 });
+    }
 
     // Create the renewal application now (status pending), copying the
     // details from their latest membership — the Square webhook finds it by
@@ -738,6 +833,16 @@ export async function POST(req) {
         note: `Replacement numbers for ${contact_name.trim()}`,
       });
     }
+    // Camping & yards — one line per item (schema-v61)
+    for (const x of extrasRows) {
+      if (!(x.amount > 0)) continue;
+      lineItems.push({
+        name: `${x.def.name} × ${x.quantity}${x.def.unit === "night" ? ` — ${x.nights.length} night${x.nights.length === 1 ? "" : "s"}` : ""}`,
+        quantity: "1",
+        base_price_money: { amount: x.amount, currency: "AUD" },
+        note: [x.def.unit === "night" ? x.nights.map(nightLabel).join(", ") : "Whole event", x.notes].filter(Boolean).join(" · ").slice(0, 500),
+      });
+    }
     // One-off fees appear as their own lines on the Square receipt
     if (feesCents > 0 && groundFee > 0) {
       lineItems.push({
@@ -795,7 +900,7 @@ export async function POST(req) {
       const count = normalEntries.length;
       const pp = await createPayPalOrder({
         amountCents: chargeCents,
-        description: `${event.name} — ${count === 1 ? (isClinic ? "1 clinic spot" : "1 class entry") : `${count} ${isClinic ? "clinic spots" : "class entries"}`}${wantsDeposit ? " (deposit)" : ""}`,
+        description: `${event.name} — ${count === 0 ? "camping & yards booking" : count === 1 ? (isClinic ? "1 clinic spot" : "1 class entry") : `${count} ${isClinic ? "clinic spots" : "class entries"}`}${wantsDeposit ? " (deposit)" : ""}`,
         referenceId: reg.id,
         customId: reg.id,
         returnUrl: `${baseUrl}/api/paypal/return?next=${encodeURIComponent(`/event/${event_id}/register/success?reg=${reg.id}`)}`,

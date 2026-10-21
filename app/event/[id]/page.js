@@ -7,6 +7,7 @@ import { normaliseBreakLabel, normaliseCategoryLabel, programDisplayRows, withou
 import { hasResult, resultOrder } from "../../../lib/showPrint";
 import { championshipTitles } from "../../../lib/championship";
 import { breakState, fmtClock } from "../../../lib/breakTimer";
+import { priceLabel } from "../../../lib/eventExtras";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -84,6 +85,7 @@ export default function EventPage() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
   const [classes, setClasses] = useState([]);
+  const [extras, setExtras] = useState([]); // camping & yards on offer (schema-v61)
   const [notifStatus, setNotifStatus] = useState("idle"); // idle | loading | subscribed | denied
   const [notifError, setNotifError] = useState("");
   // iPhone only allows notifications for sites added to the Home Screen, so we
@@ -106,6 +108,9 @@ export default function EventPage() {
       supabase.from("classes").select("*, entries(*)").eq("event_id", id).order("sort_order"),
     ]);
     if (ev) setEvent(ev);
+    // Camping & yards on offer (schema-v61) — absent before the migration.
+    supabase.from("event_extras").select("name, kind, unit, price_cents, sort_order").eq("event_id", id).eq("active", true)
+      .order("sort_order").then(({ data, error }) => { if (!error) setExtras(data ?? []); });
     if (cls) {
       // Hidden classes (schema-v38) never appear to the public — and a class
       // whose every entry is scratched is effectively not running, so it's
@@ -688,6 +693,11 @@ export default function EventPage() {
                     Register entries →
                   </Link>
                 </div>
+                {extras.length > 0 && (
+                  <p style={{ color: "var(--quiet)", fontSize: 13, margin: "10px 0 0" }}>
+                    🏕 Camping &amp; yards can be booked with your entry: {extras.map((x) => `${x.name} ${priceLabel(x)}`).join(" · ")}.
+                  </p>
+                )}
               </>
             ) : event.status === "closed" ? (
               <>

@@ -7,6 +7,7 @@ import { groupedByProgramCategory } from "../../../../lib/classCategories";
 import { signupSeason, currentSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
+import { extraNights, nightLabel, extraAmountCents, priceLabel, KIND_ICON, MAX_QUANTITY } from "../../../../lib/eventExtras";
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 // "2026-2027" → "2026–27"
 const shortSeason = (season) => {
@@ -444,6 +445,12 @@ export default function RegisterPage() {
   const submitLock = useRef(false); // guards against a double-tap creating two registrations
 
   const [spotsTaken, setSpotsTaken] = useState({}); // class_id → number of confirmed entries
+  // Camping & yards (schema-v61): what's bookable, what this person is
+  // booking ({ [extraId]: { quantity, nights, notes } }) and what's already
+  // taken ({ [extraId]: { nights: { iso: n }, total } }).
+  const [extrasList, setExtrasList] = useState([]);
+  const [extraBookings, setExtraBookings] = useState({});
+  const [extrasBooked, setExtrasBooked] = useState({});
   const [confirmedEntries, setConfirmedEntries] = useState([]);
 
   useEffect(() => {
@@ -461,6 +468,19 @@ export default function RegisterPage() {
       // Hidden classes (schema-v38) and championship classes (schema-v43,
       // qualification-only) can't be entered online.
       setClasses((cls ?? []).filter((c) => !c.hidden && !(Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length)));
+      // Camping & yards on offer (public read; absent before schema-v61).
+      try {
+        const { data: ex } = await supabase
+          .from("event_extras").select("*").eq("event_id", eventId).eq("active", true)
+          .order("sort_order").order("created_at");
+        setExtrasList(ex ?? []);
+        if (ex?.length) {
+          fetch(`/api/registrations/extras-status?event=${eventId}`, { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (d?.extras) setExtrasBooked(d.extras); })
+            .catch(() => {});
+        }
+      } catch { setExtrasList([]); }
       // Is club membership required to enter? (Coordinator switch; public read.)
       const { data: reqSetting } = await supabase
         .from("site_settings")
@@ -648,11 +668,19 @@ export default function RegisterPage() {
     return isClinic ? classFeeCents(cls, event) : feePerClass;
   };
   const entriesFeeCents = filledEntries.reduce((sum, e) => sum + entryFee(e), 0);
+  // Camping & yards (schema-v61): quantity × nights × price per item. Paid
+  // up front even on a clinic deposit plan.
+  const bookedExtras = extrasList
+    .map((x) => ({ extra: x, booking: extraBookings[x.id] }))
+    .filter(({ booking }) => booking && booking.quantity > 0);
+  const campingCents = bookedExtras.reduce(
+    (sum, { extra, booking }) => sum + extraAmountCents(extra, booking.quantity, booking.nights ?? []), 0);
   const extrasCents = (dayMembershipSelected ? DAY_MEMBERSHIP_CENTS : 0)
     + (annualSelected ? annualCents : 0)
     + (replacementNumbers ? REPLACEMENT_NUMBERS_CENTS : 0)
     + (chargeFees ? oneOffFees : 0)
-    + renewalCents;
+    + renewalCents
+    + campingCents;
   const totalCents = entriesFeeCents + extrasCents;
 
   // Deposit option (clinics): offered when every chosen spot type has a
@@ -949,7 +977,15 @@ export default function RegisterPage() {
     const valid = isClinic
       ? submissionEntries.filter((e) => e.class_id && e.exhibitor.trim())
       : submissionEntries.filter((e) => e.class_id && hasNumber(e) && e.horse_name.trim() && e.exhibitor.trim());
-    if (!valid.length) {
+    for (const { extra, booking } of bookedExtras) {
+      if (extra.unit === "night" && !(booking.nights?.length)) {
+        setError(`Please pick at least one night for ${extra.name}.`);
+        return;
+      }
+    }
+    // Camping/yards can be booked on their own by someone who has already
+    // entered — then no class rows are needed.
+    if (!valid.length && !bookedExtras.length) {
       setError(isClinic
         ? "Please select a spot type and enter your name."
         : isMultiMode
@@ -995,7 +1031,7 @@ export default function RegisterPage() {
       setError("Please choose a membership type to join with (or untick the membership option).");
       return;
     }
-    if (membershipRequired && membershipStatus === "none" && !annualSatisfiesEntry && !dayMembership && !renewalCoversEvent) {
+    if (valid.length && membershipRequired && membershipStatus === "none" && !annualSatisfiesEntry && !dayMembership && !renewalCoversEvent) {
       setError(`Add an annual membership or the ${fmtMoney(DAY_MEMBERSHIP_CENTS)} day membership to your entry, or use the email address on a current club membership.`);
       return;
     }
@@ -1020,6 +1056,12 @@ export default function RegisterPage() {
           membership_renewal_type_id: renewalTypeId || null,
           payment_plan: payDeposit ? "deposit" : "full",
           payment_method: paypalAvailable ? paymentMethod : "square",
+          extras: bookedExtras.map(({ extra, booking }) => ({
+            extra_id: extra.id,
+            quantity: booking.quantity,
+            nights: extra.unit === "night" ? (booking.nights ?? []) : [],
+            notes: booking.notes?.trim() || null,
+          })),
           entries: valid.map((e) => {
             const regList = (rows, none) => (isClinic ? null : none ? [] : rows
               .filter((r) => r.club.trim() && r.number.trim())
@@ -1549,6 +1591,91 @@ export default function RegisterPage() {
           </button>
         )}
 
+        {/* ---- Camping & yards (schema-v61) ---- */}
+        {extrasList.length > 0 && (
+          <section className="card">
+            <div className="card-head">
+              <div>
+                <div className="display" style={{ fontWeight: 600, fontSize: 16 }}>🏕 Camping &amp; yards</div>
+                <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
+                  Optional. Book with your entry — or on their own if you have already entered.
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gap: 12, padding: "0 0 8px" }}>
+              {extrasList.map((x) => {
+                const booking = extraBookings[x.id] ?? { quantity: 0, nights: [], notes: "" };
+                const nights = extraNights(x, event);
+                const counts = extrasBooked[x.id] ?? { nights: {}, total: 0 };
+                const leftFor = (n) => (x.capacity == null ? null : Math.max(0, x.capacity - (counts.nights?.[n] ?? 0)));
+                const leftTotal = x.capacity == null ? null : Math.max(0, x.capacity - (counts.total ?? 0));
+                const soldOut = x.unit === "night"
+                  ? (x.capacity != null && nights.every((n) => leftFor(n) === 0))
+                  : leftTotal === 0;
+                const setB = (patch) => setExtraBookings((b) => ({ ...b, [x.id]: { ...booking, ...patch } }));
+                const chosen = booking.nights ?? [];
+                const maxQty = x.unit === "night"
+                  ? Math.min(MAX_QUANTITY, ...(chosen.length ? chosen.map((n) => leftFor(n) ?? MAX_QUANTITY) : [x.capacity ?? MAX_QUANTITY]))
+                  : Math.min(MAX_QUANTITY, leftTotal ?? MAX_QUANTITY);
+                return (
+                  <div key={x.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fff" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                      <div style={{ fontWeight: 800, color: "var(--leather)" }}>{KIND_ICON[x.kind] ?? ""} {x.name}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{priceLabel(x)}</div>
+                    </div>
+                    {x.description && <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>{x.description}</div>}
+                    {soldOut ? (
+                      <div style={{ fontSize: 13, color: "var(--clay)", fontWeight: 700, marginTop: 6 }}>Sold out</div>
+                    ) : (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                          <label style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+                            How many
+                            <select className="field" style={{ fontSize: 14, padding: "6px 10px" }} value={booking.quantity}
+                              onChange={(e) => setB({ quantity: parseInt(e.target.value, 10) || 0 })}>
+                              {Array.from({ length: Math.max(0, maxQty) + 1 }, (_, i) => <option key={i} value={i}>{i}</option>)}
+                            </select>
+                          </label>
+                          {x.unit !== "night" && leftTotal != null && (
+                            <span style={{ fontSize: 12, color: "var(--quiet)" }}>{leftTotal} left</span>
+                          )}
+                        </div>
+                        {x.unit === "night" && booking.quantity > 0 && (
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>Which nights?</div>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {nights.map((n) => {
+                                const on = chosen.includes(n);
+                                const left = leftFor(n);
+                                const full = !on && left != null && left < booking.quantity;
+                                return (
+                                  <button key={n} type="button" disabled={full} aria-pressed={on}
+                                    onClick={() => setB({ nights: on ? chosen.filter((d) => d !== n) : [...chosen, n].sort() })}
+                                    style={{ fontFamily: "inherit", fontSize: 13, fontWeight: 700, padding: "7px 11px", borderRadius: 9, cursor: full ? "not-allowed" : "pointer",
+                                      border: `2px solid ${on ? "var(--leather)" : "var(--line)"}`, background: on ? "var(--leather)" : "#fff",
+                                      color: on ? "#F2EADB" : full ? "var(--quiet)" : "var(--leather)", opacity: full ? 0.6 : 1 }}>
+                                    {nightLabel(n)}
+                                    {left != null && <span style={{ fontWeight: 400, fontSize: 11, marginLeft: 6 }}>{left === 0 ? "full" : `${left} left`}</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {booking.quantity > 0 && (
+                          <input className="field" style={{ width: "100%", fontSize: 14, padding: "7px 10px", marginTop: 8, boxSizing: "border-box" }}
+                            placeholder={x.kind === "yard" ? "Horse name(s) for the yard(s) — optional" : x.kind === "camping" ? "Vehicle / float details — optional" : "Notes — optional"}
+                            value={booking.notes ?? ""} onChange={(e) => setB({ notes: e.target.value })} maxLength={300} />
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* ---- Total + pay ---- */}
         <section className="card" style={{ background: "var(--sand)" }}>
           <div style={{ padding: "4px 0 8px" }}>
@@ -1579,6 +1706,13 @@ export default function RegisterPage() {
                     Replacement numbers × {fmtMoney(REPLACEMENT_NUMBERS_CENTS)}
                   </div>
                 )}
+                {bookedExtras.map(({ extra, booking }) => (
+                  <div key={extra.id} style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
+                    {extra.name} × {booking.quantity}
+                    {extra.unit === "night" ? ` · ${(booking.nights ?? []).length} night${(booking.nights ?? []).length === 1 ? "" : "s"}` : ""}
+                    {" — "}{fmtMoney(extraAmountCents(extra, booking.quantity, booking.nights ?? []))}
+                  </div>
+                ))}
                 {chargeFees && groundFee > 0 && (
                   <div style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
                     Ground fee {fmtMoney(groundFee)} <span style={{ color: "var(--quiet)", fontWeight: 400 }}>(once per event)</span>
