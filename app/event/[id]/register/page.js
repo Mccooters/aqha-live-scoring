@@ -451,6 +451,8 @@ export default function RegisterPage() {
   const [extrasList, setExtrasList] = useState([]);
   const [extraBookings, setExtraBookings] = useState({});
   const [extrasBooked, setExtrasBooked] = useState({});
+  const [extrasShared, setExtrasShared] = useState({}); // extraId → names of other events sharing the same yards (schema-v62)
+  const [myExtras, setMyExtras] = useState([]);         // what this email already booked (this event or its shared pools)
   const [confirmedEntries, setConfirmedEntries] = useState([]);
 
   useEffect(() => {
@@ -477,7 +479,7 @@ export default function RegisterPage() {
         if (ex?.length) {
           fetch(`/api/registrations/extras-status?event=${eventId}`, { cache: "no-store" })
             .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { if (d?.extras) setExtrasBooked(d.extras); })
+            .then((d) => { if (d?.extras) setExtrasBooked(d.extras); if (d?.shared) setExtrasShared(d.shared); })
             .catch(() => {});
         }
       } catch { setExtrasList([]); }
@@ -612,6 +614,25 @@ export default function RegisterPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberAccount, oneOffFees]);
+
+  // Camping & yards already booked under this email (schema-v62): this
+  // event's items plus any pool they share with another event that weekend,
+  // so nobody books the same yard twice.
+  const checkMyExtras = async (email) => {
+    if (!extrasList.length || !email?.trim() || !email.includes("@")) { setMyExtras([]); return; }
+    try {
+      const params = new URLSearchParams({ event: eventId, email: email.trim() });
+      const res = await fetch(`/api/registrations/extras-mine?${params.toString()}`, { cache: "no-store" });
+      const data = res.ok ? await res.json() : null;
+      setMyExtras(Array.isArray(data?.mine) ? data.mine : []);
+    } catch {
+      setMyExtras([]);
+    }
+  };
+  useEffect(() => {
+    if (memberAccount?.email && extrasList.length) checkMyExtras(memberAccount.email);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memberAccount, extrasList]);
 
   const multiEntries = multiHorses.flatMap((h) => h.class_ids.map((classId) => ({
     _id: `multi-${h._id}-${classId}`,
@@ -1222,7 +1243,7 @@ export default function RegisterPage() {
                 <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
                   value={contactEmail}
                   onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); setDayMembership(false); setAnnualJoin(false); setFeesDue(null); }}
-                  onBlur={(e) => { checkMembership(e.target.value); checkFees(e.target.value); }}
+                  onBlur={(e) => { checkMembership(e.target.value); checkFees(e.target.value); checkMyExtras(e.target.value); }}
                   placeholder="e.g. sarah@example.com" />
               </>
             )}
@@ -1602,6 +1623,19 @@ export default function RegisterPage() {
                 </div>
               </div>
             </div>
+            {myExtras.length > 0 && (
+              <div style={{ margin: "0 0 10px", padding: "8px 10px", background: "#E6F2EA", border: "1px solid #2D7A52", borderRadius: 8, fontSize: 13 }}>
+                <div style={{ fontWeight: 800, color: "#2D7A52" }}>✓ Already booked under this email</div>
+                {myExtras.map((m, i) => (
+                  <div key={i}>
+                    {m.name} × {m.quantity}
+                    {m.unit === "night" && m.nights?.length ? ` · ${m.nights.map(nightLabel).join(", ")}` : ""}
+                    {m.event_name && m.event_id !== eventId ? ` (booked with ${m.event_name})` : ""}
+                  </div>
+                ))}
+                <div style={{ color: "var(--quiet)", marginTop: 2 }}>Only book what you still need — these are already yours.</div>
+              </div>
+            )}
             <div style={{ display: "grid", gap: 12, padding: "0 0 8px" }}>
               {extrasList.map((x) => {
                 const booking = extraBookings[x.id] ?? { quantity: 0, nights: [], notes: "" };
@@ -1614,6 +1648,12 @@ export default function RegisterPage() {
                   : leftTotal === 0;
                 const setB = (patch) => setExtraBookings((b) => ({ ...b, [x.id]: { ...booking, ...patch } }));
                 const chosen = booking.nights ?? [];
+                // How many of this item (or its shared pool) this email already has on a night.
+                const haveOn = (n) => myExtras
+                  .filter((m) => m.extra_id === x.id || (x.pool && m.pool === x.pool))
+                  .reduce((s, m) => s + ((m.nights ?? []).includes(n) ? (Number(m.quantity) || 0) : 0), 0);
+                const sharedWith = extrasShared[x.id] ?? [];
+                const sharedText = sharedWith.length > 1 ? `${sharedWith.slice(0, -1).join(", ")} and ${sharedWith[sharedWith.length - 1]}` : sharedWith[0];
                 const maxQty = x.unit === "night"
                   ? Math.min(MAX_QUANTITY, ...(chosen.length ? chosen.map((n) => leftFor(n) ?? MAX_QUANTITY) : [x.capacity ?? MAX_QUANTITY]))
                   : Math.min(MAX_QUANTITY, leftTotal ?? MAX_QUANTITY);
@@ -1624,6 +1664,11 @@ export default function RegisterPage() {
                       <div style={{ fontSize: 13, fontWeight: 700 }}>{priceLabel(x)}</div>
                     </div>
                     {x.description && <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>{x.description}</div>}
+                    {sharedWith.length > 0 && (
+                      <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 2 }}>
+                        Shared with {sharedText} — the same {x.kind === "camping" ? "sites" : "yards"}, so what&apos;s left is counted across {sharedWith.length > 1 ? "all of those events" : "both events"}.
+                      </div>
+                    )}
                     {soldOut ? (
                       <div style={{ fontSize: 13, color: "var(--clay)", fontWeight: 700, marginTop: 6 }}>Sold out</div>
                     ) : (
@@ -1656,6 +1701,7 @@ export default function RegisterPage() {
                                       color: on ? "#F2EADB" : full ? "var(--quiet)" : "var(--leather)", opacity: full ? 0.6 : 1 }}>
                                     {nightLabel(n)}
                                     {left != null && <span style={{ fontWeight: 400, fontSize: 11, marginLeft: 6 }}>{left === 0 ? "full" : `${left} left`}</span>}
+                                    {haveOn(n) > 0 && <span style={{ fontWeight: 400, fontSize: 11, marginLeft: 6 }}>✓ have {haveOn(n)}</span>}
                                   </button>
                                 );
                               })}

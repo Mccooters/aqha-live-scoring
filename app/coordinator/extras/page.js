@@ -65,21 +65,35 @@ function ExtrasListInner() {
   const load = useCallback(async () => {
     if (!session || !eventId) { setBookings(null); return; }
     setError("");
-    const [{ data: ev }, { data: ex, error: exErr }, { data: bk, error: bkErr }] = await Promise.all([
+    const [{ data: ev }, { data: ex, error: exErr }] = await Promise.all([
       supabase.from("events").select("*").eq("id", eventId).maybeSingle(),
       supabase.from("event_extras").select("*").eq("event_id", eventId).order("sort_order").order("created_at"),
-      supabase.from("registration_extras")
-        .select("*, registrations!inner(id, contact_name, contact_email, status, event_id)")
-        .eq("registrations.event_id", eventId),
     ]);
     if (exErr) {
       setError(/does not exist|schema cache/i.test(exErr.message ?? "") ? "Run supabase/schema-v61-event-extras.sql in Supabase first." : exErr.message);
       setBookings([]); return;
     }
-    if (bkErr) { setError(bkErr.message); setBookings([]); return; }
+    // Bookings of this event's items, plus — for items shared with another
+    // event (schema-v62) — that event's bookings of the same yards, so the
+    // steward's list covers the whole weekend.
+    const ids = (ex ?? []).map((x) => x.id);
+    const pools = [...new Set((ex ?? []).map((x) => String(x.pool ?? "").trim()).filter(Boolean))];
+    const withPool = "*, event_extras!inner(id, name, unit, pool, event_id), registrations!inner(id, contact_name, contact_email, status, event_id)";
+    const noPool = "*, event_extras!inner(id, name, unit, event_id), registrations!inner(id, contact_name, contact_email, status, event_id)";
+    let rows = [];
+    if (ids.length) {
+      let { data, error } = await supabase.from("registration_extras").select(withPool).in("extra_id", ids);
+      if (error && /pool/i.test(error.message ?? "")) ({ data, error } = await supabase.from("registration_extras").select(noPool).in("extra_id", ids));
+      if (error) { setError(error.message); setBookings([]); return; }
+      rows = data ?? [];
+    }
+    if (pools.length) {
+      const { data, error } = await supabase.from("registration_extras").select(withPool).in("event_extras.pool", pools);
+      if (!error) for (const r of data ?? []) if (!rows.some((q) => q.id === r.id)) rows.push(r);
+    }
     setEvent(ev ?? null);
     setExtras(ex ?? []);
-    setBookings((bk ?? []).filter((b) => b.registrations?.status === "paid"));
+    setBookings(rows.filter((b) => b.registrations?.status === "paid"));
   }, [session, eventId]);
   useEffect(() => { load(); }, [load]);
 
@@ -92,9 +106,12 @@ function ExtrasListInner() {
     );
   }
 
-  const forExtra = (x) => (bookings ?? []).filter((b) => b.extra_id === x.id);
+  const samePool = (x, b) => x.pool && String(b.event_extras?.pool ?? "").trim() === String(x.pool).trim();
+  const forExtra = (x) => (bookings ?? []).filter((b) => b.extra_id === x.id || samePool(x, b));
+  const eventName = (id) => events.find((e) => e.id === id)?.name ?? "another event";
   const totalBooked = (list) => list.reduce((s, b) => s + (Number(b.quantity) || 0), 0);
-  const who = (b) => `${b.registrations?.contact_name ?? "—"}${b.registrations?.contact_email ? ` · ${b.registrations.contact_email}` : ""}`;
+  const who = (b) => `${b.registrations?.contact_name ?? "—"}${b.registrations?.contact_email ? ` · ${b.registrations.contact_email}` : ""}`
+    + (b.event_extras?.event_id && b.event_extras.event_id !== eventId ? ` (${eventName(b.event_extras.event_id)})` : "");
 
   return (
     <>
@@ -133,6 +150,7 @@ function ExtrasListInner() {
                   {KIND_ICON[x.kind] ?? ""} {x.name} — {priceLabel(x)}
                   {x.capacity != null ? ` · ${x.capacity} available${x.unit === "night" ? " each night" : ""}` : ""}
                   {!x.active ? " · switched off" : ""}
+                  {x.pool ? ` · shared: ${x.pool}` : ""}
                 </h2>
                 {list.length === 0 && <p style={{ fontSize: 11, color: "#555", margin: "4px 0" }}>No bookings yet.</p>}
                 {x.unit === "night" ? nights.map((n) => {

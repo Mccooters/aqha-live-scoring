@@ -1084,3 +1084,22 @@ expanded row. `/coordinator/extras?event=` (header link on Registrations,
 for the ground steward: paid bookings only, per item, per night, with
 booked-of-capacity counts, names, notes and amounts. The refund policy
 does not yet mention camping/yards (follow-up for the committee).
+
+**Shared between events (schema-v62)**: `event_extras.pool` — the "Shared
+with another event" name (owner's question, Oct 2026: two events on one
+weekend at the same place sell the same physical yards). Items with the
+same pool text on any events are ONE pool: `bookedExtraCounts()` counts
+paid bookings per pool (by night) instead of per item, so capacity is
+enforced across both events (staff give each item the same number);
+`poolSharing()` → `extras-status` `shared` ({extraId: [other event
+names]}, shown on the form as "Shared with Winter Show"); and
+`bookingsForEmail()` → `app/api/registrations/extras-mine?event=&email=`
+returns that email's paid bookings across the event's items and pools
+(items, quantities, nights, which event — never names), which the entry
+form fetches on email blur / member sign-in (`checkMyExtras`) and shows
+as "✓ Already booked under this email … (booked with Winter Show)", with
+"✓ have n" on the night buttons. The manager offers existing pool names
+in a datalist and, on a pre-v62 database, saves the item without the
+pool and says so; the printable list merges the other event's bookings
+of the same pool, labelled "(Winter Show)". Pool text is matched exactly
+after trimming — the datalist exists so staff pick the same spelling.
