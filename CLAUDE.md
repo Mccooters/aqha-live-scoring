@@ -1014,5 +1014,6 @@ square|paypal|manual, amount — minus for a credit — and a fee pre-filled
 from the current percentage, editable; `added_by` = staff email) and
 Remove (confirm dialog) for by-hand lines only. Rates come from
 `/api/health` (`website_fee` key — the values, not secrets); the Health
-page shows the rate in use, nags to rename the old SQUARE_APP_… env names,
-and has the v60 probe.
+page shows the rate in use and which env names it was read from (the old
+SQUARE_APP_… names are fine to keep — Vercel can't rename a variable, so
+nobody is asked to; owner, Oct 2026), and has the v60 probe.

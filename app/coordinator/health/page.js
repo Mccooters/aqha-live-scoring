@@ -186,7 +186,7 @@ export default function HealthPage() {
                     {feeRates.flat_cents > 0 ? ` + $${(feeRates.flat_cents / 100).toFixed(2)} once per person per event (from the admin fee)` : ""}
                     {(feeRates.bps_var === "SQUARE_APP_FEE_BPS" || feeRates.flat_var === "SQUARE_APP_FLAT_FEE_CENTS") && (
                       <span style={{ color: "var(--quiet)" }}>
-                        {" "}— read from the old SQUARE_APP_… names in Vercel; rename them to WEBSITE_FEE_BPS / WEBSITE_FEE_FLAT_CENTS when convenient (the fee is no longer sent to Square either way)
+                        {" "}— read from the SQUARE_APP_FEE_BPS / SQUARE_APP_FLAT_FEE_CENTS settings in Vercel. Fine to leave them named that way: the fee is no longer sent to Square, the names just carry the rate.
                       </span>
                     )}
                     {" · "}<Link href="/coordinator/fees" style={{ color: "var(--brass)" }}>Website fees statement</Link>
