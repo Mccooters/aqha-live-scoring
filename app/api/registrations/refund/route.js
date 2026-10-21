@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 import { refundSquarePayment, getSquareRefund } from "../../_lib/squarePayments";
 import { refundPayPalCapture, getPayPalRefund } from "../../_lib/paypal";
+import { recordWebsiteFee } from "../../_lib/websiteFees";
 
 // Issuing a refund moves real money, so only signed-in show staff may call it.
 // The dashboard sends the coordinator's login token; we verify it with
@@ -125,6 +126,36 @@ export async function POST(req) {
         return NextResponse.json({ error: sqErr }, { status: status ?? 502 });
       }
       refund = sqRefund;
+    }
+
+    // Website fee credit (schema-v60): the club shouldn't pay the website's
+    // percentage on money it has given back. The flat once-per-event part is
+    // credited only when this refund returns the whole registration (net of
+    // any credit already given). Never blocks the refund from being recorded.
+    if (!isManual && refund) {
+      let ev = null;
+      try {
+        ({ data: ev } = await db.from("events").select("name").eq("id", reg.event_id).maybeSingle());
+      } catch { /* name only */ }
+      let flatCredit = 0;
+      if (alreadyRefunded + amount >= (reg.total_cents ?? 0)) {
+        try {
+          const { data: lines } = await db.from("website_fees").select("flat_fee_cents").eq("registration_id", reg.id);
+          flatCredit = (lines ?? []).reduce((s, l) => s + (Number(l.flat_fee_cents) || 0), 0);
+        } catch { /* ledger optional */ }
+      }
+      await recordWebsiteFee(db, {
+        provider,
+        paymentId: refund.id ? `refund:${refund.id}` : null,
+        kind: "refund",
+        description: `${ev?.name ?? "Event"} — refund`,
+        payerName: reg.contact_name,
+        eventId: reg.event_id,
+        registrationId: reg.id,
+        amountCents: -amount,
+        flatFeeCents: flatCredit > 0 ? -flatCredit : 0,
+        note: reason ? String(reason).slice(0, 200) : null,
+      });
     }
 
     // Record the refund. Best-effort for a Square refund: on a pre-v36

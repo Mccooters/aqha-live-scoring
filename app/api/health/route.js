@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { websiteFeeRates } from "../_lib/websiteFees";
 
 // Staff-only config health check: reports WHICH server settings are present
 // (booleans only — never the values). The database-migration checks happen
@@ -40,5 +41,11 @@ export async function GET(req) {
       paypal_environment: has("PAYPAL_ENVIRONMENT"),
       paypal_webhook_id: has("PAYPAL_WEBHOOK_ID"),
     },
+    // The website fee rates in use (not secrets) — shown on the Health page
+    // and used by the Website fees page to pre-fill by-hand lines.
+    website_fee: (() => {
+      const r = websiteFeeRates();
+      return { bps: r.bps, flat_cents: r.flatCents, bps_var: r.bpsVar, flat_var: r.flatVar, configured: r.configured };
+    })(),
   });
 }

@@ -43,6 +43,7 @@ const MIGRATION_CHECKS = [
   { m: "v57", what: "Raffle live updates (ticket board)", probe: () => supabase.from("raffles").select("tickets_changed_at").limit(1) },
   { m: "v58", what: "PayPal payment option", probe: () => supabase.from("registrations").select("payment_provider").limit(1) },
   { m: "v59", what: "No-membership spot types (fence sitting)", probe: () => supabase.from("classes").select("membership_exempt").limit(1) },
+  { m: "v60", what: "Website fees ledger + monthly statement", probe: () => supabase.from("website_fees").select("id").limit(1) },
 ];
 
 const CONFIG_LABELS = {
@@ -68,8 +69,7 @@ export default function HealthPage() {
   const [config, setConfig] = useState(null);
   const [wallets, setWallets] = useState(null);     // Square's answer to "which wallets will you show?"
   const [walletsBusy, setWalletsBusy] = useState(false);
-  const [testLinks, setTestLinks] = useState(null);  // two $1 test checkouts to open on a phone
-  const [testBusy, setTestBusy] = useState(false);
+  const [feeRates, setFeeRates] = useState(null);   // website fee rates in use (monthly statement)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -89,6 +89,7 @@ export default function HealthPage() {
         const res = await fetch("/api/health", { headers: { Authorization: `Bearer ${session.access_token}` } });
         const data = await res.json();
         if (data.config) setConfig(data.config);
+        if (data.website_fee) setFeeRates(data.website_fee);
       } catch { setConfig(null); }
     })();
   }, [session]);
@@ -103,30 +104,6 @@ export default function HealthPage() {
       setWallets(res.ok ? data : { error: data.error ?? `Square check failed (${res.status})` });
     } catch (err) { setWallets({ error: err.message ?? "Could not reach the site." }); }
     setWalletsBusy(false);
-  };
-
-  const walletsPost = async (payload) => {
-    const res = await fetch("/api/square/wallets-check", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error ?? `Square check failed (${res.status})`);
-    return data;
-  };
-  const makeTestLinks = async () => {
-    setTestBusy(true);
-    try { const data = await walletsPost({ action: "test-links" }); setTestLinks(data.links ?? []); }
-    catch (err) { setTestLinks([{ kind: "error", error: err.message }]); }
-    setTestBusy(false);
-  };
-  const deleteTestLinks = async () => {
-    const ids = (testLinks ?? []).map((l) => l.id).filter(Boolean);
-    setTestBusy(true);
-    try { await walletsPost({ action: "delete", link_ids: ids }); setTestLinks(null); }
-    catch (err) { window.alert(err.message); }
-    setTestBusy(false);
   };
 
   if (!session) {
@@ -197,6 +174,25 @@ export default function HealthPage() {
                 The Square connection itself (and whether it can see your location) is checked live on the{" "}
                 <Link href="/coordinator/registrations" style={{ color: "var(--brass)" }}>Registrations page</Link>.
               </p>
+              <div style={{ marginTop: 10, fontSize: 13.5 }}>
+                <strong>Website fee rate:</strong>{" "}
+                {!feeRates ? "checking…" : !feeRates.configured ? (
+                  <span style={{ color: "var(--clay)", fontWeight: 700 }}>
+                    not set — no fee lines are being recorded. Add WEBSITE_FEE_BPS (e.g. 50 = 0.5%) and/or WEBSITE_FEE_FLAT_CENTS (e.g. 500 = $5) in Vercel.
+                  </span>
+                ) : (
+                  <>
+                    {feeRates.bps > 0 ? `${(feeRates.bps / 100).toFixed(2)}% of each online payment` : "no percentage"}
+                    {feeRates.flat_cents > 0 ? ` + $${(feeRates.flat_cents / 100).toFixed(2)} once per person per event (from the admin fee)` : ""}
+                    {(feeRates.bps_var === "SQUARE_APP_FEE_BPS" || feeRates.flat_var === "SQUARE_APP_FLAT_FEE_CENTS") && (
+                      <span style={{ color: "var(--quiet)" }}>
+                        {" "}— read from the old SQUARE_APP_… names in Vercel; rename them to WEBSITE_FEE_BPS / WEBSITE_FEE_FLAT_CENTS when convenient (the fee is no longer sent to Square either way)
+                      </span>
+                    )}
+                    {" · "}<Link href="/coordinator/fees" style={{ color: "var(--brass)" }}>Website fees statement</Link>
+                  </>
+                )}
+              </div>
             </div>
           )}
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
@@ -206,6 +202,7 @@ export default function HealthPage() {
             </button>
             <p style={{ fontSize: 12, color: "var(--quiet)", margin: "6px 0 0" }}>
               Makes a $1 test link the same way real checkouts are made, reads back what Square attached to it, then deletes it. Nothing is charged.
+              Checkouts no longer carry a website fee (it&apos;s billed monthly from the Website fees page instead), so Square offers Apple Pay wherever the buyer&apos;s device supports it.
             </p>
             {wallets?.error && <p style={{ color: "var(--clay)", fontWeight: 700, fontSize: 13, margin: "8px 0 0" }}>{wallets.error}</p>}
             {wallets && !wallets.error && (() => {
@@ -215,17 +212,12 @@ export default function HealthPage() {
               return (
                 <div style={{ marginTop: 8, fontSize: 13, background: appleOn ? "#E6F2EA" : "#FBE9E4", border: `1px solid ${appleOn ? "#2D7A52" : "var(--clay)"}`, borderRadius: 8, padding: "8px 10px" }}>
                   <div><strong>Square's answer:</strong> Apple Pay {word(apm?.apple_pay)} · Google Pay {word(apm?.google_pay)} · Cash App Pay {word(apm?.cash_app_pay)} · Afterpay {word(apm?.afterpay_clearpay)}</div>
-          <div style={{ marginTop: 4 }}>
-            <strong>Website fee on this link:</strong>{" "}
-            {wallets.app_fee_cents > 0 ? `yes — $${(wallets.app_fee_cents / 100).toFixed(2)} on this $1 test` : "none"}
-            {wallets.fee_setup && (
-              <span style={{ color: "var(--quiet)" }}>
-                {" "}(setup: {wallets.fee_setup.via_connection ? "Square connected" : "using the club's own token — fees never apply"}
-                {wallets.fee_setup.bps > 0 ? `, ${(wallets.fee_setup.bps / 100).toFixed(2)}%` : ", no percentage"}
-                {wallets.fee_setup.flat_cents > 0 ? ` + $${(wallets.fee_setup.flat_cents / 100).toFixed(2)} on admin-fee checkouts` : ""})
-              </span>
-            )}
-          </div>
+                  <div style={{ marginTop: 4 }}>
+                    <strong>Fee taken out of this link:</strong>{" "}
+                    {wallets.app_fee_cents > 0
+                      ? `$${(wallets.app_fee_cents / 100).toFixed(2)} — unexpected: checkouts should carry no fee any more`
+                      : "none ✓ (website fees are billed monthly instead)"}
+                  </div>
                   <div style={{ marginTop: 6, color: "var(--quiet)" }}>
                     {appleOn
                       ? "Square is putting Apple Pay on this account's links. If a buyer still can't see it, it's their device: Apple Pay only appears in Safari on an iPhone, iPad or Mac that has a card in Apple Wallet, with Settings → Safari → \"Check for Apple Pay\" switched on. Browsers inside apps (Facebook, Instagram, Messenger) never show it."
@@ -235,38 +227,6 @@ export default function HealthPage() {
                 </div>
               );
             })()}
-            <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed var(--line)" }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Compare on the phone or iPad that isn't showing Apple Pay</div>
-              <p style={{ fontSize: 12, color: "var(--quiet)", margin: "0 0 8px" }}>
-                Makes two $1 "do not pay" test checkouts: A is exactly what real checkouts send (including the website fee, if one is set up), B is the same link without the website fee. Open each in Safari on that device and see which shows an Apple Pay button. Delete them when you're done — nothing is charged unless someone actually pays one.
-              </p>
-              {!testLinks && (
-                <button className="btn-ghost" onClick={makeTestLinks} disabled={testBusy || !config} style={{ fontSize: 13 }}>
-                  {testBusy ? "Making test links…" : "Make two test links"}
-                </button>
-              )}
-              {testLinks && (
-                <div style={{ display: "grid", gap: 6 }}>
-                  {testLinks.map((l, i) => l.error ? (
-                    <div key={i} style={{ color: "var(--clay)", fontSize: 13 }}>Link {l.kind === "with_fee" ? "A" : l.kind === "no_fee" ? "B" : ""}: {l.error}</div>
-                  ) : (
-                    <div key={i} style={{ fontSize: 13 }}>
-                      <a href={l.url} target="_blank" rel="noreferrer" style={{ color: "var(--brass)", fontWeight: 700 }}>
-                        Open test link {l.kind === "with_fee" ? "A (as real checkouts, with the website fee)" : "B (same, without the website fee)"} ↗
-                      </a>
-                      <span style={{ color: "var(--quiet)", marginLeft: 8 }}>
-              Apple Pay {l.accepted_payment_methods?.apple_pay === true ? "requested" : "not requested"} · website fee {l.app_fee_cents > 0 ? `$${(l.app_fee_cents / 100).toFixed(2)}` : "none"}
-            </span>
-                    </div>
-                  ))}
-                  <div>
-                    <button className="btn-ghost danger" onClick={deleteTestLinks} disabled={testBusy} style={{ fontSize: 12.5 }}>
-                      {testBusy ? "Deleting…" : "Delete the test links"}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         </section>
       </main>

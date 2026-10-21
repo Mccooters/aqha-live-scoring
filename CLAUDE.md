@@ -86,43 +86,29 @@ PR with a clear plain-English description.
   [state-cookie CSRF check] stores access/refresh tokens; access tokens are
   auto-refreshed when <3 days from expiry), else (2) the club's own
   `SQUARE_ACCESS_TOKEN` env var — the original setup and permanent fallback,
-  so payments never break if the connection is absent. When the OAuth
-  connection is in use AND `SQUARE_APP_FEE_BPS` is set (e.g. 50 = 0.5%), each
-  checkout carries `checkout_options.app_fee_money` — Square automatically
-  pays that slice to the Square account that OWNS the OAuth application (the
-  developer's), per Square's app-fee model (requires the
-  PAYMENTS_WRITE_ADDITIONAL_RECIPIENTS scope, granted during connect). The
-  fee is buyer-invisible (not a line item) and comes out of the seller's net.
-  On top of the percentage, `SQUARE_APP_FLAT_FEE_CENTS` (e.g. 500 = $5) adds
-  a flat website fee to the app fee — but ONLY on the checkout that carries
-  the event's one-off admin fee (`registrations/create` passes
-  `opts.flatFeeCents = min(flat, admin_fee_cents)` when `feesCents > 0`), so
-  like the admin fee it's charged at most once per person per event, comes
-  out of the admin fee the club collects, and never rides membership,
-  clinic-balance or fee-waived checkouts. The combined app fee is capped at
-  90% of the order total so Square never rejects a small checkout.
-  **Apple Pay and the website fee are mutually exclusive** (owner's tests,
-  Oct 2026 — identical $1 test links with and without `app_fee_money`,
-  opened in Safari on an iPhone and an iPad: the fee-free link showed
-  Apple Pay + Google Pay, the fee-carrying link showed Google Pay only).
-  Square's hosted checkout drops Apple Pay from any link that carries an
-  app fee, regardless of `accepted_payment_methods` (every link still
-  requests `{ apple_pay: true, google_pay: true }`). The link style makes
-  no difference (an interim switch to quick-pay links was reverted; links
-  stay itemised orders). So: website fee ON → no Apple Pay; unset both
-  `SQUARE_APP_FEE_BPS` and `SQUARE_APP_FLAT_FEE_CENTS` → fee off → Apple
-  Pay back. The Health page's "Digital wallets" tools
-  (`app/api/square/wallets-check`, staff JWT) show the fee setup in use,
-  "Ask Square which wallets it will show" (makes + deletes a $1 link,
-  reports the echoed accepted_payment_methods and app fee) and "Make two
-  test links" (A as real checkouts with the fee, B without via
-  `opts.noAppFee`; openable; delete button). Apple Pay still needs Safari
-  on an Apple device with a card in Wallet.
-  Env vars for the connection: `SQUARE_APP_ID`, `SQUARE_APP_SECRET`,
-  `SQUARE_APP_FEE_BPS` (unset/0 = no fee), `SQUARE_APP_FLAT_FEE_CENTS`
-  (unset/0 = none). NOTE: once OAuth is live, the
-  webhook subscription (and `SQUARE_WEBHOOK_SIGNATURE_KEY`) must belong to
-  that same Square application.
+  so payments never break if the connection is absent. **No checkout
+  carries a Square app fee any more** (owner's decision, Oct 2026). The
+  website fee used to ride each OAuth checkout as
+  `checkout_options.app_fee_money` (paid by Square to the account that owns
+  the OAuth application — the developer's), but Square's hosted checkout
+  drops Apple Pay from any link carrying an app fee (owner's tests, Oct
+  2026 — identical $1 links with and without `app_fee_money` in Safari on
+  an iPhone and an iPad: the fee-free link showed Apple Pay + Google Pay,
+  the fee-carrying link Google Pay only; link style made no difference),
+  and the fee could never apply to PayPal. It is now recorded per payment
+  in the **website fees ledger** (schema-v60, see "Website fees" below)
+  and billed to the club monthly. Every link still requests
+  `accepted_payment_methods { apple_pay: true, google_pay: true }` (Apple
+  Pay needs Safari on an Apple device with a card in Wallet). The
+  PAYMENTS_WRITE_ADDITIONAL_RECIPIENTS OAuth scope stays in the list so the
+  existing connection never needs re-authorising. The Health page's
+  "Digital wallets" tool (`app/api/square/wallets-check`, staff JWT) makes
+  + deletes a $1 link and reports the echoed accepted_payment_methods (and
+  `app_fee_cents`, expected 0, as a canary).
+  Env vars for the connection: `SQUARE_APP_ID`, `SQUARE_APP_SECRET`. NOTE:
+  once OAuth is live, the webhook subscription (and
+  `SQUARE_WEBHOOK_SIGNATURE_KEY`) must belong to that same Square
+  application.
   Staff can issue **refunds** (full or partial) from the coordinator
   Registrations page via `app/api/registrations/refund` (staff JWT) →
   `refundSquarePayment()` in `squarePayments.js` (Square Refunds API, uses the
@@ -187,8 +173,8 @@ PR with a clear plain-English description.
   branches on `payment_provider` (`refundPayPalCapture` /
   `getPayPalRefund` on the capture id; log `method: "paypal"`); the
   staff Registrations page shows a PayPal badge and provider-named
-  buttons. Square's app fee (`SQUARE_APP_FEE_BPS`) does NOT apply to
-  PayPal payments. Env: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`,
+  buttons. PayPal payments earn the same website fee as Square ones
+  (ledger, schema-v60). Env: `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`,
   `PAYPAL_ENVIRONMENT` (live|sandbox, default sandbox),
   `PAYPAL_WEBHOOK_ID`; `PAYPAL_API_BASE` overrides the host for tests.
   Health page lists all of them + the v58 probe.
@@ -983,3 +969,50 @@ any other buyer.
   a red "Couldn't load which numbers are taken" notice (buying disabled)
   if `/numbers` fails — never a silent all-available grid. `/numbers` and
   `/status` send `Cache-Control: no-store` and the page cache-busts.
+
+## Website fees (schema-v60)
+
+The developer's fee for running the website, billed to the club MONTHLY
+instead of being skimmed off each Square payment (owner's decision, Oct
+2026 — the Square app fee hid Apple Pay on every checkout and could never
+cover PayPal). Rates live in env: `WEBSITE_FEE_BPS` (e.g. 50 = 0.5% of
+every online payment) and `WEBSITE_FEE_FLAT_CENTS` (e.g. 500 = $5 once per
+person per event — it rides only the registration payment that carried
+the event's one-off admin fee, `registrations.fees_cents > 0`, and is
+capped at `events.admin_fee_cents`: the rule the old app fee used); the
+old `SQUARE_APP_FEE_BPS` / `SQUARE_APP_FLAT_FEE_CENTS` names are read as
+fallbacks so nothing had to change in Vercel. `app/api/_lib/websiteFees.js`:
+`websiteFeeRates()`, `calcWebsiteFee()`, `recordWebsiteFee(db, line)`
+(never throws and never blocks a settlement; a duplicate
+`(provider, payment_id)` — webhook retry — or a missing table is skipped
+and logged; no rates configured = nothing recorded). The shared
+`settleCompletedPayment()` records ONE `website_fees` row per settled
+online payment, Square and PayPal alike: kind `entry` (a registration's
+first payment — "(deposit)" / "+ membership" noted when a deposit plan or
+a renewal/join shared the checkout; one line, the whole amount),
+`balance` (clinic balance payments, percentage only), `raffle` (ticket
+orders — raffles carried the old app fee too) and `membership`
+(stand-alone join/renewal checkouts). Cash / bank-transfer amounts staff
+record by hand carry no fee, and force-approved registrations are NOT
+recorded (staff add a line by hand). A provider refund from
+`registrations/refund` adds a negative `refund` line (payment_id
+`refund:<id>`; percentage on the refunded amount; the flat part is
+credited only when the refund returns the whole registration, net of
+credits already given). `website_fee_months` (month 'YYYY-MM' in Sydney
+time → status open|billed|paid, billed_at/paid_at, note) tracks each
+statement. Both tables: staff read/write (v48 viewers blocked), no anon
+access, service role writes from settlement.
+
+Staff page `/coordinator/fees` ("💵 Website fees" under People & money):
+months down the left (`.hp-layout` reuse — chips on phones) with each
+month's fee total + status; the selected month's statement (lines with
+date / what / who / via / amount / fee, totals, percentage-vs-flat split,
+payment counts per provider, "Amount due"); 🖨 Print (A4 print styles,
+`.no-print`), ⇩ CSV, Mark as billed / Mark as paid / Reopen, an invoice
+number/note field, "+ Add a line by hand" (date, what, who, via
+square|paypal|manual, amount — minus for a credit — and a fee pre-filled
+from the current percentage, editable; `added_by` = staff email) and
+Remove (confirm dialog) for by-hand lines only. Rates come from
+`/api/health` (`website_fee` key — the values, not secrets); the Health
+page shows the rate in use, nags to rename the old SQUARE_APP_… env names,
+and has the v60 probe.

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { adminClient } from "../../_lib/registrations";
-import { appFeeBps, squareDiagnostics, getSquareConnection } from "../../_lib/squarePayments";
+import { squareDiagnostics, getSquareConnection } from "../../_lib/squarePayments";
 
 // What the coordinator Registrations page shows in its "Square connection"
 // card. Staff-only, and never returns the tokens themselves.
@@ -50,7 +50,6 @@ export async function GET(req) {
       connected_at: connection?.connected_at ?? null,
       app_configured: Boolean(process.env.SQUARE_APP_ID && process.env.SQUARE_APP_SECRET),
       fallback_token: Boolean(process.env.SQUARE_ACCESS_TOKEN),
-      fee_bps: appFeeBps(),
       diagnostics,
     });
   } catch (err) {
