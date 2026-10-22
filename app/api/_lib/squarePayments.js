@@ -237,8 +237,11 @@ export async function createSquarePaymentLink(db, payload) {
 
   const body = { ...payload };
   // Digital wallets: ask Square to offer Apple Pay and Google Pay on every
-  // link. Square only shows each one when the buyer's browser supports it
-  // (Apple Pay = Safari on an Apple device with a card in Wallet). NOTE:
+  // link, and Afterpay too (owner's instruction, Oct 2026 — Afterpay is
+  // switched on in the club's Square account). Square only shows each one
+  // when it applies: Apple Pay = Safari on an Apple device with a card in
+  // Wallet; Afterpay = the account has it enabled and the amount is within
+  // Afterpay's limits. NOTE:
   // Square's hosted checkout drops Apple Pay from any link that carries
   // app_fee_money — proven with identical test links with and without a
   // fee on an iPhone and an iPad (owner's tests, Oct 2026). That is why no
@@ -249,6 +252,7 @@ export async function createSquarePaymentLink(db, payload) {
     accepted_payment_methods: {
       apple_pay: true,
       google_pay: true,
+      afterpay_clearpay: true,
       ...(payload.checkout_options?.accepted_payment_methods ?? {}),
     },
   };

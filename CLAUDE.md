@@ -98,8 +98,12 @@ PR with a clear plain-English description.
   and the fee could never apply to PayPal. It is now recorded per payment
   in the **website fees ledger** (schema-v60, see "Website fees" below)
   and billed to the club monthly. Every link still requests
-  `accepted_payment_methods { apple_pay: true, google_pay: true }` (Apple
-  Pay needs Safari on an Apple device with a card in Wallet). The
+  `accepted_payment_methods { apple_pay: true, google_pay: true,
+  afterpay_clearpay: true }` (Apple Pay needs Safari on an Apple device
+  with a card in Wallet; **Afterpay** — owner's instruction, Oct 2026, it
+  is switched on in the club's Square account — appears only when the
+  account has it enabled and the amount is within Afterpay's limits; the
+  checkout buttons read "💳 Card / Afterpay (Square)"). The
   PAYMENTS_WRITE_ADDITIONAL_RECIPIENTS OAuth scope stays in the list so the
   existing connection never needs re-authorising. The Health page's
   "Digital wallets" tool (`app/api/square/wallets-check`, staff JWT) makes

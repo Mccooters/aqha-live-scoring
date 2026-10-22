@@ -225,6 +225,11 @@ export default function HealthPage() {
                       ? "Square is putting Apple Pay on this account's links. If a buyer still can't see it, it's their device: Apple Pay only appears in Safari on an iPhone, iPad or Mac that has a card in Apple Wallet, with Settings → Safari → \"Check for Apple Pay\" switched on. Browsers inside apps (Facebook, Instagram, Messenger) never show it."
                       : "The site asked for Apple Pay but Square did not switch it on. Check the account setting first: Square Dashboard → Payments & orders → Payment links → Settings → General → Payments → Apple Pay. If that's already on, this is a known Square-side problem with links made by software — contact Square support and quote this result."}
                   </div>
+                  {apm?.afterpay_clearpay !== true && (
+                    <div style={{ marginTop: 6, color: "var(--quiet)" }}>
+                      The site asked for Afterpay but Square did not switch it on for this link. Check Square Dashboard → Account &amp; Settings → Business information → Afterpay, and that Afterpay is enabled for online payments. If it is on, Square may still hide it for an amount outside Afterpay's limits.
+                    </div>
+                  )}
                   {!wallets.deleted && <div style={{ marginTop: 6, color: "var(--quiet)" }}>The $1 test link couldn't be deleted automatically — it's harmless, but you can remove it from Square's Payment links list.</div>}
                 </div>
               );
