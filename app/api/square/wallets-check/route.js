@@ -6,7 +6,8 @@ import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squ
 
 // Staff: ask Square which digital wallets it will put on this account's
 // payment links. Creates a $1 "do not pay" link exactly the way the site
-// creates real ones (so it carries the Apple Pay / Google Pay request), reads
+// creates real ones (so it carries the Apple Pay / Google Pay / Afterpay
+// request), reads
 // back the accepted_payment_methods Square echoes, then deletes the link
 // again. Nothing is charged and the link is never shown to anyone — this is
 // a diagnostic for "Apple Pay isn't appearing" (owner's report, Oct 2026).
@@ -45,7 +46,7 @@ export async function POST(req) {
     try { deleted = await deleteSquarePaymentLink(db, link?.id); } catch (e) { console.error("Wallet check: could not delete the test link:", e.message); }
     return NextResponse.json({
       ok: true,
-      requested: { apple_pay: true, google_pay: true },
+      requested: { apple_pay: true, google_pay: true, afterpay_clearpay: true },
       accepted_payment_methods: link?.checkout_options?.accepted_payment_methods ?? null,
       app_fee_cents: link?.checkout_options?.app_fee_money?.amount ?? 0,
       deleted,

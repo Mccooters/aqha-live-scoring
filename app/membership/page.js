@@ -731,7 +731,7 @@ export default function MembershipPage() {
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>How would you like to pay?</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {[["square", "💳 Card (Square)"], ["paypal", "PayPal"]].map(([v, label]) => (
+                  {[["square", "💳 Card / Afterpay (Square)"], ["paypal", "PayPal"]].map(([v, label]) => (
                     <button key={v} type="button" onClick={() => setPaymentMethod(v)} aria-pressed={paymentMethod === v}
                       style={{ fontFamily: "inherit", fontSize: 14, fontWeight: 700, padding: "9px 14px", borderRadius: 10, cursor: "pointer",
                         border: `2px solid ${paymentMethod === v ? "var(--leather)" : "var(--line)"}`,
