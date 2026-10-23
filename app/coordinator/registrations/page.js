@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
 import { activeSeasons } from "../../../lib/membershipSeason";
@@ -19,7 +20,12 @@ const regNumbersLabel = (list, noneLabel) => {
 const fmtDate = (s) =>
   s ? new Date(s).toLocaleString("en-AU", { dateStyle: "short", timeStyle: "short" }) : "—";
 
-export default function RegistrationsPage() {
+function RegistrationsInner() {
+  // The dashboard links here with ?event=<id> so the page opens on the event
+  // staff were just looking at (owner's report, Oct 2026 — it used to default
+  // to the newest event every time). Without the param, newest event wins.
+  const searchParams = useSearchParams();
+  const requestedEventId = searchParams.get("event") ?? "";
   const [session, setSession] = useState(null);
   const [events, setEvents] = useState([]);
   const [eventId, setEventId] = useState("");
@@ -52,9 +58,23 @@ export default function RegistrationsPage() {
       .order("starts_on", { ascending: false })
       .then(({ data }) => {
         setEvents(data ?? []);
-        if (data?.length) setEventId(data[0].id);
+        if (!data?.length) return;
+        const requested = data.find((e) => e.id === requestedEventId);
+        setEventId(requested ? requested.id : data[0].id);
       });
+    // Runs once on load: the ?event= param only picks the starting event.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep ?event= in the address bar in step with the picker, so refreshing
+  // the page or going back to the dashboard and returning keeps the event.
+  const chooseEvent = (id) => {
+    setEventId(id);
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("event", id);
+    else url.searchParams.delete("event");
+    window.history.replaceState(null, "", url.toString());
+  };
 
   const load = useCallback(async () => {
     if (!eventId) return;
@@ -473,7 +493,10 @@ export default function RegistrationsPage() {
           failed: "Connecting to Square didn't work. Please try again or contact support.",
         }[outcome] ?? ""
       );
-      window.history.replaceState(null, "", window.location.pathname);
+      // Drop the ?square= outcome but keep ?event= so the page stays put.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("square");
+      window.history.replaceState(null, "", url.toString());
     }
   }, [session]);
 
@@ -663,7 +686,7 @@ export default function RegistrationsPage() {
             always obvious which kind of event you're looking at. */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: "block", fontSize: 12, color: "var(--quiet)", marginBottom: 4 }}>Event</label>
-          <select className="field" value={eventId} onChange={(e) => setEventId(e.target.value)} style={{ fontSize: 15 }}>
+          <select className="field" value={eventId} onChange={(e) => chooseEvent(e.target.value)} style={{ fontSize: 15 }}>
             {showEvents.length > 0 && (
               <optgroup label="Shows">
                 {showEvents.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
@@ -1072,5 +1095,14 @@ export default function RegistrationsPage() {
         })}
       </main>
     </>
+  );
+}
+
+// useSearchParams needs a Suspense boundary for Next's static rendering.
+export default function RegistrationsPage() {
+  return (
+    <Suspense fallback={<main className="wrap"><p style={{ color: "var(--quiet)" }}>Loading…</p></main>}>
+      <RegistrationsInner />
+    </Suspense>
   );
 }
