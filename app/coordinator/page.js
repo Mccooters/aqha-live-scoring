@@ -335,6 +335,10 @@ export default function Coordinator() {
   const [busy, setBusy] = useState(false);
 
   const [modal, setModal] = useState(null);
+  // Digital judge cards (schema-v63): what each judge has sent per class,
+  // and the per-judge links for this event. Empty on a pre-v63 database.
+  const [judgeCards, setJudgeCards] = useState({}); // class id -> [card]
+  const [judgeCodes, setJudgeCodes] = useState([]);
   const [form, setForm] = useState({});
   const [formError, setFormError] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -372,6 +376,16 @@ export default function Coordinator() {
     if (data) {
       data.forEach((c) => c.entries.sort((a, b) => a.draw_order - b.draw_order));
       setClasses(data);
+      // Judge cards + links (schema-v63). Quietly empty before the migration.
+      const ids = data.map((c) => c.id);
+      const [{ data: cardRows }, { data: codeRows }] = await Promise.all([
+        ids.length ? supabase.from("judge_cards").select("*").in("class_id", ids) : Promise.resolve({ data: [] }),
+        supabase.from("judge_codes").select("*").eq("event_id", eventId),
+      ]);
+      const byClass = {};
+      (cardRows ?? []).forEach((k) => { (byClass[k.class_id] ??= []).push(k); });
+      setJudgeCards(byClass);
+      setJudgeCodes(codeRows ?? []);
     }
   }, [eventId]);
 
@@ -403,6 +417,7 @@ export default function Coordinator() {
       .channel(`coord-${eventId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "entries" }, loadClasses)
       .on("postgres_changes", { event: "*", schema: "public", table: "classes" }, loadClasses)
+      .on("postgres_changes", { event: "*", schema: "public", table: "judge_cards" }, loadClasses)
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [session, eventId, loadClasses]);
@@ -1205,6 +1220,83 @@ export default function Coordinator() {
       "Send this link to the gate marshal. It opens the gate view for this event only — advance the draw and scratch at the gate. It is NOT a staff login.",
       url
     );
+  };
+
+  // ---- digital judge cards (schema-v63) ----
+  // One private link per judge per event. The judge's device downloads the
+  // show, scores with no reception, and sends each finished card when it has
+  // a signal. Not a staff login: the link only unlocks /api/judge for the
+  // classes that name that judge.
+  const judgeNamesOnEvent = () => {
+    const names = [];
+    const seen = new Set();
+    classes.filter((c) => !c.hidden).forEach((c) => {
+      [c.judge, c.judge2].forEach((n) => {
+        const t = String(n ?? "").trim();
+        if (t && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); names.push(t); }
+      });
+    });
+    return names;
+  };
+  const judgeMigrationHint = 'Judge cards need a database update — run "schema-v63-judge-cards.sql" in the Supabase SQL Editor first.';
+  const judgeErr = (error) => /judge_codes|judge_cards|judge_entry_mode|does not exist|schema cache/i.test(error?.message ?? "") ? judgeMigrationHint : error?.message;
+  const randomCode = () => {
+    const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
+    const bytes = new Uint8Array(20);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+  };
+  const codeForJudge = (name) => judgeCodes.find((k) => !k.revoked && k.judge_name.trim().toLowerCase() === name.trim().toLowerCase()) ?? null;
+  const judgeLink = (code) => `${window.location.origin}/event/${eventId}/judge?code=${code}`;
+  const createJudgeLink = async (name, { replace = false } = {}) => {
+    if (!currentEvent) return;
+    const existing = judgeCodes.find((k) => k.judge_name.trim().toLowerCase() === name.trim().toLowerCase());
+    if (existing && !replace) return;
+    if (existing && replace && !window.confirm(`Make a NEW link for ${name}?\n\nThe old link stops working straight away — anyone holding it has to open the new one. Cards already on their phone are kept.`)) return;
+    const code = randomCode();
+    const { error } = existing
+      ? await supabase.from("judge_codes").update({ code, revoked: false, created_at: new Date().toISOString() }).eq("id", existing.id)
+      : await supabase.from("judge_codes").insert({ event_id: currentEvent.id, judge_name: name.trim(), code });
+    if (error) { window.alert(judgeErr(error)); return; }
+    await loadClasses();
+  };
+  const shareJudgeLink = async (name, code) => {
+    const url = judgeLink(code);
+    const text = `${name} — your judge's cards for ${currentEvent?.name ?? "the show"}. Open this link once while you have reception; after that it works without one. It is your private link — please don't forward it.`;
+    if (navigator.share) {
+      try { await navigator.share({ title: `Judge link — ${name}`, text, url }); return; } catch {}
+    }
+    try { await navigator.clipboard.writeText(url); window.alert(`Link copied for ${name}:\n\n${url}`); }
+    catch { window.prompt(`Judge link for ${name}:`, url); }
+  };
+  const setJudgeEntryMode = async (mode) => {
+    if (!currentEvent) return;
+    const { error } = await supabase.from("events").update({ judge_entry_mode: mode }).eq("id", currentEvent.id);
+    if (error) { window.alert(judgeErr(error)); return; }
+    await loadEvents();
+  };
+  // Like a paper card, a finished card is final — but a clerical error can
+  // be corrected: unlocking lets that judge reopen and re-send it.
+  const unlockJudgeCard = async (cls, card) => {
+    const who = card.judge_name;
+    if (!window.confirm(`Unlock ${who}'s card for Class ${cls.num}?\n\nThe judge can then reopen it on their device, correct it and finish the class again. The current placings stay until the corrected card arrives.`)) return;
+    const { error } = await supabase.from("judge_cards")
+      .update({ status: "unlocked", unlocked_at: new Date().toISOString(), unlocked_by: session?.user?.email ?? null })
+      .eq("id", card.id);
+    if (error) { window.alert(judgeErr(error)); return; }
+    await loadClasses();
+  };
+  const judgeCardStatus = (cls) => {
+    if (isClinic) return null;
+    const expected = [cls.judge, ...(cls.judge2 ? [cls.judge2] : [])].map((n) => String(n ?? "").trim()).filter(Boolean);
+    if (!expected.length || judgeCodes.length === 0) return null;
+    const cardsHere = judgeCards[cls.id] ?? [];
+    return expected.map((name, i) => {
+      const slot = i + 1;
+      const card = cardsHere.find((k) => k.judge_slot === slot);
+      const hasLink = Boolean(codeForJudge(name));
+      return { name, slot, card, hasLink };
+    });
   };
 
   // One-tap default order: re-sequence every class (hidden ones included, so
@@ -2674,6 +2766,13 @@ export default function Coordinator() {
                   🚪 Gate access
                 </button>
               )}
+              {!isClinic && (
+                <button className="btn-ghost" onClick={() => openModal("judgeAccess")} disabled={!eventId}
+                  style={judgeCodes.length ? { borderColor: "#2D7A52", color: "#2D7A52" } : {}}
+                  title="Share each judge their private link — they score on their own phone or tablet, with or without reception">
+                  ⚖ Judge access{judgeCodes.length ? ` (${judgeCodes.filter((k) => !k.revoked).length})` : ""}
+                </button>
+              )}
               <button className="btn-ghost" onClick={testPush} disabled={!eventId}>Test push</button>
               {!isClinic && hiddenChampsWithLiveFeeders().length > 0 && (
                 <button className="btn-ghost" onClick={unhideChampionships} disabled={busy}
@@ -3063,6 +3162,21 @@ export default function Coordinator() {
                         : `Judge: ${cls.judge}`}
                     </div>
                   )}
+                  {(() => {
+                    const js = judgeCardStatus(cls);
+                    if (!js) return null;
+                    return (
+                      <div style={{ fontSize: 11.5, marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        {js.map(({ name, slot, card, hasLink }) => {
+                          const label = js.length > 1 ? `J${slot}` : "Card";
+                          if (card?.status === "signed") return <span key={slot} style={{ color: "#2D7A52", fontWeight: 700 }} title={`${name} finished ${new Date(card.signed_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${card.entered_by ? ` (entered by ${card.entered_by})` : ""}`}>{label}: sent ✓</span>;
+                          if (card?.status === "unlocked") return <span key={slot} style={{ color: "#A05000", fontWeight: 700 }}>{label}: unlocked — waiting for the corrected card</span>;
+                          if (!hasLink) return <span key={slot} style={{ color: "var(--quiet)" }}>{label}: no judge link yet</span>;
+                          return <span key={slot} style={{ color: cls.status === "completed" ? "var(--clay)" : "var(--quiet)", fontWeight: cls.status === "completed" ? 700 : 400 }}>{label}: {cls.status === "completed" ? "no card from the judge" : "waiting for the judge's card"}</span>;
+                        })}
+                      </div>
+                    );
+                  })()}
                   {cls.hp_category ? (
                     <div style={{ fontSize: 11, color: "var(--brass)", marginTop: 2, fontWeight: 700 }}>
                       HP: {cls.hp_category}
@@ -3139,6 +3253,9 @@ export default function Coordinator() {
                           { label: cls.pattern_url ? "✓ Pattern" : "Set pattern", show: !isClinic, onClick: () => openModal("pattern", { classId: cls.id }) },
                           { label: `Result sheets${Array.isArray(cls.result_sheets) && cls.result_sheets.length ? ` (${cls.result_sheets.length})` : ""}`, show: !isClinic, onClick: () => openModal("resultSheets", { classId: cls.id }) },
                           { label: "↻ Refresh qualifiers", show: isChampionship(cls) && !isClinic, onClick: () => refreshChampionship(cls) },
+                          ...((judgeCards[cls.id] ?? []).filter((k) => k.status === "signed").map((k) => ({
+                            label: `🔓 Unlock ${k.judge_name}'s card`, show: !isClinic, onClick: () => unlockJudgeCard(cls, k),
+                          }))),
                           { label: "Push to High Points", show: cls.status === "completed" && !!cls.hp_category && !isClinic, onClick: async () => {
                             const res = await pushToHighPoints(cls);
                             if (res && !res.ok) window.alert("High points could not be updated — check your internet connection and try again.");
@@ -3731,6 +3848,62 @@ export default function Coordinator() {
               );
             })()}
 
+            {modal.type === "judgeAccess" && (() => {
+              const names = judgeNamesOnEvent();
+              const mode = currentEvent?.judge_entry_mode ?? "judge";
+              return (
+                <>
+                  <h2 className="display modal-title">Judge access — {currentEvent?.name}</h2>
+                  <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
+                    Each judge gets their own private link. They open it once while they have reception and the whole show downloads to their phone or tablet; after that they can score with no signal, and each finished card sends itself when a signal returns. Finishing a class closes it. It is not a staff login.
+                  </p>
+                  {names.length === 0 && (
+                    <p style={{ fontSize: 13.5, fontWeight: 700, color: "var(--clay)" }}>No judges are named on any class yet — add them with “Edit event” (judges for every class) or on each class first.</p>
+                  )}
+                  {names.map((name) => {
+                    const k = codeForJudge(name);
+                    return (
+                      <div key={name} style={{ border: k ? "1px solid var(--green)" : "1px solid var(--line)", borderRadius: 10, background: "#fff", padding: "10px 12px", marginBottom: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: 14 }}>{name}</div>
+                            <div style={{ fontSize: 12, color: "var(--quiet)" }}>
+                              {classes.filter((c) => !c.hidden && [c.judge, c.judge2].some((n) => String(n ?? "").trim().toLowerCase() === name.toLowerCase())).length} classes
+                              {k?.last_seen_at ? ` · device last checked in ${new Date(k.last_seen_at).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}` : k ? " · link not opened yet" : ""}
+                            </div>
+                          </div>
+                          {k ? (
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              <button className="btn" style={{ background: "var(--leather)", padding: "8px 12px", fontSize: 13.5 }} onClick={() => shareJudgeLink(name, k.code)}>Share link</button>
+                              <button className="btn-ghost" onClick={() => window.prompt(`Judge link for ${name}:`, judgeLink(k.code))}>Show</button>
+                              <button className="btn-ghost danger" onClick={() => createJudgeLink(name, { replace: true })}>New link</button>
+                            </div>
+                          ) : (
+                            <button className="btn" style={{ background: "var(--leather)", padding: "8px 12px", fontSize: 13.5 }} onClick={() => createJudgeLink(name)}>Create link</button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <label className="modal-label">Who taps the card</label>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {[
+                      ["judge", "Judges score on their own device", "Each judge taps their own card and finishes the class themselves."],
+                      ["scribe", "A scribe enters for the judge", "The scribe types their own name on the judge page; each finished card records who entered it."],
+                    ].map(([val, title, help]) => (
+                      <label key={val} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "#fff", border: `1px solid ${mode === val ? "var(--brass)" : "var(--line)"}`, borderRadius: 10, padding: "10px 12px", cursor: "pointer" }}>
+                        <input type="radio" name="judge_entry_mode" checked={mode === val} onChange={() => setJudgeEntryMode(val)} style={{ marginTop: 3 }} />
+                        <span><b style={{ fontSize: 14 }}>{title}</b><br /><span style={{ fontSize: 12.5, color: "var(--quiet)" }}>{help}</span></span>
+                      </label>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 12, color: "var(--quiet)", marginTop: 12 }}>
+                    A finished card writes that judge&apos;s column on the class exactly as typing it would. To let a judge correct a card after the class has closed, use “Unlock … card” in that class&apos;s ⋯ menu. The gate marshal can still finish a class from the gate if a judge is on paper.
+                  </p>
+                  <button className="btn-ghost" style={{ marginTop: 10, padding: "8px 14px", fontSize: 14 }} onClick={closeModal}>Done</button>
+                </>
+              );
+            })()}
             {modal.type === "resultSheets" && (() => {
               const cls = classes.find((c) => c.id === modal.classId);
               if (!cls) return null;
