@@ -1131,7 +1131,7 @@ manager saves the item without the pool and says so; the printable list merges t
 of the same pool, labelled "(Winter Show)". Pool text is matched exactly
 after trimming — the datalist exists so staff pick the same spelling.
 
-## Digital judge cards (schema-v63 — stage 1)
+## Digital judge cards (schema-v63 stage 1, schema-v64 stage 2)
 
 Judges score on their own phone/tablet instead of paper (owner's project,
 Oct 2026; plan + the club's nine AQHA sheets live in the project folder
@@ -1191,3 +1191,35 @@ stage 4 = printable scoresheets, dry-run mode.
   / no judge link yet"; ⋯ menu "🔓 Unlock <judge>'s card". `loadClasses`
   also loads judge_cards + judge_codes (empty pre-v63) and the realtime
   channel listens to judge_cards. Health page has the v63 probe.
+- **Stage 2 — pattern cards (schema-v64)**: `lib/judgeCards.js` holds the
+  card families (`CARD_FAMILIES`: placings, scores, and the pattern cards
+  `trail` 10 obstacles ±1½ penalties ½/1/3/5 tie-break = obstacles;
+  `western_riding` 12 manoeuvres ±1½ penalties ½/1/3/5/10 tie-break =
+  fewer penalties; `ranch_riding` 12 manoeuvres ±1½ penalties 1/3/5/10 +
+  Off pattern (placed below everyone) + Zero score; `pattern3`
+  Showmanship/Horsemanship/HSE 10 manoeuvres ±3 penalties 3/5/10 + Form &
+  Effectiveness 0–5), `suggestCardType(cls)` (class name / program heading
+  → family; else scoring_mode score → scores, other → placings),
+  `cardTypeFor(cls)` (`classes.judge_card_type` null/'auto' = suggested),
+  `layoutFor(cls, family, cardLayout)` (box names + tie-breaker order:
+  the judge's own card layout wins, else `classes.judge_card_config`
+  {boxes, tiebreak (0-based)}, else blank), `patternTotals` (70 + content
+  [+ F&E] − penalties), `comparePattern` (score desc, off-pattern last,
+  tie-breaker boxes / penalties, then the judge's ▲▼ `tie_rank`, then
+  draw order). Per-horse marks are stored INSIDE `judge_cards.results`
+  (`boxes: [{c, p: []}], fe, off_pattern, scored`); `judge_cards.layout`
+  keeps the boxes as that card had them. The judge page renders
+  `app/event/[id]/judge/PatternCard.js` (box set-up panel → shared via the
+  `setup` action; horse list in draw order → one-horse sheet with content
+  chips, penalty chips/tokens, F&E, DQ / Zero score / Off pattern, Done →
+  next horse; placings list with ▲▼ on exact ties). `/api/judge submit`
+  RECOMPUTES every pattern score from the boxes (never trusts the device's
+  total), writes it to the judge's `score`/`score2` column, flips a
+  non-`score` scoring_mode to `score` (the totals are 70-base scores), and
+  copies the first card's box names onto the class if none are saved; it
+  tolerates a pre-v64 database (re-selects without the new columns, saves
+  the card without `layout`). Dashboard: class form "Judge's card" select
+  (Auto shows what the name picks) + obstacle names textarea + tie-breaker
+  numbers; ⋯ menu "📋 <judge>'s card" opens a read-only viewer (box grid
+  for pattern cards) with an Unlock button. Stage 3 (reining / cattle /
+  sub-score cards) and stage 4 still pending.

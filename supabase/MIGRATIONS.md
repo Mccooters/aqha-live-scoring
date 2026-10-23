@@ -251,6 +251,13 @@ hasn't been run.
         (one private link per judge), the judge page that works with no
         reception, and the "sent / waiting" line under each class. Until it's
         run the button says it needs this update.
+- [ ] **v64** — `schema-v64-pattern-cards.sql`
+      → **Pattern judge cards** (Trail, Western Riding, Ranch Riding,
+        Showmanship / Horsemanship / Hunt Seat Eq): the "Judge's card"
+        choice + obstacle names on the class form, and the judge page's
+        obstacle boxes with penalties. Needs v63 first. Until it's run the
+        class form saves with the card on Auto only, and the judge page
+        still works for placings / scores cards.
 
 Tick these off once you've run them.
 
@@ -323,6 +330,7 @@ Tick these off once you've run them.
 | `schema-v61-event-extras.sql` | Camping & yards: `event_extras` (what's bookable per event, per night or per event, with capacity) + `registration_extras` (what each registration booked, which nights) |
 | `schema-v62-extras-pool.sql` | `event_extras.pool` — a shared name that makes the matching items on two events one pool of yards/sites (capacity counted across both; "already booked" shown on the second event's form) |
 | `schema-v63-judge-cards.sql` | Digital judge cards: `judge_codes` (per-judge links), `judge_cards` (what each judge sent per class), `events.judge_entry_mode` (judge taps / scribe enters) |
+| `schema-v64-pattern-cards.sql` | Pattern judge cards: `classes.judge_card_type` (which card — auto / placings / scores / trail / western_riding / ranch_riding / pattern3), `classes.judge_card_config` (obstacle names + tie-breaker order), `judge_cards.layout` (the boxes as that judge's card had them) |
 
 ## For whoever updates the code next
 
