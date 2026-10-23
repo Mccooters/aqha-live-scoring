@@ -53,6 +53,41 @@ Scoring mode per class (set when you create the class):
   results come from the judge's paperwork afterwards.
 - **TBC (whole class)** — everyone in the ring; results from paperwork later.
 
+### Judges scoring on their own phone (digital judge cards)
+
+Instead of paper cards, each judge can score on their own phone or tablet.
+
+1. Name the judges on the classes first (**Edit event** sets the judges for
+   every class at once).
+2. Open **Show day → ⚖ Judge access** and tap **Create link** beside each
+   judge, then **Share link** (by text message is easiest). Each link is
+   private to that judge — don't post it anywhere public.
+3. The judge opens the link once while they have reception. The whole show
+   downloads to their device, and from then on it works with **no signal**:
+   every tap is saved on the device, and each finished card sends itself the
+   moment the phone finds a signal again. A "cards to send" counter on their
+   page shows what's still waiting.
+4. On each class the judge places the horses (or scores them on 70-point
+   classes — placings follow the scores) and taps **Finish class**. That
+   writes their column on the class exactly as if you'd typed it, and closes
+   the class once every judge on it has finished. With two judges, each has
+   their own card and only sees the other's after finishing.
+5. Under each class on the dashboard you'll see **sent ✓** or **waiting for
+   the judge's card**. If a judge is on paper for a class, type the results
+   in as usual — the gate marshal's "Class finished" still works too.
+
+Like a paper card, a finished card can't be changed by the judge once the
+class has closed. For a clerical error, open the class's **⋯** menu and tap
+**Unlock … card**: the judge reopens it on their device, corrects it and
+finishes the class again.
+
+**Who taps the card** (in the same Judge access window): judges score on
+their own device, or a **scribe** enters for the judge and types their own
+name, which is recorded on every card they send.
+
+If a judge's phone is lost, tap **New link** for that judge — the old link
+stops working immediately.
+
 ---
 
 ## High Points — automatic from class results

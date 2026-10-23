@@ -1130,3 +1130,64 @@ datalist of names in use) as a fallback. On a pre-v62 database the
 manager saves the item without the pool and says so; the printable list merges the other event's bookings
 of the same pool, labelled "(Winter Show)". Pool text is matched exactly
 after trimming — the datalist exists so staff pick the same spelling.
+
+## Digital judge cards (schema-v63 — stage 1)
+
+Judges score on their own phone/tablet instead of paper (owner's project,
+Oct 2026; plan + the club's nine AQHA sheets live in the project folder
+under judge-cards, and the sheets map to six card families: placings,
+pattern +3/-3, pattern +1.5/-1.5, reining, cattle 60-80, sub-scores).
+Owner's rules: all classes; devices like the gate link (never a staff
+login); one card per judge, the OTHER judge's card is visible only after
+this judge finishes (or the class closes); class changes appear live on the
+card; results go live when the class closes; "Finish class" on the card
+closes the class (the gate marshal's "Class finished" stays as the paper
+fallback); judge-taps vs scribe is chosen PER EVENT; the judge can scroll
+back through the day's finished classes. **Stage 1 (shipped)** = judge
+links + offline page + placings/scores cards; stage 2 = pattern cards with
+manoeuvre boxes + penalties; stage 3 = reining/cattle/sub-score cards;
+stage 4 = printable scoresheets, dry-run mode.
+
+- **Tables**: `judge_codes` (event_id, judge_name — matched to
+  `classes.judge`/`judge2` trimmed + case-insensitive, code = long random
+  token, revoked, last_seen_at; staff + service role only, NO anon) and
+  `judge_cards` (id minted on the device so a re-send never duplicates;
+  class_id, judge_slot 1|2 = which entries column, card_type
+  placings|scores, status signed|unlocked, results jsonb [{entry_id,
+  back_number, place, score, dq, note}], notes, entered_by (scribe),
+  device_id, version, signed_at, received_at, unlocked_at/_by; unique
+  (class_id, judge_slot); staff read/write, viewers blocked, in the realtime
+  publication). `events.judge_entry_mode` 'judge' | 'scribe'.
+- **Route** `app/api/judge` (service role, code-gated): `check`,
+  `snapshot` (this judge's non-hidden classes with entries + their own
+  cards, plus the other judge's card only where allowed), `submit` (validates
+  the card against the class as it stands, upserts the card, writes that
+  judge's column — DQ = -1, unplaced = null, horses with a result get
+  `called` — flips a `score`/`tbc` class to `placing` when placings arrive
+  (same as ImportResults), closes the class once every expected judge has
+  signed, starts the next class like the gate does when the show is live,
+  then `app/api/_lib/championships.js` `fillChampionshipsFedBy` (server
+  twin of the dashboard's, insert-only)). A card on a COMPLETED class is
+  refused (409, `locked`) unless staff set its status to `unlocked`; the
+  same card id + version arriving twice returns `duplicate: true`.
+- **Judge page** `app/event/[id]/judge?code=` (`lib/judgeStore.js`:
+  IndexedDB kv with localStorage fallback, device id, `precacheShell`).
+  Device copy first (snapshot/cards/queue), then the server; every tap is
+  persisted; "Finish class" signs the card (version+1, signed_at, scores
+  cards also carry derived placings) and queues it; `flush()` sends in
+  order and stops on a dropped connection; a refused card shows "Not
+  accepted" with Reopen. Sync triggers: online, visibilitychange, pageshow,
+  25 s poll, anon realtime on classes/entries. Merge rule: a draft on the
+  device wins; server `unlocked` reopens it; unknown server cards are
+  adopted as sent. Reopen allowed while the class isn't completed or after
+  an unlock. `public/sw.js` serves the judge page network-first with cache
+  fallback and `/_next/static` + Google Fonts cache-first (cache
+  `judge-shell-v1`); the page precaches its own document, chunks and
+  pattern files after load. Patterns open in an iframe/img (same-origin
+  subresource → served from cache offline).
+- **Dashboard**: "⚖ Judge access" (Show day) lists the judge names on the
+  event's classes, Create/Share/Show/New link per judge, the judge-taps /
+  scribe radio; under each class "J1: sent ✓ / waiting for the judge's card
+  / no judge link yet"; ⋯ menu "🔓 Unlock <judge>'s card". `loadClasses`
+  also loads judge_cards + judge_codes (empty pre-v63) and the realtime
+  channel listens to judge_cards. Health page has the v63 probe.

@@ -246,6 +246,11 @@ hasn't been run.
       → **Yards/camping shared between two events on the same weekend**: the
         "Shared with another event" name on each item. Until it's run the
         manager saves the item without the shared name and says so.
+- [ ] **v63** — `schema-v63-judge-cards.sql`
+      → **Digital judge cards**: the "⚖ Judge access" button on the dashboard
+        (one private link per judge), the judge page that works with no
+        reception, and the "sent / waiting" line under each class. Until it's
+        run the button says it needs this update.
 
 Tick these off once you've run them.
 
@@ -317,6 +322,7 @@ Tick these off once you've run them.
 | `schema-v60-website-fees.sql` | Website fees ledger (`website_fees`, one line per online payment / refund) + `website_fee_months` (billed / paid status) for the monthly statement |
 | `schema-v61-event-extras.sql` | Camping & yards: `event_extras` (what's bookable per event, per night or per event, with capacity) + `registration_extras` (what each registration booked, which nights) |
 | `schema-v62-extras-pool.sql` | `event_extras.pool` — a shared name that makes the matching items on two events one pool of yards/sites (capacity counted across both; "already booked" shown on the second event's form) |
+| `schema-v63-judge-cards.sql` | Digital judge cards: `judge_codes` (per-judge links), `judge_cards` (what each judge sent per class), `events.judge_entry_mode` (judge taps / scribe enters) |
 
 ## For whoever updates the code next
 
