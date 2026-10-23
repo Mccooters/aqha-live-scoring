@@ -131,7 +131,7 @@ function ExtrasListInner() {
           {events.map((e) => <option key={e.id} value={e.id}>{e.name}{e.starts_on ? ` — ${e.starts_on}` : ""}</option>)}
         </select>
         <button onClick={() => window.print()} disabled={!eventId}>🖨 Print</button>
-        <Link href="/coordinator/registrations">Registrations</Link>
+        <Link href={eventId ? `/coordinator/registrations?event=${eventId}` : "/coordinator/registrations"}>Registrations</Link>
       </div>
       {error && <p style={{ maxWidth: 980, margin: "0 auto 10px", padding: "0 18px", color: "var(--clay)", fontWeight: 700 }}>{error}</p>}
       {eventId && bookings && (
