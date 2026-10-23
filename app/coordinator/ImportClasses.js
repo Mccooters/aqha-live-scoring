@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { normaliseBreakLabel, normaliseCategoryLabel } from "../../lib/classCategories";
+import { isChampionship, looksLikeChampionship, looksLikeSupreme, suggestFeederIds } from "../../lib/championship";
 
 const ALIASES = {
   num:          ["class #", "class no", "class number", "class num", "num", "#", "number", "no"],
@@ -250,16 +251,46 @@ export default function ImportClasses({ eventId, onDone }) {
         }
       }
 
+      const insertedIds = new Set();
       if (toInsert.length) {
-        const { error: insErr } = await supabase.from("classes").insert(toInsert);
+        const { data: inserted, error: insErr } = await supabase.from("classes").insert(toInsert).select("id");
         if (insErr) throw insErr;
+        (inserted ?? []).forEach((c) => insertedIds.add(c.id));
       }
       for (const { id, ...patch } of toUpdate) {
         const { error: updErr } = await supabase.from("classes").update(patch).eq("id", id);
         if (updErr) throw updErr;
       }
 
-      setDone({ created: toInsert.length, updated: toUpdate.length });
+      // Championship classes (schema-v43): a freshly created "Champ &
+      // Reserve" / "GRAND CHAMPION" / "SUPREME" class is linked to its feeder
+      // classes with the same guess the class form pre-ticks, so a 200-class
+      // program doesn't need every championship opened by hand. Only classes
+      // created by THIS import are touched — never links staff already set.
+      let linked = 0;
+      if (toInsert.some((r) => looksLikeChampionship(r.name))) {
+        const { data: fresh } = await supabase
+          .from("classes").select("id, name, day, sort_order, champ_feeder_ids")
+          .eq("event_id", eventId).order("sort_order", { ascending: true });
+        const all = fresh ?? [];
+        for (const cls of all) {
+          if (!insertedIds.has(cls.id) || !looksLikeChampionship(cls.name) || isChampionship(cls)) continue;
+          const feederIds = suggestFeederIds(cls, all);
+          if (!feederIds.length) continue;
+          const { error: linkErr } = await supabase.from("classes")
+            .update({ champ_feeder_ids: feederIds, champ_take: looksLikeSupreme(cls.name) ? "top1" : "top2" })
+            .eq("id", cls.id);
+          if (linkErr) {
+            // Pre-v43 database: the classes are in, just not linked.
+            if (linkErr.message?.includes("champ_feeder_ids") || linkErr.message?.includes("champ_take")) break;
+            throw linkErr;
+          }
+          cls.champ_feeder_ids = feederIds; // so a Grand Champion above sees this one as a championship
+          linked += 1;
+        }
+      }
+
+      setDone({ created: toInsert.length, updated: toUpdate.length, linked });
     } catch (err) {
       setError(err.message?.includes("program_category")
         ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
@@ -278,6 +309,11 @@ export default function ImportClasses({ eventId, onDone }) {
           ✓ {done.created} class{done.created !== 1 ? "es" : ""} created
           {done.updated > 0 && `, ${done.updated} updated`}.
         </p>
+        {done.linked > 0 && (
+          <p style={{ fontSize: 13, color: "var(--leather)", marginTop: 0 }}>
+            🏆 {done.linked} championship class{done.linked !== 1 ? "es" : ""} linked to the classes above {done.linked !== 1 ? "them" : "it"} in the program. Open a championship from its ⋯ menu to check the ticked feeder classes.
+          </p>
+        )}
         <p style={{ fontSize: 13, color: "var(--quiet)", marginTop: 0 }}>
           Classes are now live on the online registration form. Exhibitors can choose from them when they register.
         </p>

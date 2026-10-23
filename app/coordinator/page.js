@@ -24,7 +24,7 @@ const firstPending = (entries, mode) => // eslint-disable-line no-unused-vars
 // All valid high-points categories in display order.
 const HP_CATEGORIES = [
   "Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse",
-  "Amateur", "Novice Amateur", "Select", "Beginner", "EWD", "Youth", "Leadline",
+  "Amateur", "Novice Amateur", "Select", "Beginner", "Improver", "EWD", "Youth", "Leadline",
 ];
 const HP_HORSE_CATS = new Set(["Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse"]);
 
