@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminClient } from "../_lib/registrations";
 import { fillChampionshipsFedBy } from "../_lib/championships";
+import { CARD_FAMILIES, layoutFor, cleanPatternResult, patternTotals, patternScored } from "../../../lib/judgeCards";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -13,6 +14,9 @@ export const fetchCache = "force-no-store";
 //              scoring works with no reception
 //   submit   — a signed card: writes that judge's column on the entries,
 //              closes the class once every judge has signed
+//   setup    — the obstacle / manoeuvre names + tie-breaker order for a
+//              pattern card (schema-v64), saved on the class so the other
+//              judge's card shows the same boxes
 // It is not a staff login — no dashboard, no money, no member data, and the
 // other judge's card is only returned once this judge has signed. Writes go
 // through the service role here because the judge has no Supabase session.
@@ -22,9 +26,12 @@ export const fetchCache = "force-no-store";
 
 const sameName = (a, b) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
 
-const migrationHint = (msg) => /judge_codes|judge_cards|judge_entry_mode|schema cache|does not exist/i.test(msg ?? "")
+const migrationHint = (msg) => /judge_card_type|judge_card_config|layout/i.test(msg ?? "")
+  ? 'Pattern judge cards need a database update — the coordinator must run "schema-v64-pattern-cards.sql".'
+  : /judge_codes|judge_cards|judge_entry_mode|schema cache|does not exist/i.test(msg ?? "")
   ? 'Judge cards need a database update — the coordinator must run "schema-v63-judge-cards.sql".'
   : msg;
+const isV64Missing = (msg) => /judge_card_type|judge_card_config/i.test(msg ?? "");
 
 // Which judge slot a judge holds on a class: 1 = classes.judge (score),
 // 2 = classes.judge2 (score2). null = not this judge's class.
@@ -34,15 +41,22 @@ function slotFor(cls, judgeName) {
   return null;
 }
 
-const CLASS_FIELDS = "id, event_id, num, name, judge, judge2, status, sort_order, day, scoring_mode, pattern_url, hidden, program_category, champ_feeder_ids, champ_take";
+const CLASS_FIELDS_V63 = "id, event_id, num, name, judge, judge2, status, sort_order, day, scoring_mode, pattern_url, hidden, program_category, champ_feeder_ids, champ_take";
+const CLASS_FIELDS = `${CLASS_FIELDS_V63}, judge_card_type, judge_card_config`;
 const ENTRY_FIELDS = "id, class_id, back_number, horse, exhibitor, draw_order, score, score2, scratched, called";
 
+// Classes with their entries. A database that hasn't had schema-v64 yet
+// (no card type / box names on classes) still serves the stage-1 cards.
+async function selectClasses(db, apply) {
+  let res = await apply(db.from("classes").select(`${CLASS_FIELDS}, entries(${ENTRY_FIELDS})`));
+  if (res.error && isV64Missing(res.error.message)) {
+    res = await apply(db.from("classes").select(`${CLASS_FIELDS_V63}, entries(${ENTRY_FIELDS})`));
+  }
+  return res;
+}
+
 async function loadJudgeClasses(db, eventId, judgeName) {
-  const { data, error } = await db
-    .from("classes")
-    .select(`${CLASS_FIELDS}, entries(${ENTRY_FIELDS})`)
-    .eq("event_id", eventId)
-    .order("sort_order");
+  const { data, error } = await selectClasses(db, (q) => q.eq("event_id", eventId).order("sort_order"));
   if (error) throw new Error(error.message);
   const mine = (data ?? []).filter((c) => !c.hidden && slotFor(c, judgeName));
   mine.forEach((c) => {
@@ -122,11 +136,7 @@ export async function POST(req) {
       if (!card.id || !card.class_id || !Array.isArray(card.results)) {
         return NextResponse.json({ error: "Card is incomplete" }, { status: 400 });
       }
-      const { data: cls, error: clsErr } = await db
-        .from("classes")
-        .select(`${CLASS_FIELDS}, entries(${ENTRY_FIELDS})`)
-        .eq("id", card.class_id)
-        .maybeSingle();
+      const { data: cls, error: clsErr } = await selectClasses(db, (q) => q.eq("id", card.class_id).maybeSingle());
       if (clsErr) return NextResponse.json({ error: clsErr.message }, { status: 500 });
       if (!cls || cls.event_id !== event_id) return NextResponse.json({ error: "Class not found" }, { status: 404 });
       const slot = slotFor(cls, judgeName);
@@ -149,9 +159,14 @@ export async function POST(req) {
       }
 
       // Validate the results against the class as it stands now: every
-      // entry must belong to the class; placings unique and 1..n.
+      // entry must belong to the class; placings unique and 1..n. Pattern
+      // cards: the boxes are the record — the score is worked out again here
+      // (70 + content [+ F&E] − penalties), never taken from the device.
       const entryById = Object.fromEntries((cls.entries ?? []).map((e) => [e.id, e]));
-      const cardType = card.card_type === "scores" ? "scores" : "placings";
+      const cardType = CARD_FAMILIES[card.card_type] ? card.card_type : "placings";
+      const family = CARD_FAMILIES[cardType];
+      const isPattern = family.kind === "pattern";
+      const layout = isPattern ? layoutFor(cls, family, card.layout) : null;
       const seenPlaces = new Set();
       const clean = [];
       for (const r of card.results) {
@@ -162,11 +177,18 @@ export async function POST(req) {
         let score = r.score == null || r.score === "" ? null : Number(r.score);
         if (place != null && (!Number.isInteger(place) || place < 1)) place = null;
         if (score != null && !Number.isFinite(score)) score = null;
+        let pattern = null;
+        if (isPattern) {
+          pattern = cleanPatternResult(r, family, layout.boxes.length);
+          pattern.tie_rank = Number.isInteger(r.tie_rank) ? r.tie_rank : null;
+          score = patternScored(pattern) && !dq ? patternTotals(pattern, family).score : null;
+          if (score == null) place = null;
+        }
         if (place != null) {
           if (seenPlaces.has(place)) return NextResponse.json({ error: `Two horses are both placed ${place} — fix the card and finish again.` }, { status: 400 });
           seenPlaces.add(place);
         }
-        clean.push({ entry_id: entry.id, back_number: entry.back_number, place, score, dq, note: String(r.note ?? "").slice(0, 300) || null });
+        clean.push({ entry_id: entry.id, back_number: entry.back_number, place, score, dq, note: String(r.note ?? "").slice(0, 300) || null, ...(pattern ?? {}) });
       }
 
       const signedAt = card.signed_at && !isNaN(Date.parse(card.signed_at)) ? new Date(card.signed_at).toISOString() : new Date().toISOString();
@@ -187,14 +209,25 @@ export async function POST(req) {
         unlocked_at: null,
         unlocked_by: null,
       };
+      if (isPattern) row.layout = layout;
       // One card per class per judge: a re-send after an unlock replaces the
       // old one (the unique index on class_id + judge_slot arbitrates).
       if (existing && existing.id !== card.id) {
         const { error: delErr } = await db.from("judge_cards").delete().eq("id", existing.id);
         if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
       }
-      const { error: upErr } = await db.from("judge_cards").upsert(row, { onConflict: "id" });
+      let { error: upErr } = await db.from("judge_cards").upsert(row, { onConflict: "id" });
+      if (upErr && isPattern && /layout/i.test(upErr.message)) {
+        // Pre-v64 database: keep the card (the boxes are inside results).
+        delete row.layout;
+        ({ error: upErr } = await db.from("judge_cards").upsert(row, { onConflict: "id" }));
+      }
       if (upErr) return NextResponse.json({ error: migrationHint(upErr.message) }, { status: 500 });
+      // First card in with box names: keep them on the class for the other
+      // judge (and the dashboard). Never overwrites names already saved.
+      if (isPattern && layout.boxes.some(Boolean) && !(Array.isArray(cls.judge_card_config?.boxes) && cls.judge_card_config.boxes.some(Boolean))) {
+        await db.from("classes").update({ judge_card_config: layout }).eq("id", cls.id).then(() => {}, () => {});
+      }
 
       // Write this judge's column on the entries. The card is the only
       // source of this judge's marks: a horse the judge left unplaced is
@@ -209,7 +242,7 @@ export async function POST(req) {
         let value = null;
         if (r) {
           if (r.dq) value = -1;
-          else if (cardType === "scores") value = r.score;
+          else if (cardType === "scores" || isPattern) value = r.score;
           else value = r.place;
         }
         const patch = { [field]: value };
@@ -224,6 +257,10 @@ export async function POST(req) {
       const mode = cls.scoring_mode ?? "score";
       if (cardType === "placings" && (mode === "score" || mode === "tbc")) {
         await db.from("classes").update({ scoring_mode: "placing" }).eq("id", cls.id);
+      } else if ((cardType === "scores" || isPattern) && mode !== "score") {
+        // A pattern card's totals are scores (70-base): a class left on a
+        // placing / TBC mode would read them as placings.
+        await db.from("classes").update({ scoring_mode: "score" }).eq("id", cls.id);
       }
 
       // Close the class once every judge has signed (owner's rule, Oct 2026:
@@ -257,6 +294,23 @@ export async function POST(req) {
       }
 
       return NextResponse.json({ ok: true, class_status: closed ? "completed" : cls.status, closed, waiting_for_other_judge: !allSigned, next });
+    }
+
+    if (action === "setup") {
+      // Box names + tie-breaker order for a pattern class, shared through
+      // the class row. Either judge may set them until the class closes.
+      const { class_id, config } = body;
+      const { data: cls, error: clsErr } = await selectClasses(db, (q) => q.eq("id", class_id).maybeSingle());
+      if (clsErr) return NextResponse.json({ error: clsErr.message }, { status: 500 });
+      if (!cls || cls.event_id !== event_id) return NextResponse.json({ error: "Class not found" }, { status: 404 });
+      if (!slotFor(cls, judgeName)) return NextResponse.json({ error: `You are not listed as a judge on Class ${cls.num}.` }, { status: 403 });
+      if (cls.status === "completed") return NextResponse.json({ error: `Class ${cls.num} is closed.` }, { status: 409 });
+      const boxes = (Array.isArray(config?.boxes) ? config.boxes : []).slice(0, 12).map((b) => String(b ?? "").slice(0, 40));
+      if (!boxes.length) return NextResponse.json({ error: "No boxes" }, { status: 400 });
+      const tiebreak = (Array.isArray(config?.tiebreak) ? config.tiebreak : []).map((i) => parseInt(i, 10)).filter((i) => Number.isInteger(i) && i >= 0 && i < boxes.length);
+      const { error } = await db.from("classes").update({ judge_card_config: { boxes, tiebreak: Array.from(new Set(tiebreak)) } }).eq("id", cls.id);
+      if (error) return NextResponse.json({ error: migrationHint(error.message) }, { status: 500 });
+      return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

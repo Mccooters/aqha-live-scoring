@@ -4,6 +4,8 @@ import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
 import { storeGet, storeSet, deviceId, newId, precacheShell } from "../../../../lib/judgeStore";
 import { fmtBack, ordinal } from "../../../../lib/showPrint";
+import { cardTypeFor, familyFor, layoutFor, patternScored, patternTotals, patternTied, comparePattern, cleanPatternResult, fmtHalf } from "../../../../lib/judgeCards";
+import PatternCard from "./PatternCard";
 
 // Judge's view (schema-v63, stage 1). Opened via the per-judge link the
 // coordinator shares (…/judge?code=…). The whole show downloads to the
@@ -14,11 +16,12 @@ import { fmtBack, ordinal } from "../../../../lib/showPrint";
 // Stage 1 cards: PLACINGS (halter, rail, TBC and championship classes —
 // back numbers in order, like the AQHA Judges Result Card) and SCORES (70-
 // point classes — a score per horse, placings worked out from the scores,
-// like the general score sheet). Pattern cards with manoeuvre boxes come in
-// stage 2.
+// like the general score sheet). Stage 2 adds the PATTERN cards (Trail,
+// Western Riding, Ranch Riding, Showmanship/Horsemanship/HSE — see
+// PatternCard.js and lib/judgeCards.js): obstacle boxes, penalties, 70-base
+// running score, tie-breaker obstacles.
 
 const POLL_MS = 25000;
-const cardTypeFor = (cls) => ((cls?.scoring_mode ?? "score") === "score" ? "scores" : "placings");
 const scoreTxt = (v) => (v == null ? "" : String(v));
 const fmtTime = (iso) => {
   if (!iso) return "";
@@ -31,7 +34,16 @@ const fmtTime = (iso) => {
 function placedOrder(cls, card) {
   const results = card?.results ?? {};
   const active = (cls?.entries ?? []).filter((e) => !e.scratched);
-  if ((card?.card_type ?? cardTypeFor(cls)) === "placings") {
+  const type = card?.card_type ?? cardTypeFor(cls);
+  const family = familyFor(type);
+  if (family.kind === "pattern") {
+    const layout = layoutFor(cls, family, card?.layout);
+    return active
+      .filter((e) => patternScored(results[e.id]) && !results[e.id]?.dq)
+      .map((e) => ({ ...e, result: results[e.id] }))
+      .sort((a, b) => comparePattern(a, b, family, layout));
+  }
+  if (type === "placings") {
     return active
       .filter((e) => results[e.id]?.place != null && !results[e.id]?.dq)
       .sort((a, b) => results[a.id].place - results[b.id].place);
@@ -85,6 +97,7 @@ export default function JudgePage() {
   const [view, setView] = useState({ kind: "list" });
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [showPattern, setShowPattern] = useState(false);
+  const [horseId, setHorseId] = useState(null); // pattern cards: the horse being scored
   const [scribeName, setScribeName] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const flushing = useRef(false);
@@ -124,10 +137,13 @@ export default function JudgePage() {
       if (!cls || cls.judge_slot !== sc.judge_slot) continue;
       const cur = next[sc.class_id];
       const results = {};
-      (sc.results ?? []).forEach((r) => { results[r.entry_id] = { place: r.place, score: r.score, dq: !!r.dq, note: r.note ?? "" }; });
+      (sc.results ?? []).forEach((r) => {
+        results[r.entry_id] = { place: r.place, score: r.score, dq: !!r.dq, note: r.note ?? "" };
+        if (Array.isArray(r.boxes)) Object.assign(results[r.entry_id], { boxes: r.boxes, fe: r.fe ?? null, off_pattern: !!r.off_pattern, scored: r.scored !== false, tie_rank: r.tie_rank ?? null });
+      });
       if (!cur) {
         next[sc.class_id] = {
-          id: sc.id, class_id: sc.class_id, judge_slot: sc.judge_slot, card_type: sc.card_type ?? cardTypeFor(cls),
+          id: sc.id, class_id: sc.class_id, judge_slot: sc.judge_slot, card_type: sc.card_type ?? cardTypeFor(cls), layout: sc.layout ?? null,
           status: sc.status === "unlocked" ? "draft" : "sent", results, notes: sc.notes ?? "", entered_by: sc.entered_by ?? "",
           version: sc.version ?? 1, signed_at: sc.signed_at, sent_at: sc.received_at, unlocked: sc.status === "unlocked",
         };
@@ -179,7 +195,11 @@ export default function JudgePage() {
         if (!card || card.status !== "signed") { q.shift(); changed = true; continue; }
         const payload = {
           id: card.id, class_id: classId, judge_slot: card.judge_slot, card_type: card.card_type,
-          results: Object.entries(card.results).map(([entry_id, r]) => ({ entry_id, place: r.place ?? null, score: r.score ?? null, dq: !!r.dq, note: r.note || null })),
+          results: Object.entries(card.results).map(([entry_id, r]) => ({
+            entry_id, place: r.place ?? null, score: r.score ?? null, dq: !!r.dq, note: r.note || null,
+            ...(Array.isArray(r.boxes) ? { boxes: r.boxes, fe: r.fe ?? null, off_pattern: !!r.off_pattern, scored: !!r.scored, tie_rank: r.tie_rank ?? null } : {}),
+          })),
+          layout: card.layout ?? null,
           notes: card.notes || null, entered_by: card.entered_by || null, device_id: deviceId(), version: card.version, signed_at: card.signed_at,
         };
         let res;
@@ -298,9 +318,13 @@ export default function JudgePage() {
   const classById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
   const liveClass = classes.find((c) => c.status === "live") ?? null;
 
-  const ensureCard = (cls) => cards[cls.id] ?? {
-    id: newId(), class_id: cls.id, judge_slot: cls.judge_slot, card_type: cardTypeFor(cls),
-    status: "draft", results: {}, notes: "", entered_by: "", version: 0,
+  const ensureCard = (cls) => {
+    const cur = cards[cls.id];
+    if (!cur) return { id: newId(), class_id: cls.id, judge_slot: cls.judge_slot, card_type: cardTypeFor(cls), status: "draft", results: {}, notes: "", entered_by: "", version: 0 };
+    // The coordinator changed the class's card before the judge marked
+    // anything: follow the change rather than keep an empty card of the old kind.
+    if (cur.status === "draft" && Object.keys(cur.results ?? {}).length === 0 && cur.card_type !== cardTypeFor(cls)) return { ...cur, card_type: cardTypeFor(cls) };
+    return cur;
   };
   const updateCard = (cls, fn) => {
     const cur = ensureCard(cls);
@@ -348,6 +372,18 @@ export default function JudgePage() {
     const order = placedOrder(cls, card);
     const j = index + dir;
     if (j < 0 || j >= order.length) return;
+    const fam = familyFor(card.card_type);
+    if (fam.kind === "pattern") {
+      const layout = layoutFor(cls, fam, card.layout);
+      if (!patternTied(order[index], order[j], fam, layout)) return;
+      const swapped = [...order];
+      [swapped[index], swapped[j]] = [swapped[j], swapped[index]];
+      updateCard(cls, (c) => {
+        swapped.forEach((e, i) => { c.results[e.id] = { ...c.results[e.id], tie_rank: i }; });
+        return c;
+      });
+      return;
+    }
     if (card.card_type === "placings") {
       updateCard(cls, (c) => {
         const a = order[index].id, b = order[j].id;
@@ -367,6 +403,17 @@ export default function JudgePage() {
     }
   };
 
+  // The box names + tie-breaker order live on the card (so they work
+  // offline) and are shared with the other judge through the class.
+  const setLayout = (cls, layout) => {
+    updateCard(cls, (c) => ({ ...c, layout }));
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      post("setup", { class_id: cls.id, config: layout }).then(({ data }) => {
+        if (data?.ok) refresh();
+      }, () => {});
+    }
+  };
+
   const finishClass = (cls) => {
     const card = ensureCard(cls);
     const enteredBy = entryMode === "scribe" ? scribeName.trim() : "";
@@ -374,8 +421,20 @@ export default function JudgePage() {
       ...card, status: "signed", signed_at: new Date().toISOString(), version: (card.version ?? 0) + 1,
       entered_by: enteredBy, error: "", unlocked: false,
     };
-    // Scores cards carry their worked-out placings too, for the record.
-    if (signed.card_type === "scores") {
+    // Scores and pattern cards carry their worked-out placings too, for the
+    // record; pattern cards also carry each horse's total (70 + boxes − penalties).
+    const fam = familyFor(signed.card_type);
+    if (fam.kind === "pattern") {
+      const layout = layoutFor(cls, fam, signed.layout);
+      signed.layout = layout;
+      signed.results = { ...signed.results };
+      Object.keys(signed.results).forEach((k) => {
+        const r = signed.results[k];
+        const scored = patternScored(r) && !r.dq;
+        signed.results[k] = { ...r, ...cleanPatternResult(r, fam, layout.boxes.length), score: scored ? patternTotals(r, fam).score : null, place: null };
+      });
+      placedOrder(cls, signed).forEach((e, i) => { signed.results[e.id] = { ...signed.results[e.id], place: i + 1 }; });
+    } else if (signed.card_type === "scores") {
       placedOrder(cls, signed).forEach((e, i) => { signed.results[e.id] = { ...signed.results[e.id], place: i + 1 }; });
     }
     const nextCards = { ...cards, [cls.id]: signed };
@@ -480,6 +539,9 @@ export default function JudgePage() {
     const order = placedOrder(cls, card);
     const placedIds = new Set(order.map((e) => e.id));
     const isScores = card.card_type === "scores";
+    const family = familyFor(card.card_type);
+    const isPattern = family.kind === "pattern";
+    const layout = isPattern ? layoutFor(cls, family, card.layout) : null;
     const otherCard = (snapshot?.cards ?? []).find((k) => k.class_id === cls.id && k.judge_slot !== cls.judge_slot);
     const canSeeOther = otherCard && (locked || cls.status === "completed");
     const otherName = cls.judge_slot === 1 ? cls.judge2 : cls.judge;
@@ -504,13 +566,13 @@ export default function JudgePage() {
 
     return (
       <main className="wrap" style={{ maxWidth: 640 }}>
-        <button className="btn-ghost" onClick={() => setView({ kind: "list" })} style={{ marginBottom: 10 }}>← All classes</button>
+        <button className="btn-ghost" onClick={() => { setHorseId(null); setView({ kind: "list" }); }} style={{ marginBottom: 10 }}>← All classes</button>
         <section className="card" style={{ borderColor: cls.status === "live" ? "var(--brass)" : undefined }}>
           <div className="card-head" style={{ alignItems: "flex-start" }}>
             <div style={{ minWidth: 0 }}>
               <div className="display" style={{ fontWeight: 700, fontSize: 18 }}>Class {cls.num} · {cls.name}</div>
               <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                {isScores ? "Score each horse — placings follow the scores" : "Tap the horses in placing order"} · {active.length} in class
+                {isPattern ? `${family.label} card — score each horse ${family.boxNoun.toLowerCase()} by ${family.boxNoun.toLowerCase()}` : isScores ? "Score each horse — placings follow the scores" : "Tap the horses in placing order"} · {active.length} in class
                 {cls.judge2 && <> · you are Judge {cls.judge_slot}</>}
               </div>
               <div style={{ marginTop: 4 }}><ClassStatusLine cls={cls} /></div>
@@ -532,7 +594,13 @@ export default function JudgePage() {
             </div>
           )}
 
+          {isPattern && (
+            <PatternCard cls={cls} card={card} family={family} layout={layout} locked={locked} order={order}
+              setResult={(entryId, patch) => setResult(cls, entryId, patch)} toggleDq={(e) => toggleDq(cls, e)} move={(i, d) => move(cls, i, d)}
+              setLayout={(l) => setLayout(cls, l)} horseId={horseId} setHorseId={setHorseId} />
+          )}
           {/* Placings so far */}
+          {!isPattern && <>
           <div style={{ padding: "10px 12px 4px", fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase", fontWeight: 800, color: "var(--quiet)" }}>
             Placings {order.length ? `(${order.length})` : ""}
           </div>
@@ -586,13 +654,14 @@ export default function JudgePage() {
               {!locked && <button className="btn-ghost" onClick={() => toggleDq(cls, e)}>Undo</button>}
             </div>
           )))}
+          </>}
           {scratched.length > 0 && (
             <div style={{ padding: "8px 12px 10px", borderTop: "1px solid var(--line)", fontSize: 12.5, color: "var(--quiet)" }}>
               Scratched: {scratched.map((e) => `#${fmtBack(e.back_number)} ${e.horse}`).join(", ")}
             </div>
           )}
 
-          <div style={{ padding: "10px 12px 14px", borderTop: "2px solid var(--line)" }}>
+          {!(isPattern && horseId) && <div style={{ padding: "10px 12px 14px", borderTop: "2px solid var(--line)" }}>
             {!locked && (
               <textarea className="field" rows={2} style={{ width: "100%", fontSize: 14, marginBottom: 10 }} placeholder="Notes for this class (optional — tie-breakers, remarks)"
                 value={card.notes ?? ""} onChange={(ev) => updateCard(cls, (c) => ({ ...c, notes: ev.target.value }))} />
@@ -612,7 +681,7 @@ export default function JudgePage() {
                 {(cls.status !== "completed" || card.unlocked) && <button className="btn-ghost" onClick={() => reopenCard(cls)}>Reopen to correct</button>}
               </div>
             )}
-          </div>
+          </div>}
         </section>
 
         {canSeeOther && (
@@ -637,10 +706,10 @@ export default function JudgePage() {
             <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
               <h2 className="display modal-title">Finish Class {cls.num}?</h2>
               <ol style={{ paddingLeft: 22, margin: "0 0 12px", fontSize: 15 }}>
-                {order.map((e) => <li key={e.id}><b>#{fmtBack(e.back_number)}</b> {e.horse}{isScores ? ` — ${scoreTxt(card.results[e.id].score)}` : ""}</li>)}
+                {order.map((e) => <li key={e.id}><b>#{fmtBack(e.back_number)}</b> {e.horse}{isScores ? ` — ${scoreTxt(card.results[e.id].score)}` : isPattern ? ` — ${fmtHalf(patternTotals(card.results[e.id], family).score)}` : ""}</li>)}
               </ol>
               {dqs.length > 0 && <p style={{ fontSize: 13.5, color: "var(--clay)", fontWeight: 700 }}>DQ: {dqs.map((e) => `#${fmtBack(e.back_number)}`).join(", ")}</p>}
-              {unplaced.length > 0 && <p style={{ fontSize: 13.5, color: "var(--quiet)" }}>{unplaced.length} not placed.</p>}
+              {unplaced.length > 0 && <p style={{ fontSize: 13.5, color: "var(--quiet)" }}>{unplaced.length} not {isPattern ? "scored" : "placed"}.</p>}
               <p style={{ fontSize: 13, color: "var(--quiet)" }}>Like a paper card, there are no changes once it&apos;s in — the secretary can unlock it for a clerical correction.</p>
               <div style={{ display: "flex", gap: 8 }}>
                 <button className="btn-ghost" style={{ flex: 1, padding: 12, fontSize: 15 }} onClick={() => setConfirmFinish(false)}>Back</button>
@@ -686,7 +755,7 @@ export default function JudgePage() {
               const s = statusOf(c);
               const first = firstOf(c);
               return (
-                <button key={c.id} onClick={() => setView({ kind: "card", classId: c.id })}
+                <button key={c.id} onClick={() => { setHorseId(null); setView({ kind: "card", classId: c.id }); }}
                   style={{ flex: "0 0 150px", textAlign: "left", background: "#fff", border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", fontFamily: "inherit" }}>
                   <div style={{ fontSize: 11, color: "var(--quiet)", fontWeight: 700 }}>Class {c.num}</div>
                   <div className="display" style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
@@ -710,13 +779,13 @@ export default function JudgePage() {
         const placedN = card ? placedOrder(c, card).length : 0;
         const isLive = c.status === "live";
         return (
-          <button key={c.id} onClick={() => setView({ kind: "card", classId: c.id })} className="card"
+          <button key={c.id} onClick={() => { setHorseId(null); setView({ kind: "card", classId: c.id }); }} className="card"
             style={{ width: "100%", textAlign: "left", padding: "12px 14px", fontFamily: "inherit", cursor: "pointer", borderColor: isLive ? "var(--brass)" : undefined, background: isLive ? "#FBF4E4" : "#fff", marginBottom: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
               <div style={{ minWidth: 0 }}>
                 <div className="display" style={{ fontWeight: 700, fontSize: 17 }}>Class {c.num} · {c.name}</div>
                 <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
-                  {c.entries.filter((e) => !e.scratched).length} in class · {cardTypeFor(c) === "scores" ? "scores" : "placings"}{c.judge2 ? ` · Judge ${c.judge_slot}` : ""}
+                  {c.entries.filter((e) => !e.scratched).length} in class · {familyFor(cards[c.id]?.card_type ?? cardTypeFor(c)).short}{c.judge2 ? ` · Judge ${c.judge_slot}` : ""}
                   {placedN > 0 && <> · <b style={{ color: "var(--brass)" }}>{placedN} placed</b></>}
                 </div>
                 <div style={{ marginTop: 3 }}><ClassStatusLine cls={c} /></div>

@@ -8,6 +8,7 @@ import { isChampionship, looksLikeChampionship, looksLikeSupreme, championshipQu
 import { hasResult, resultOrder, scoreRank } from "../../lib/showPrint";
 import { BREAK_PRESETS, breakState, fmtClock, suggestedBreakLabel } from "../../lib/breakTimer";
 import { suggestHpCategory } from "../../lib/hpCategory";
+import { CARD_FAMILIES, CARD_TYPE_ORDER, CARD_TYPE_HINT, cardTypeFor, suggestCardType, isPatternType, layoutFor, patternTotals, fmtHalf } from "../../lib/judgeCards";
 import ImportEntries from "./ImportEntries";
 import ImportClasses from "./ImportClasses";
 import ImportResults from "./ImportResults";
@@ -1239,7 +1240,9 @@ export default function Coordinator() {
     return names;
   };
   const judgeMigrationHint = 'Judge cards need a database update — run "schema-v63-judge-cards.sql" in the Supabase SQL Editor first.';
-  const judgeErr = (error) => /judge_codes|judge_cards|judge_entry_mode|does not exist|schema cache/i.test(error?.message ?? "") ? judgeMigrationHint : error?.message;
+  const judgeErr = (error) => /judge_card_type|judge_card_config|layout/i.test(error?.message ?? "")
+    ? 'Pattern judge cards need a database update — run "schema-v64-pattern-cards.sql" in the Supabase SQL Editor first.'
+    : /judge_codes|judge_cards|judge_entry_mode|does not exist|schema cache/i.test(error?.message ?? "") ? judgeMigrationHint : error?.message;
   const randomCode = () => {
     const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
     const bytes = new Uint8Array(20);
@@ -1718,7 +1721,10 @@ export default function Coordinator() {
       // champ_feeder_ids: [] (not undefined) when nothing is saved, so a class
       // staff deliberately made normal is never silently re-suggested back into
       // a championship on a later edit — the "Use suggested" button is explicit.
-      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", fee_dollars: c.fee_cents != null ? String(c.fee_cents / 100) : "", deposit_dollars: c.deposit_cents != null && c.deposit_cents > 0 ? String(c.deposit_cents / 100) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : [], champ_take: c.champ_take ?? "top2" };
+      initialForm = { num: String(c.num), name: c.name, program_category: c.program_category ?? "", program_break_before: c.program_break_before ?? "", program_break_after: c.program_break_after ?? "", judge: c.judge ?? "", judge2: c.judge2 ?? "", day: String(c.day ?? 1), scoring_mode: c.scoring_mode ?? "score", capacity: c.capacity != null ? String(c.capacity) : "", fee_dollars: c.fee_cents != null ? String(c.fee_cents / 100) : "", deposit_dollars: c.deposit_cents != null && c.deposit_cents > 0 ? String(c.deposit_cents / 100) : "", hp_category: c.hp_category ?? "", champ_feeder_ids: Array.isArray(c.champ_feeder_ids) && c.champ_feeder_ids.length ? c.champ_feeder_ids : [], champ_take: c.champ_take ?? "top2",
+        judge_card_type: c.judge_card_type && CARD_FAMILIES[c.judge_card_type] ? c.judge_card_type : "auto",
+        judge_card_boxes: (Array.isArray(c.judge_card_config?.boxes) ? c.judge_card_config.boxes : []).join("\n"),
+        judge_card_tiebreak: (Array.isArray(c.judge_card_config?.tiebreak) ? c.judge_card_config.tiebreak : []).map((i) => i + 1).join(", ") };
     }
     if (type === "bulkJudges") {
       // Seed from the first class that has a judge recorded, so the usual
@@ -1758,6 +1764,48 @@ export default function Coordinator() {
   };
   const closeModal = () => { setModal(null); setForm({}); setFormError(""); setHorseSuggestion(null); };
   const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  // Judge card fields on the class form (schema-v64). "Auto" = worked out
+  // from the class name; the obstacle names + tie-breaker order are optional
+  // (the judge can set them on the card too).
+  const judgeCardFromForm = (f) => {
+    const type = f.judge_card_type && f.judge_card_type !== "auto" && CARD_FAMILIES[f.judge_card_type] ? f.judge_card_type : null;
+    const previewType = type ?? suggestCardType({ name: f.name, program_category: f.program_category, scoring_mode: f.scoring_mode });
+    if (!isPatternType(previewType)) return { type, config: null };
+    const max = CARD_FAMILIES[previewType].maxBoxes;
+    const boxes = String(f.judge_card_boxes ?? "").split("\n").map((b) => b.trim().slice(0, 40)).filter((b, i, arr) => b || arr.slice(i + 1).some(Boolean)).slice(0, max);
+    if (!boxes.length) return { type, config: null };
+    const tiebreak = String(f.judge_card_tiebreak ?? "").split(/[^0-9]+/).map((n) => parseInt(n, 10) - 1).filter((i) => Number.isInteger(i) && i >= 0 && i < boxes.length);
+    return { type, config: { boxes, tiebreak: Array.from(new Set(tiebreak)) } };
+  };
+  const judgeCardFields = (() => {
+    const auto = suggestCardType({ name: form.name, program_category: form.program_category, scoring_mode: form.scoring_mode });
+    const chosen = form.judge_card_type && form.judge_card_type !== "auto" ? form.judge_card_type : auto;
+    const fam = CARD_FAMILIES[chosen];
+    return (
+      <>
+        <label className="modal-label">Judge&apos;s card (digital judge cards)</label>
+        <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.judge_card_type ?? "auto"} onChange={setField("judge_card_type")}>
+          <option value="auto">Auto — {CARD_FAMILIES[auto].label} (from the class name)</option>
+          {CARD_TYPE_ORDER.map((t) => <option key={t} value={t}>{CARD_FAMILIES[t].label}</option>)}
+        </select>
+        <p style={{ fontSize: 12, color: "var(--quiet)", margin: "2px 0 0" }}>{CARD_TYPE_HINT[chosen]}</p>
+        {isPatternType(chosen) && (
+          <>
+            <label className="modal-label">{fam.boxNoun}s — one per line, in pattern order (optional; up to {fam.maxBoxes}; the judge can set them on the card too)</label>
+            <textarea className="field" rows={4} style={{ width: "100%", fontSize: 14 }} value={form.judge_card_boxes ?? ""} onChange={setField("judge_card_boxes")}
+              placeholder={fam.boxNoun === "Obstacle" ? "Bridge\nBack through\nJog over poles\nBox\nGate" : "Walk\nJog\nExtended jog\nLope left\nLead change"} />
+            {fam.tiebreak === "boxes" && (
+              <>
+                <label className="modal-label">Tie-breaker {fam.boxNoun.toLowerCase()} numbers, in order (optional — e.g. 4, 5, 6)</label>
+                <input className="field" style={{ width: "100%", fontSize: 15 }} value={form.judge_card_tiebreak ?? ""} onChange={setField("judge_card_tiebreak")} placeholder="e.g. 4, 5, 6" />
+              </>
+            )}
+          </>
+        )}
+      </>
+    );
+  })();
 
   const setPatternApplyClassIds = (ids) => {
     const requiredId = modal?.classId;
@@ -1884,6 +1932,11 @@ export default function Coordinator() {
       insertData.champ_feeder_ids = feederIds;
       insertData.champ_take = form.champ_take === "top1" ? "top1" : "top2";
     }
+    // Judge card (schema-v64) — only sent when set, so a pre-v64 database
+    // still saves the class.
+    const jc = judgeCardFromForm(form);
+    if (jc.type) insertData.judge_card_type = jc.type;
+    if (jc.config) insertData.judge_card_config = jc.config;
     // Slot the new class into class-number order instead of appending at the
     // end — a re-added Class 86 lands back between 85 and 87, not below 200.
     // (▲▼ and "Sort by number" can still override afterwards.)
@@ -1898,7 +1951,9 @@ export default function Coordinator() {
     }
     const { error } = await supabase.from("classes").insert(insertData);
     if (error) {
-      const msg = error.message?.includes("champ_feeder_ids") || error.message?.includes("champ_take")
+      const msg = /judge_card/i.test(error.message ?? "")
+        ? 'Pattern judge cards need a database update. Please run "schema-v64-pattern-cards.sql" in your Supabase SQL Editor first (or leave the judge card on Auto).'
+        : error.message?.includes("champ_feeder_ids") || error.message?.includes("champ_take")
         ? 'Championship classes need a database update. Please run "schema-v43-championship-classes.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("fee_cents") || error.message?.includes("deposit_cents")
         ? 'Spot pricing needs a database update. Please run "schema-v47-clinic-deposits.sql" in your Supabase SQL Editor first.'
@@ -2119,9 +2174,16 @@ export default function Coordinator() {
       updateData.champ_feeder_ids = editFeederIds.length ? editFeederIds : null;
       updateData.champ_take = form.champ_take === "top1" ? "top1" : "top2";
     }
+    const editJc = judgeCardFromForm(form);
+    if (Object.prototype.hasOwnProperty.call(modal.cls ?? {}, "judge_card_type") || editJc.type || editJc.config) {
+      updateData.judge_card_type = editJc.type;
+      updateData.judge_card_config = editJc.config;
+    }
     const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
     if (error) {
-      setFormError(error.message?.includes("champ_feeder_ids") || error.message?.includes("champ_take")
+      setFormError(/judge_card/i.test(error.message ?? "")
+        ? 'Pattern judge cards need a database update. Please run "schema-v64-pattern-cards.sql" in your Supabase SQL Editor first (or leave the judge card on Auto).'
+        : error.message?.includes("champ_feeder_ids") || error.message?.includes("champ_take")
         ? 'Championship classes need a database update. Please run "schema-v43-championship-classes.sql" in your Supabase SQL Editor first.'
         : error.message?.includes("fee_cents") || error.message?.includes("deposit_cents")
         ? 'Spot pricing needs a database update. Please run "schema-v47-clinic-deposits.sql" in your Supabase SQL Editor first.'
@@ -3253,6 +3315,9 @@ export default function Coordinator() {
                           { label: cls.pattern_url ? "✓ Pattern" : "Set pattern", show: !isClinic, onClick: () => openModal("pattern", { classId: cls.id }) },
                           { label: `Result sheets${Array.isArray(cls.result_sheets) && cls.result_sheets.length ? ` (${cls.result_sheets.length})` : ""}`, show: !isClinic, onClick: () => openModal("resultSheets", { classId: cls.id }) },
                           { label: "↻ Refresh qualifiers", show: isChampionship(cls) && !isClinic, onClick: () => refreshChampionship(cls) },
+                          ...((judgeCards[cls.id] ?? []).map((k) => ({
+                            label: `📋 ${k.judge_name}'s card`, show: !isClinic, onClick: () => openModal("judgeCard", { classId: cls.id, cardId: k.id }),
+                          }))),
                           ...((judgeCards[cls.id] ?? []).filter((k) => k.status === "signed").map((k) => ({
                             label: `🔓 Unlock ${k.judge_name}'s card`, show: !isClinic, onClick: () => unlockJudgeCard(cls, k),
                           }))),
@@ -3658,6 +3723,7 @@ export default function Coordinator() {
                       <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
                       <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
                     </select>
+                    {judgeCardFields}
                     <label className="modal-label">High Points category</label>
                     <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.hp_category ?? ""} onChange={setField("hp_category")}>
                       <option value="">— Does not count toward High Points —</option>
@@ -3901,6 +3967,85 @@ export default function Coordinator() {
                     A finished card writes that judge&apos;s column on the class exactly as typing it would. To let a judge correct a card after the class has closed, use “Unlock … card” in that class&apos;s ⋯ menu. The gate marshal can still finish a class from the gate if a judge is on paper.
                   </p>
                   <button className="btn-ghost" style={{ marginTop: 10, padding: "8px 14px", fontSize: 14 }} onClick={closeModal}>Done</button>
+                </>
+              );
+            })()}
+            {modal.type === "judgeCard" && (() => {
+              const cls = classes.find((c) => c.id === modal.classId);
+              const card = (judgeCards[modal.classId] ?? []).find((k) => k.id === modal.cardId);
+              if (!cls || !card) return <p>That card is no longer here.</p>;
+              const fam = CARD_FAMILIES[card.card_type] ?? CARD_FAMILIES.placings;
+              const isPattern = fam.kind === "pattern";
+              const layout = isPattern ? layoutFor(cls, fam, card.layout) : null;
+              const entryOf = (r) => cls.entries.find((e) => e.id === r.entry_id);
+              const results = [...(card.results ?? [])].sort((a, b) => (a.dq ? 1 : 0) - (b.dq ? 1 : 0) || (a.place ?? 99) - (b.place ?? 99) || (b.score ?? -9) - (a.score ?? -9));
+              const when = card.signed_at ? new Date(card.signed_at).toLocaleString([], { hour: "numeric", minute: "2-digit", day: "numeric", month: "short" }) : "";
+              const cell = { padding: "4px 6px", borderBottom: "1px solid var(--line)", whiteSpace: "nowrap", textAlign: "center", fontSize: 12.5 };
+              return (
+                <>
+                  <h2 className="display modal-title">{card.judge_name}&apos;s card — Class {cls.num}</h2>
+                  <p style={{ marginTop: 0, fontSize: 13, color: "var(--quiet)" }}>
+                    {fam.label} card · {card.status === "unlocked" ? "UNLOCKED — waiting for the corrected card" : `finished ${when}`}{card.entered_by ? ` · entered by ${card.entered_by}` : ""}{cls.judge2 ? ` · Judge ${card.judge_slot}` : ""}
+                  </p>
+                  {isPattern && layout.tiebreak.length > 0 && <p style={{ fontSize: 12.5, margin: "0 0 8px" }}>Tie-breakers: {layout.tiebreak.map((i) => i + 1).join(", ")}</p>}
+                  {isPattern ? (
+                    <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", margin: "0 -4px" }}>
+                      <table style={{ borderCollapse: "collapse", minWidth: "100%" }}>
+                        <thead>
+                          <tr>
+                            <th style={{ ...cell, textAlign: "left" }}>Horse</th>
+                            {layout.boxes.map((b, i) => <th key={i} style={cell} title={b}>{i + 1}{b ? <div style={{ fontSize: 10, fontWeight: 600, color: "var(--quiet)", maxWidth: 70, overflow: "hidden", textOverflow: "ellipsis" }}>{b}</div> : null}</th>)}
+                            {fam.fe && <th style={cell}>F&amp;E</th>}
+                            <th style={cell}>Pen.</th>
+                            <th style={cell}>Score</th>
+                            <th style={cell}>Place</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {results.map((r) => {
+                            const e = entryOf(r);
+                            const t = patternTotals(r, fam);
+                            return (
+                              <tr key={r.entry_id}>
+                                <td style={{ ...cell, textAlign: "left" }}><b>#{fmtBack(e?.back_number ?? r.back_number)}</b> {e?.horse ?? ""}{r.off_pattern ? <span style={{ color: "#A05000", fontWeight: 700 }}> · off pattern</span> : ""}{r.note ? <div style={{ fontSize: 11, fontStyle: "italic", whiteSpace: "normal" }}>{r.note}</div> : null}</td>
+                                {layout.boxes.map((_, i) => {
+                                  const b = Array.isArray(r.boxes) ? r.boxes[i] : null;
+                                  return (
+                                    <td key={i} style={cell}>
+                                      <div>{b?.c != null ? (fmtHalf(b.c, { sign: true }) || "0") : "—"}</div>
+                                      {(b?.p ?? []).length > 0 && <div style={{ color: "var(--clay)", fontSize: 11, fontWeight: 700 }}>{b.p.map((v) => `−${fmtHalf(v)}`).join(" ")}</div>}
+                                    </td>
+                                  );
+                                })}
+                                {fam.fe && <td style={cell}>{r.fe ?? "—"}</td>}
+                                <td style={{ ...cell, color: "var(--clay)" }}>{fmtHalf(t.penalties) || "0"}</td>
+                                <td style={{ ...cell, fontWeight: 800 }}>{r.dq ? (fam.offPattern ? "ZERO" : "DQ") : r.score != null ? fmtHalf(r.score) : "—"}</td>
+                                <td style={{ ...cell, fontWeight: 800, color: "var(--clay)" }}>{r.place ?? ""}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div>
+                      {results.map((r) => {
+                        const e = entryOf(r);
+                        return (
+                          <div key={r.entry_id} style={{ display: "flex", gap: 10, padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 14 }}>
+                            <b style={{ color: "var(--clay)", minWidth: 36 }}>{r.dq ? "DQ" : r.place != null ? ordinal(r.place) : "—"}</b>
+                            <span style={{ flex: 1 }}>#{fmtBack(e?.back_number ?? r.back_number)} {e?.horse ?? ""}{r.note ? <span style={{ fontStyle: "italic", color: "var(--quiet)" }}> · {r.note}</span> : ""}</span>
+                            {r.score != null && !r.dq && <b>{r.score}</b>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {card.notes && <p style={{ fontSize: 13.5, fontStyle: "italic", marginTop: 10 }}>{card.notes}</p>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                    <button className="btn-ghost" style={{ flex: 1 }} onClick={closeModal}>Close</button>
+                    {card.status === "signed" && <button className="btn-ghost" style={{ flex: 1 }} onClick={() => { closeModal(); unlockJudgeCard(cls, card); }}>🔓 Unlock for correction</button>}
+                  </div>
                 </>
               );
             })()}
@@ -4424,6 +4569,7 @@ export default function Coordinator() {
                       <option value="tbc">TBC (draw) — horses one at a time, results from judge's paperwork</option>
                       <option value="tbc_class">TBC (whole class) — everyone together, results from judge's paperwork</option>
                     </select>
+                    {judgeCardFields}
                     <label className="modal-label">High Points category</label>
                     <select className="field" style={{ width: "100%", fontSize: 15 }} value={form.hp_category ?? ""} onChange={setField("hp_category")}>
                       <option value="">— Does not count toward High Points —</option>

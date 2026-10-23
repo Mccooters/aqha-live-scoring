@@ -81,6 +81,19 @@ class has closed. For a clerical error, open the class's **⋯** menu and tap
 **Unlock … card**: the judge reopens it on their device, corrects it and
 finishes the class again.
 
+**Pattern classes — Trail, Western Riding, Ranch Riding, Showmanship,
+Horsemanship, Hunt Seat Equitation.** These get the club's score-sheet
+layout instead of a plain score: the judge scores one horse at a time,
+obstacle by obstacle (−1½ to +1½, or −3 to +3 on the Showmanship-style
+sheet), taps the penalties under each obstacle (½ / 1 / 3 / 5 …), and the
+running total from 70 sits at the top. Which card a class gets is worked out
+from its name ("Trail" gets the Trail card) — the **Judge's card** box on
+the class form lets you override it, and you can type the obstacle names
+and the tie-breaker order there too (one obstacle per line; the judge can
+also set them up on the card before the first horse, and both judges share
+them). The ⋯ menu's **📋 (judge)'s card** opens the full card on the
+dashboard — every box, penalty and total — once it has arrived.
+
 **Who taps the card** (in the same Judge access window): judges score on
 their own device, or a **scribe** enters for the judge and types their own
 name, which is recorded on every card they send.
