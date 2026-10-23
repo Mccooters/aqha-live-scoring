@@ -251,6 +251,14 @@ PR with a clear plain-English description.
   one), scratch/restore entries, reorder pending draw, reorder upcoming
   classes, start/complete classes, revert event status, Excel import/export,
   pattern upload, link to registry/registrations, "End event"/"Archive".
+  **Toolbar layout** (owner's report, Oct 2026 — four open rows of ~30
+  buttons were "way too cluttered"): one always-visible quick row (the
+  next status step — Open entries / Close entries / Go live / End event —
+  plus Day entry, Enter results, Registrations, Edit event, + Add class,
+  Push all HP when relevant) and four tap-to-open `ToolSection`s (Show
+  day, People & money, Setup & data, Event status — the last holds the
+  revert buttons and the red Cancel/Delete). Open/closed state is
+  remembered per browser in localStorage `coordinator-toolbar-sections`.
 - `app/coordinator/registrations/page.js` — list of online registrations for
   an event (paid vs pending, revenue total, entry count), expandable per
   registration, with a "force-create entries" button for when a Square

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { Children, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import ReadOnlyBanner from "../components/ReadOnlyBanner";
@@ -128,6 +128,31 @@ const SCORING_MODE_LABELS = {
   tbc: "TBC (draw)",
   tbc_class: "TBC (whole class)",
 };
+
+// Shared look for the toolbar links so they match the buttons beside them.
+const TOOL_LINK = { display: "inline-flex", alignItems: "center", textDecoration: "none", color: "var(--leather)" };
+
+// One tap-to-open row of the dashboard toolbar. Shows how many tools are
+// inside while collapsed so nothing feels hidden.
+function ToolSection({ label, open, onToggle, children }) {
+  const items = Children.toArray(children).filter((c) => c && c.type !== "span");
+  if (items.length === 0) return null;
+  return (
+    <div style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 6 }}>
+      <button type="button" onClick={onToggle} aria-expanded={open}
+        style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: 0, padding: "4px 0", cursor: "pointer", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)" }}>
+        <span style={{ display: "inline-block", width: 10, transition: "transform .15s", transform: open ? "rotate(90deg)" : "none" }}>▸</span>
+        {label}
+        {!open && <span style={{ fontWeight: 600, letterSpacing: 0, textTransform: "none", opacity: 0.8 }}>· {items.length} {items.length === 1 ? "tool" : "tools"}</span>}
+      </button>
+      {open && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 4 }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ProgramCategoryDatalist() {
   return (
@@ -292,6 +317,17 @@ export default function Coordinator() {
   const [selectedClassIds, setSelectedClassIds] = useState(new Set());
   const [classMenu, setClassMenu] = useState(null); // class id whose "⋯" menu is open
   const [enterScores, setEnterScores] = useState(false); // inline results-entry mode
+  // Which toolbar sections are open — remembered per browser so a secretary
+  // who always wants Setup & data open doesn't reopen it every visit.
+  const [openSections, setOpenSections] = useState({});
+  useEffect(() => {
+    try { setOpenSections(JSON.parse(window.localStorage.getItem("coordinator-toolbar-sections") || "{}") || {}); } catch { /* ignore */ }
+  }, []);
+  const toggleSection = (key) => setOpenSections((prev) => {
+    const next = { ...prev, [key]: !prev[key] };
+    try { window.localStorage.setItem("coordinator-toolbar-sections", JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
   const [exportingOfficial, setExportingOfficial] = useState(false);
 
   const [scoreInput, setScoreInput] = useState("");
@@ -2569,220 +2605,227 @@ export default function Coordinator() {
               })()}
             </>}
           </p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: "100%" }}>
-            {/* The toolbar is grouped so the dozen-plus controls read as three
-                jobs, not a wall of buttons. A full-width label forces each
-                group onto its own row. */}
-            <span style={{ flexBasis: "100%", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)" }}>Show day</span>
-            {!isClinic && (
-              <button className="btn-ghost" style={{ borderColor: "var(--brass)", color: "var(--brass)", fontWeight: 700 }}
-                onClick={() => openModal("dayEntry")} disabled={!eventId || classes.length === 0}
-                title="Take an entry at the gate: one horse into many classes, payment on the Square terminal">
-                🐎 Day entry
-              </button>
-            )}
-            {!isClinic && (
-              <button className="btn-ghost" onClick={gateAccess} disabled={!eventId}
-                title="Share a link that gives the gate marshal gate controls only — no staff access">
-                🚪 Gate access
-              </button>
-            )}
-            {!isClinic && (
-              <button className="btn-ghost"
-                style={enterScores ? { background: "var(--leather)", color: "#fff", borderColor: "var(--leather)", fontWeight: 700 } : { fontWeight: 700 }}
-                onClick={() => setEnterScores((v) => !v)} disabled={!eventId || classes.length === 0}
-                title="Type results straight into every class down the page — each score saves as you move to the next box">
-                {enterScores ? "✓ Done entering results" : "✍ Enter results"}
-              </button>
-            )}
-            <button className="btn-ghost" onClick={testPush} disabled={!eventId}>Test push</button>
-            {classes.some((c) => c.hp_category && c.status === "completed") && (
-              <button className="btn-ghost" style={{ borderColor: "#2D7A52", color: "#2D7A52" }}
-                onClick={pushAllHighPoints} disabled={pushingAllHp || !eventId}>
-                {pushingAllHp ? "Pushing HP…" : "↑ Push all HP"}
-              </button>
-            )}
-
-            <span style={{ flexBasis: "100%", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)", marginTop: 4 }}>People &amp; money</span>
-            <Link href={eventId ? `/coordinator/registrations?event=${eventId}` : "/coordinator/registrations"} style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
-              Registrations
-            </Link>
-            <Link href="/coordinator/memberships" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
-              Memberships
-            </Link>
-            <Link href="/coordinator/numbers" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}>
-              New numbers
-            </Link>
-            <Link href="/coordinator/raffles" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}
-              title="Fundraising raffles — sell numbered tickets online and draw the winners">
-              🎟 Raffles
-            </Link>
-            <Link href="/coordinator/fees" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}
-              title="Monthly statement of website fees to bill the club (Square + PayPal payments)">
-              💵 Website fees
-            </Link>
-            <Link href="/coordinator/staff" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--leather)", borderRadius: 10, padding: "8px 14px", fontSize: 14, fontWeight: 700 }}
-              title="Add or remove staff logins, and set committee members to read-only">
-              Staff access
-            </Link>
-
-            <span style={{ flexBasis: "100%", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)", marginTop: 4 }}>Setup &amp; data</span>
-            <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>
-              Edit event
-            </button>
-            {eventId && !isClinic && (
-              <Link href={`/coordinator/program?event=${eventId}`} className="btn-ghost" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}
-                title="Lay out the printed program — section headings, breaks and running order in one place">
-                📋 Program builder
+          <div style={{ width: "100%" }}>
+            {/* The dozen-plus controls used to sit in four open rows and read
+                as a wall of buttons (owner's report, Oct 2026). Now the handful
+                used on every show day stay in one row, and the rest fold into
+                tap-to-open sections that remember whether you left them open. */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              {eventId && (() => {
+                const s = currentEvent?.status;
+                if (s === "pre_open") return (
+                  <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)", fontWeight: 700 }}
+                    onClick={() => setEventStatus("open")} disabled={busy}>
+                    Open entries
+                  </button>
+                );
+                if (s === "open" || s === "upcoming") return (
+                  <button className="btn-ghost danger" style={{ fontWeight: 700 }} onClick={closeEntries} disabled={busy}>
+                    Close entries
+                  </button>
+                );
+                if (s === "closed") return (
+                  <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)", fontWeight: 700 }}
+                    onClick={() => setEventStatus("live")} disabled={busy}>
+                    Go live
+                  </button>
+                );
+                if (s === "live") return (
+                  <button className="btn-ghost danger" style={{ fontWeight: 700 }} onClick={endEvent} disabled={busy}>End event</button>
+                );
+                return null;
+              })()}
+              {!isClinic && (
+                <button className="btn-ghost" style={{ borderColor: "var(--brass)", color: "var(--brass)", fontWeight: 700 }}
+                  onClick={() => openModal("dayEntry")} disabled={!eventId || classes.length === 0}
+                  title="Take an entry at the gate: one horse into many classes, payment on the Square terminal">
+                  🐎 Day entry
+                </button>
+              )}
+              {!isClinic && (
+                <button className="btn-ghost"
+                  style={enterScores ? { background: "var(--leather)", color: "#fff", borderColor: "var(--leather)", fontWeight: 700 } : { fontWeight: 700 }}
+                  onClick={() => setEnterScores((v) => !v)} disabled={!eventId || classes.length === 0}
+                  title="Type results straight into every class down the page — each score saves as you move to the next box">
+                  {enterScores ? "✓ Done entering results" : "✍ Enter results"}
+                </button>
+              )}
+              <Link href={eventId ? `/coordinator/registrations?event=${eventId}` : "/coordinator/registrations"} className="btn-ghost" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", color: "var(--leather)", fontWeight: 700 }}>
+                Registrations
               </Link>
-            )}
-            {eventId && (
-              <button className="btn-ghost" onClick={() => openModal("bulkPatterns")}>
-                Manage patterns PDF
+              <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>
+                Edit event
               </button>
-            )}
-            {eventId && (
-              <button className="btn-ghost" onClick={() => openModal("extras")}
-                title="Yards and camping sites exhibitors can book with their entry">
-                🏕 Camping &amp; yards
+              <button className="btn-ghost" style={{ fontWeight: 700 }} onClick={() => openModal("class")} disabled={!eventId}>
+                {isClinic ? "+ Add spot type" : "+ Add class"}
               </button>
-            )}
-            <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
-            <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
-            {!isClinic && (
-              <button className="btn-ghost" onClick={() => openModal("importResults")} disabled={!eventId || classes.length === 0}
-                title="Type in a past show in one go: a spreadsheet of the judges' cards (Class #, 1st, 2nd, 3rd…) fills the results and completes the classes">
-                ⇪ Import results
-              </button>
-            )}
-            {!isClinic && (
-              <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)" }}
-                onClick={() => openModal("clearResults")} disabled={!eventId || classes.length === 0}
-                title="Start over after a bad results import: blank every score in this event so a corrected file can be imported">
-                ⌫ Clear results
-              </button>
-            )}
-            <button className="btn-ghost" onClick={() => removeDuplicateEntries(classes)} disabled={busy || !eventId || classes.length === 0}
-              title="If horses ended up entered twice in the same class (e.g. entries and results imported separately), this keeps the copy with the result and removes the spare">
-              🧹 Remove duplicates
-            </button>
-            {!isClinic && hiddenChampsWithLiveFeeders().length > 0 && (
-              <button className="btn-ghost" onClick={unhideChampionships} disabled={busy}
-                style={{ borderColor: "#7A5C10", color: "#7A5C10", fontWeight: 700 }}
-                title="Championship classes were hidden by Close entries because they had no entries yet — bring them back onto the draw and program">
-                🏆 Restore hidden championships ({hiddenChampsWithLiveFeeders().length})
-              </button>
-            )}
-            {!isClinic && (
-              <button className="btn-ghost" onClick={() => openModal("bulkJudges")} disabled={!eventId || classes.length === 0}
-                title="Set Judge 1 and Judge 2 across every class in this event at once — leave Judge 2 blank for a single-judge show">
-                Set judges
-              </button>
-            )}
-            {!isClinic && classes.some((c) => !c.hp_category && !c.hidden) && (
-              <button className="btn-ghost" onClick={() => openModal("hpCategories")} disabled={!eventId}
-                style={classes.some((c) => !c.hp_category && !c.hidden && c.status === "completed" && c.entries.some((e) => hasResult(e))) ? { borderColor: "#A05000", color: "#A05000", fontWeight: 700 } : {}}
-                title="Classes with no High Points category are left out of every push — fill them in from the class names in one go">
-                HP categories ({classes.filter((c) => !c.hp_category && !c.hidden).length} missing)
-              </button>
-            )}
-            <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
-              title="Put every class into class-number order, day by day">
-              ↕ Sort by number
-            </button>
-            <button className="btn-ghost" onClick={exportClasses} disabled={exportingClasses || !eventId || classes.length === 0}>
-              {exportingClasses ? "Exporting…" : "⇩ Export classes"}
-            </button>
-            <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
-            {!isClinic && (
-              <button className="btn-ghost" onClick={() => openModal("bulkSheets")} disabled={!eventId || classes.length === 0}
-                title="Upload scanned result sheets in bulk — file names like 'Class 10-11-12 RS' attach them to the right classes and judge">
-                ⇪ Bulk result sheets
-              </button>
-            )}
-            {!isClinic && (
-              <button className="btn-ghost" onClick={exportOfficial} disabled={exportingOfficial || !eventId || classes.length === 0}
-                title="The official scoring workbook: one colour-coded gate sheet per judge, matching the secretary's manual format">
-                {exportingOfficial ? "Exporting…" : "⇩ Official scoring"}
-              </button>
-            )}
-            <Link href="/coordinator/health" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700 }}>
-              ⚙ Health
-            </Link>
+              {classes.some((c) => c.hp_category && c.status === "completed") && (
+                <button className="btn-ghost" style={{ borderColor: "#2D7A52", color: "#2D7A52" }}
+                  onClick={pushAllHighPoints} disabled={pushingAllHp || !eventId}>
+                  {pushingAllHp ? "Pushing HP…" : "↑ Push all HP"}
+                </button>
+              )}
+            </div>
 
-            {eventId && <span style={{ flexBasis: "100%", fontSize: 10.5, fontWeight: 800, letterSpacing: ".14em", textTransform: "uppercase", color: "var(--quiet)", marginTop: 4 }}>Event status</span>}
-            {eventId && (() => {
-              const s = currentEvent?.status;
-              return (
-                <>
-                  {s === "pre_open" && (
-                    <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
-                      onClick={() => setEventStatus("open")} disabled={busy}>
-                      Open entries
-                    </button>
-                  )}
-                  {(s === "open" || s === "upcoming") && (
-                    <>
-                      <button className="btn-ghost" style={{ fontSize: 13 }}
-                        onClick={() => { if (window.confirm("Revert to pre-open? Entries will be closed and the event will show as 'Coming soon' again.")) setEventStatus("pre_open"); }}
-                        disabled={busy}>
-                        ← Back to pre-open
-                      </button>
-                      <button className="btn-ghost danger" onClick={closeEntries} disabled={busy}>
-                        Close entries
-                      </button>
-                    </>
-                  )}
-                  {s === "closed" && (
-                    <>
-                      <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
-                        onClick={() => setEventStatus("open")} disabled={busy}>
-                        Reopen entries
-                      </button>
-                      <button className="btn-ghost" onClick={randomiseDraw} disabled={busy}>
-                        🔀 Randomise draw
-                      </button>
-                      <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
-                        onClick={() => setEventStatus("live")} disabled={busy}>
-                        Go live
-                      </button>
-                    </>
-                  )}
-                  {s === "live" && (
-                    <>
-                      <button className="btn-ghost" style={{ fontSize: 13 }}
-                        onClick={revertToClosed}
-                        disabled={busy}>
-                        ← Back to closed
-                      </button>
-                      <button className="btn-ghost danger" onClick={endEvent} disabled={busy}>End event</button>
-                    </>
-                  )}
-                  {s === "completed" && (
-                    <button className="btn-ghost" onClick={() => {
-                      if (window.confirm("Archive this event? It will be hidden from the public home page but results remain accessible via its URL.")) setEventStatus("archived");
-                    }}>Archive</button>
-                  )}
-                  {s === "cancelled" && (
-                    <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
-                      onClick={() => { if (window.confirm("Reopen this event? It will be moved back to pre-open so you can set it up again.")) setEventStatus("pre_open"); }}
-                      disabled={busy}>
-                      Reopen event
-                    </button>
-                  )}
-                  {s !== "completed" && s !== "archived" && s !== "cancelled" && (
-                    <button className="btn-ghost danger" onClick={cancelEvent} disabled={busy}>
-                      Cancel event
-                    </button>
-                  )}
-                  {s !== "live" && s !== "completed" && s !== "archived" && (
-                    <button className="btn-ghost danger" onClick={deleteEvent} disabled={busy}>
-                      Delete event
-                    </button>
-                  )}
-                </>
-              );
-            })()}
+            <ToolSection label="Show day" open={!!openSections.showday} onToggle={() => toggleSection("showday")}>
+              {!isClinic && (
+                <button className="btn-ghost" onClick={gateAccess} disabled={!eventId}
+                  title="Share a link that gives the gate marshal gate controls only — no staff access">
+                  🚪 Gate access
+                </button>
+              )}
+              <button className="btn-ghost" onClick={testPush} disabled={!eventId}>Test push</button>
+              {!isClinic && hiddenChampsWithLiveFeeders().length > 0 && (
+                <button className="btn-ghost" onClick={unhideChampionships} disabled={busy}
+                  style={{ borderColor: "#7A5C10", color: "#7A5C10", fontWeight: 700 }}
+                  title="Championship classes were hidden by Close entries because they had no entries yet — bring them back onto the draw and program">
+                  🏆 Restore hidden championships ({hiddenChampsWithLiveFeeders().length})
+                </button>
+              )}
+              {!isClinic && classes.some((c) => !c.hp_category && !c.hidden) && (
+                <button className="btn-ghost" onClick={() => openModal("hpCategories")} disabled={!eventId}
+                  style={classes.some((c) => !c.hp_category && !c.hidden && c.status === "completed" && c.entries.some((e) => hasResult(e))) ? { borderColor: "#A05000", color: "#A05000", fontWeight: 700 } : {}}
+                  title="Classes with no High Points category are left out of every push — fill them in from the class names in one go">
+                  HP categories ({classes.filter((c) => !c.hp_category && !c.hidden).length} missing)
+                </button>
+              )}
+            </ToolSection>
+
+            <ToolSection label="People & money" open={!!openSections.people} onToggle={() => toggleSection("people")}>
+              <Link href="/coordinator/memberships" className="btn-ghost" style={TOOL_LINK}>Memberships</Link>
+              <Link href="/coordinator/numbers" className="btn-ghost" style={TOOL_LINK}>New numbers</Link>
+              <Link href="/coordinator/raffles" className="btn-ghost" style={TOOL_LINK}
+                title="Fundraising raffles — sell numbered tickets online and draw the winners">
+                🎟 Raffles
+              </Link>
+              <Link href="/coordinator/fees" className="btn-ghost" style={TOOL_LINK}
+                title="Monthly statement of website fees to bill the club (Square + PayPal payments)">
+                💵 Website fees
+              </Link>
+              <Link href="/coordinator/staff" className="btn-ghost" style={TOOL_LINK}
+                title="Add or remove staff logins, and set committee members to read-only">
+                Staff access
+              </Link>
+              <Link href="/registry" className="btn-ghost" style={TOOL_LINK}>Horse registry</Link>
+            </ToolSection>
+
+            <ToolSection label="Setup & data" open={!!openSections.setup} onToggle={() => toggleSection("setup")}>
+              {eventId && !isClinic && (
+                <Link href={`/coordinator/program?event=${eventId}`} className="btn-ghost" style={TOOL_LINK}
+                  title="Lay out the printed program — section headings, breaks and running order in one place">
+                  📋 Program builder
+                </Link>
+              )}
+              {eventId && (
+                <button className="btn-ghost" onClick={() => openModal("bulkPatterns")}>
+                  Manage patterns PDF
+                </button>
+              )}
+              {eventId && (
+                <button className="btn-ghost" onClick={() => openModal("extras")}
+                  title="Yards and camping sites exhibitors can book with their entry">
+                  🏕 Camping &amp; yards
+                </button>
+              )}
+              {!isClinic && (
+                <button className="btn-ghost" onClick={() => openModal("bulkJudges")} disabled={!eventId || classes.length === 0}
+                  title="Set Judge 1 and Judge 2 across every class in this event at once — leave Judge 2 blank for a single-judge show">
+                  Set judges
+                </button>
+              )}
+              <button className="btn-ghost" onClick={sortByClassNumber} disabled={busy || !eventId || classes.length < 2}
+                title="Put every class into class-number order, day by day">
+                ↕ Sort by number
+              </button>
+              <button className="btn-ghost" onClick={() => removeDuplicateEntries(classes)} disabled={busy || !eventId || classes.length === 0}
+                title="If horses ended up entered twice in the same class (e.g. entries and results imported separately), this keeps the copy with the result and removes the spare">
+                🧹 Remove duplicates
+              </button>
+              <span style={{ flexBasis: "100%", height: 0 }} />
+              <button className="btn-ghost" onClick={() => openModal("importClasses")} disabled={!eventId}>⇪ Import classes</button>
+              <button className="btn-ghost" onClick={() => openModal("import")} disabled={!eventId}>⇪ Import entries</button>
+              {!isClinic && (
+                <button className="btn-ghost" onClick={() => openModal("importResults")} disabled={!eventId || classes.length === 0}
+                  title="Type in a past show in one go: a spreadsheet of the judges' cards (Class #, 1st, 2nd, 3rd…) fills the results and completes the classes">
+                  ⇪ Import results
+                </button>
+              )}
+              {!isClinic && (
+                <button className="btn-ghost" onClick={() => openModal("bulkSheets")} disabled={!eventId || classes.length === 0}
+                  title="Upload scanned result sheets in bulk — file names like 'Class 10-11-12 RS' attach them to the right classes and judge">
+                  ⇪ Bulk result sheets
+                </button>
+              )}
+              <button className="btn-ghost" onClick={exportClasses} disabled={exportingClasses || !eventId || classes.length === 0}>
+                {exportingClasses ? "Exporting…" : "⇩ Export classes"}
+              </button>
+              <button className="btn-ghost" onClick={exportResults} disabled={exporting || !eventId}>{exporting ? "Exporting…" : "⇩ Export results"}</button>
+              {!isClinic && (
+                <button className="btn-ghost" onClick={exportOfficial} disabled={exportingOfficial || !eventId || classes.length === 0}
+                  title="The official scoring workbook: one colour-coded gate sheet per judge, matching the secretary's manual format">
+                  {exportingOfficial ? "Exporting…" : "⇩ Official scoring"}
+                </button>
+              )}
+              <span style={{ flexBasis: "100%", height: 0 }} />
+              <Link href="/coordinator/health" className="btn-ghost" style={TOOL_LINK}>⚙ Health</Link>
+              {!isClinic && (
+                <button className="btn-ghost" style={{ color: "var(--clay)", borderColor: "var(--clay)" }}
+                  onClick={() => openModal("clearResults")} disabled={!eventId || classes.length === 0}
+                  title="Start over after a bad results import: blank every score in this event so a corrected file can be imported">
+                  ⌫ Clear results
+                </button>
+              )}
+            </ToolSection>
+
+            {eventId && (
+              <ToolSection label="Event status" open={!!openSections.status} onToggle={() => toggleSection("status")}>
+                {(currentEvent?.status === "open" || currentEvent?.status === "upcoming") && (
+                  <button className="btn-ghost"
+                    onClick={() => { if (window.confirm("Revert to pre-open? Entries will be closed and the event will show as 'Coming soon' again.")) setEventStatus("pre_open"); }}
+                    disabled={busy}>
+                    ← Back to pre-open
+                  </button>
+                )}
+                {currentEvent?.status === "closed" && (
+                  <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
+                    onClick={() => setEventStatus("open")} disabled={busy}>
+                    Reopen entries
+                  </button>
+                )}
+                {currentEvent?.status === "closed" && (
+                  <button className="btn-ghost" onClick={randomiseDraw} disabled={busy}>
+                    🔀 Randomise draw
+                  </button>
+                )}
+                {currentEvent?.status === "live" && (
+                  <button className="btn-ghost" onClick={revertToClosed} disabled={busy}>
+                    ← Back to closed
+                  </button>
+                )}
+                {currentEvent?.status === "completed" && (
+                  <button className="btn-ghost" onClick={() => {
+                    if (window.confirm("Archive this event? It will be hidden from the public home page but results remain accessible via its URL.")) setEventStatus("archived");
+                  }}>Archive</button>
+                )}
+                {currentEvent?.status === "cancelled" && (
+                  <button className="btn-ghost" style={{ borderColor: "var(--green)", color: "var(--green)" }}
+                    onClick={() => { if (window.confirm("Reopen this event? It will be moved back to pre-open so you can set it up again.")) setEventStatus("pre_open"); }}
+                    disabled={busy}>
+                    Reopen event
+                  </button>
+                )}
+                {currentEvent?.status !== "completed" && currentEvent?.status !== "archived" && currentEvent?.status !== "cancelled" && (
+                  <button className="btn-ghost danger" onClick={cancelEvent} disabled={busy}>
+                    Cancel event
+                  </button>
+                )}
+                {currentEvent?.status !== "live" && currentEvent?.status !== "completed" && currentEvent?.status !== "archived" && (
+                  <button className="btn-ghost danger" onClick={deleteEvent} disabled={busy}>
+                    Delete event
+                  </button>
+                )}
+              </ToolSection>
+            )}
           </div>
         </div>
 
@@ -3309,9 +3352,6 @@ export default function Coordinator() {
           <button className="btn" style={{ background: "var(--leather)" }} onClick={() => openModal("class")} disabled={!eventId}>
             {isClinic ? "+ Add spot type" : "+ Add class"}
           </button>
-          <Link href="/registry" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", border: "1px solid var(--line)", background: "#fff", color: "var(--quiet)", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700 }}>
-            Horse registry →
-          </Link>
         </div>
       </main>
 
