@@ -25,7 +25,7 @@ const firstPending = (entries, mode) => // eslint-disable-line no-unused-vars
 // All valid high-points categories in display order.
 const HP_CATEGORIES = [
   "Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse",
-  "Amateur", "Novice Amateur", "Select", "Beginner", "EWD", "Youth", "Leadline",
+  "Amateur", "Novice Amateur", "Select", "Beginner", "Improver", "EWD", "Youth", "Leadline",
 ];
 const HP_HORSE_CATS = new Set(["Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse"]);
 
@@ -1625,6 +1625,46 @@ export default function Coordinator() {
     await loadClasses();
   };
 
+  // Championship-named classes (Champ & Reserve / GRAND CHAMPION / SUPREME)
+  // that aren't linked to their feeder classes yet — e.g. a program that was
+  // imported before the class-list import learned to link them (Oct 2026).
+  const unlinkedChampionships = () =>
+    classes.filter((c) => !c.hidden && looksLikeChampionship(c.name) && !isChampionship(c));
+
+  // Link every unlinked championship to the classes above it in the program —
+  // the same guess the class form pre-ticks. Staff adjust from the ⋯ menu.
+  const linkChampionships = async () => {
+    const list = unlinkedChampionships();
+    if (!list.length) return;
+    if (!window.confirm(`Link ${list.length} championship ${list.length === 1 ? "class" : "classes"} to the classes above ${list.length === 1 ? "it" : "them"} in the program?\n\nEach Champ & Reserve takes the ordinary classes since the previous championship, each Grand Champion the championships of its section, and Supreme the Grand Champions (winners only). Open any championship afterwards to check the ticked classes.`)) return;
+    setBusy(true);
+    try {
+      // Work in program order so a Grand Champion sees the Champ & Reserve
+      // classes just linked below it.
+      const working = [...classes].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      let linked = 0;
+      for (const cls of working) {
+        if (!list.some((u) => u.id === cls.id)) continue;
+        const feederIds = suggestFeederIds(cls, working);
+        if (!feederIds.length) continue;
+        const { error } = await supabase.from("classes")
+          .update({ champ_feeder_ids: feederIds, champ_take: looksLikeSupreme(cls.name) ? "top1" : "top2" })
+          .eq("id", cls.id);
+        if (error) throw error;
+        cls.champ_feeder_ids = feederIds;
+        linked += 1;
+      }
+      await loadClasses();
+      if (linked < list.length) window.alert(`${linked} of ${list.length} linked. The rest have no ordinary classes above them in the program to take — open each one from its ⋯ menu and tick its classes.`);
+    } catch (err) {
+      window.alert(err.message?.includes("champ_feeder_ids") || err.message?.includes("champ_take")
+        ? 'Database update needed. Please run "schema-v43-championship-classes.sql" in your Supabase SQL Editor first.'
+        : (err.message ?? "Couldn't link the championships."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const unhideAllClasses = async () => {
     const hidden = classes.filter((c) => c.hidden);
     if (hidden.length === 0) return;
@@ -2843,6 +2883,13 @@ export default function Coordinator() {
                   🏆 Restore hidden championships ({hiddenChampsWithLiveFeeders().length})
                 </button>
               )}
+              {!isClinic && unlinkedChampionships().length > 0 && (
+                <button className="btn-ghost" onClick={linkChampionships} disabled={busy}
+                  style={{ borderColor: "#A05000", color: "#A05000", fontWeight: 700 }}
+                  title="Championship classes that aren't linked to their feeder classes never fill — link them all in one go">
+                  🏆 Link championships ({unlinkedChampionships().length} unlinked)
+                </button>
+              )}
               {!isClinic && classes.some((c) => !c.hp_category && !c.hidden) && (
                 <button className="btn-ghost" onClick={() => openModal("hpCategories")} disabled={!eventId}
                   style={classes.some((c) => !c.hp_category && !c.hidden && c.status === "completed" && c.entries.some((e) => hasResult(e))) ? { borderColor: "#A05000", color: "#A05000", fontWeight: 700 } : {}}
@@ -3256,6 +3303,14 @@ export default function Coordinator() {
                       <span>⚠ Has results but isn&apos;t completed{cls.hp_category ? " — not counted in High Points" : ""}</span>
                       <button className="btn-ghost" style={{ padding: "1px 8px", fontSize: 11.5, borderColor: "#A05000", color: "#A05000" }}
                         onClick={() => completeClassManual(cls)} disabled={busy}>✓ Mark completed</button>
+                    </div>
+                  )}
+                  {!isClinic && !isChampionship(cls) && looksLikeChampionship(cls.name) && (
+                    <div style={{ fontSize: 11.5, color: "#A05000", marginTop: 3, fontWeight: 700, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+                      title="A championship fills from the place-getters of its feeder classes — until it's linked, nothing goes into it">
+                      <span>⚠ Championship not linked to its classes — won&apos;t fill</span>
+                      <button className="btn-ghost" style={{ padding: "1px 8px", fontSize: 11.5, borderColor: "#A05000", color: "#A05000" }}
+                        onClick={linkChampionships} disabled={busy}>🏆 Link all</button>
                     </div>
                   )}
                   {isChampionship(cls) && (

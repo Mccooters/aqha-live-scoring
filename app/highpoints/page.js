@@ -11,7 +11,7 @@ const HORSE_CATEGORIES = new Set([
 // Any category found in the data but not listed here will still appear at the end.
 const CANONICAL_CATEGORIES = [
   "Overall Halter", "Overall 2YO", "Overall 3YO", "Junior Horse", "Senior Horse",
-  "Amateur", "Novice Amateur", "Select", "Beginner", "EWD", "Youth", "Leadline",
+  "Amateur", "Novice Amateur", "Select", "Beginner", "Improver", "EWD", "Youth", "Leadline",
 ];
 
 const KNOWN_CATEGORY_NAMES = new Set(CANONICAL_CATEGORIES.map(c => c.toLowerCase()));
