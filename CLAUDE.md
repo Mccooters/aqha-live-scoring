@@ -1119,8 +1119,14 @@ returns that email's paid bookings across the event's items and pools
 (items, quantities, nights, which event — never names), which the entry
 form fetches on email blur / member sign-in (`checkMyExtras`) and shows
 as "✓ Already booked under this email … (booked with Winter Show)", with
-"✓ have n" on the night buttons. The manager offers existing pool names
-in a datalist and, on a pre-v62 database, saves the item without the
-pool and says so; the printable list merges the other event's bookings
+"✓ have n" on the night buttons. The manager's "Shared with another
+event" field is a DROPDOWN of the bookable items on every other ACTIVE
+event (pre_open/open/closed/live, grouped per event, soonest first —
+owner's request, Oct 2026: typing the name was error-prone): picking
+one copies that item's shared name, or, when it has none yet, gives
+BOTH items an auto name ("Yards · Winter Show") so they count as one
+from then on; "Type a shared name…" keeps the free-text field (with a
+datalist of names in use) as a fallback. On a pre-v62 database the
+manager saves the item without the pool and says so; the printable list merges the other event's bookings
 of the same pool, labelled "(Winter Show)". Pool text is matched exactly
 after trimming — the datalist exists so staff pick the same spelling.

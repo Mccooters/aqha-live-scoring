@@ -2650,7 +2650,7 @@ export default function Coordinator() {
                   {enterScores ? "✓ Done entering results" : "✍ Enter results"}
                 </button>
               )}
-              <Link href="/coordinator/registrations" className="btn-ghost" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", color: "var(--leather)", fontWeight: 700 }}>
+              <Link href={eventId ? `/coordinator/registrations?event=${eventId}` : "/coordinator/registrations"} className="btn-ghost" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none", color: "var(--leather)", fontWeight: 700 }}>
                 Registrations
               </Link>
               <button className="btn-ghost" onClick={() => openModal("editEvent", { event: currentEvent })} disabled={!eventId}>

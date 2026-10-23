@@ -9,9 +9,27 @@ import { EXTRA_KINDS, EXTRA_UNITS, KIND_ICON, extraNights, nightLabel, priceLabe
 // event (schema-v61). Opened from the dashboard's "🏕 Camping & yards"
 // button; rendered inside the dashboard's modal sheet.
 
-const blankDraft = () => ({ name: "", kind: "yard", unit: "day", price: "", capacity: "", first_night: "", last_night: "", description: "", pool: "" });
+const blankDraft = () => ({ name: "", kind: "yard", unit: "day", price: "", capacity: "", first_night: "", last_night: "", description: "", pool: "", share: "" });
 
-function draftFrom(row) {
+// Events that can still sell yards or sites — the dropdown of "other active
+// events" leaves out finished, archived and cancelled ones.
+const ACTIVE_STATUSES = new Set(["pre_open", "open", "closed", "live"]);
+
+// Shared name used when the chosen item on the other event doesn't have one
+// yet: both items get it, so they count as one pool from now on.
+const autoPoolName = (item) => `${item.name} · ${item.event?.name ?? "shared"}`.slice(0, 80);
+
+// What the "Shared with" dropdown should show for an existing item: the
+// matching item on another event when its shared name is in use there, else
+// "custom" so the typed name stays visible, else not shared.
+function shareFor(pool, otherItems) {
+  const p = String(pool ?? "").trim();
+  if (!p) return "";
+  const match = otherItems.find((i) => String(i.pool ?? "").trim() === p);
+  return match ? `item:${match.id}` : "custom";
+}
+
+function draftFrom(row, otherItems = []) {
   return {
     name: row.name ?? "",
     kind: row.kind ?? "other",
@@ -22,10 +40,11 @@ function draftFrom(row) {
     last_night: row.last_night ?? "",
     description: row.description ?? "",
     pool: row.pool ?? "",
+    share: shareFor(row.pool, otherItems),
   };
 }
 
-function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, busy, event, poolNames = [] }) {
+function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, busy, event, poolNames = [], otherItems = [] }) {
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
   // Yards are per day, camping per night (owner's rule): picking the type
   // switches the pricing to match unless it's one price for the event.
@@ -36,6 +55,17 @@ function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, bu
   const noun = unitNoun(draft);
   const defaultFirst = event?.starts_on ? addDays(event.starts_on, -1) : "";
   const defaultLast = event?.ends_on || event?.starts_on || "";
+  // Other active events' bookable items, grouped per event for the dropdown.
+  const otherEvents = [];
+  for (const i of otherItems) {
+    let ev = otherEvents.find((e) => e.id === i.event_id);
+    if (!ev) { ev = { id: i.event_id, name: i.event?.name ?? "Another event", items: [] }; otherEvents.push(ev); }
+    ev.items.push(i);
+  }
+  const setShare = (e) => {
+    const share = e.target.value;
+    setDraft((d) => ({ ...d, share, pool: share === "custom" ? d.pool : "" }));
+  };
   return (
     <div style={{ border: "1px dashed var(--line)", borderRadius: 10, padding: "10px 12px", background: "var(--paper)" }}>
       <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 6 }}>{title}</div>
@@ -80,12 +110,36 @@ function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, bu
       <label className="modal-label">Description (optional)</label>
       <input className="field" style={{ width: "100%", fontSize: 14 }} value={draft.description} onChange={set("description")} placeholder="e.g. Steel yards near the arena. Bring your own feed bins." maxLength={200} />
       <label className="modal-label">Shared with another event (optional)</label>
-      <input className="field" list="extra-pool-names" style={{ width: "100%", fontSize: 14 }} value={draft.pool ?? ""} onChange={set("pool")} placeholder="e.g. November weekend yards" maxLength={80} />
-      <datalist id="extra-pool-names">{poolNames.map((p) => <option key={p} value={p} />)}</datalist>
+      <select className="field" style={{ width: "100%", fontSize: 14 }} value={draft.share ?? ""} onChange={setShare}>
+        <option value="">Not shared</option>
+        {otherEvents.map((ev) => (
+          <optgroup key={ev.id} label={ev.name}>
+            {ev.items.map((i) => (
+              <option key={i.id} value={`item:${i.id}`}>
+                {KIND_ICON[i.kind] ?? ""} {i.name}{i.pool ? ` — shared as "${i.pool}"` : ""}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+        <option value="custom">Type a shared name…</option>
+      </select>
+      {draft.share === "custom" && (
+        <>
+          <input className="field" list="extra-pool-names" style={{ width: "100%", fontSize: 14, marginTop: 6 }} value={draft.pool ?? ""} onChange={set("pool")} placeholder="e.g. November weekend yards" maxLength={80} />
+          <datalist id="extra-pool-names">{poolNames.map((p) => <option key={p} value={p} />)}</datalist>
+        </>
+      )}
       <div style={{ fontSize: 11.5, color: "var(--quiet)", marginTop: 3 }}>
-        Two events on the same weekend selling the same yards or sites? Give the matching item on each event the same
-        shared name (and the same number available). What&apos;s left is then counted across both events, and someone
-        entering the second event sees what they already booked with the first.
+        {draft.share?.startsWith("item:") ? (
+          <>Picking an item on another event links the two: what&apos;s left is counted across both events, and someone
+          entering the second event sees what they already booked with the first. Give both the same number available.</>
+        ) : otherEvents.length ? (
+          <>Two events on the same weekend selling the same yards or sites? Pick the matching item on the other event
+          and the two are counted as one.</>
+        ) : (
+          <>Two events on the same weekend selling the same yards or sites? Once the other event has its own item,
+          pick it here and the two are counted as one.</>
+        )}
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button className="btn" style={{ fontSize: 14, padding: "8px 16px" }} onClick={onSubmit} disabled={busy}>{busy ? "Saving…" : submitLabel}</button>
@@ -93,6 +147,14 @@ function ExtraForm({ title, draft, setDraft, onSubmit, onCancel, submitLabel, bu
       </div>
     </div>
   );
+}
+
+// Keep items whose event is still on the go, soonest event first.
+function sortOthers(data) {
+  return (data ?? [])
+    .map((r) => ({ id: r.id, name: r.name, kind: r.kind, pool: r.pool ?? null, event_id: r.event_id, event: r.events ?? null }))
+    .filter((r) => r.event && ACTIVE_STATUSES.has(r.event.status))
+    .sort((a, b) => String(a.event.starts_on ?? "").localeCompare(String(b.event.starts_on ?? "")) || a.event.name.localeCompare(b.event.name) || a.name.localeCompare(b.name));
 }
 
 export default function ExtrasManager({ event, onClose }) {
@@ -103,12 +165,25 @@ export default function ExtrasManager({ event, onClose }) {
   const [editing, setEditing] = useState(null); // { id, draft }
   const [busy, setBusy] = useState(false);
   const [poolNames, setPoolNames] = useState([]); // shared names already in use on any event (schema-v62)
-  useEffect(() => {
-    supabase.from("event_extras").select("pool").not("pool", "is", null).then(({ data, error }) => {
-      if (error) return;
-      setPoolNames([...new Set((data ?? []).map((r) => String(r.pool ?? "").trim()).filter(Boolean))].sort());
-    });
-  }, []);
+  const [otherItems, setOtherItems] = useState([]); // bookable items on OTHER active events, for the dropdown
+  const loadOthers = useCallback(async () => {
+    if (!event?.id) return;
+    const { data, error } = await supabase.from("event_extras")
+      .select("id, name, kind, pool, event_id, events(name, status, starts_on)")
+      .neq("event_id", event.id);
+    if (error) {
+      // Pre-v62 database (no pool column): the dropdown still works for
+      // picking, the save then says the update is needed.
+      if (!/pool/i.test(error.message ?? "")) return;
+      const retry = await supabase.from("event_extras").select("id, name, kind, event_id, events(name, status, starts_on)").neq("event_id", event.id);
+      if (retry.error) return;
+      setOtherItems(sortOthers(retry.data));
+      return;
+    }
+    setPoolNames([...new Set((data ?? []).map((r) => String(r.pool ?? "").trim()).filter(Boolean))].sort());
+    setOtherItems(sortOthers(data));
+  }, [event?.id]);
+  useEffect(() => { loadOthers(); }, [loadOthers]);
 
   const load = useCallback(async () => {
     if (!event?.id) return;
@@ -133,8 +208,25 @@ export default function ExtrasManager({ event, onClose }) {
     first_night: isDated(d) && d.first_night ? d.first_night : null,
     last_night: isDated(d) && d.last_night ? d.last_night : null,
     description: d.description.trim() || null,
-    pool: String(d.pool ?? "").trim() || null,
+    pool: poolFor(d),
   });
+  // The shared name to store: the picked item's existing name, a fresh
+  // name for both when it has none yet, the typed name, or nothing.
+  const pickedItem = (d) => (d.share?.startsWith("item:") ? otherItems.find((i) => `item:${i.id}` === d.share) : null);
+  const poolFor = (d) => {
+    const item = pickedItem(d);
+    if (item) return String(item.pool ?? "").trim() || autoPoolName(item);
+    if (d.share === "custom") return String(d.pool ?? "").trim() || null;
+    return null;
+  };
+  // When the picked item on the other event has no shared name yet, give it
+  // the same one so the two really are counted together.
+  const linkOther = async (d, pool) => {
+    const item = pickedItem(d);
+    if (!item || !pool || String(item.pool ?? "").trim() === pool) return null;
+    const { error: err } = await supabase.from("event_extras").update({ pool }).eq("id", item.id);
+    return err ? `Saved, but the item on ${item.event?.name ?? "the other event"} couldn't be linked: ${err.message}` : null;
+  };
   // A database without schema-v62 has no "pool" column: save the rest and
   // say so when a shared name was typed.
   const POOL_HINT = "Saved, but sharing with another event needs the database update — run supabase/schema-v62-extras-pool.sql, then edit the item and set the shared name again.";
@@ -156,23 +248,27 @@ export default function ExtrasManager({ event, onClose }) {
   const add = async () => {
     const msg = validate(draft); if (msg) { setError(msg); return; }
     setBusy(true); setError("");
-    const err = await writeRow((row) => supabase.from("event_extras").insert(row), { ...toRow(draft), event_id: event.id, sort_order: (rows?.length ?? 0) + 1 });
+    const row = { ...toRow(draft), event_id: event.id, sort_order: (rows?.length ?? 0) + 1 };
+    const err = await writeRow((r) => supabase.from("event_extras").insert(r), row);
+    const linkErr = err ? null : await linkOther(draft, row.pool);
     setBusy(false);
     if (err && !err.soft) { setError(err.message); return; }
-    if (err?.soft) setError(err.message);
+    if (err?.soft || linkErr) setError(err?.message || linkErr);
     setDraft(blankDraft());
-    await load();
+    await Promise.all([load(), loadOthers()]);
   };
   const saveEdit = async () => {
     const msg = validate(editing.draft); if (msg) { setError(msg); return; }
     setBusy(true); setError("");
     const id = editing.id;
-    const err = await writeRow((row) => supabase.from("event_extras").update(row).eq("id", id), toRow(editing.draft));
+    const row = toRow(editing.draft);
+    const err = await writeRow((r) => supabase.from("event_extras").update(r).eq("id", id), row);
+    const linkErr = err ? null : await linkOther(editing.draft, row.pool);
     setBusy(false);
     if (err && !err.soft) { setError(err.message); return; }
-    if (err?.soft) setError(err.message);
+    if (err?.soft || linkErr) setError(err?.message || linkErr);
     setEditing(null);
-    await load();
+    await Promise.all([load(), loadOthers()]);
   };
   const toggle = async (row) => {
     setBusy(true); setError("");
@@ -198,6 +294,14 @@ export default function ExtrasManager({ event, onClose }) {
     await load();
   };
 
+  // "shared with Winter Show" (the other events using the same shared name),
+  // falling back to the name itself when no active event carries it.
+  const sharedWith = (pool) => {
+    const p = String(pool ?? "").trim();
+    const names = [...new Set(otherItems.filter((i) => String(i.pool ?? "").trim() === p).map((i) => i.event?.name).filter(Boolean))];
+    return names.length ? names.join(", ") : `"${p}"`;
+  };
+
   return (
     <>
       <h2 className="display modal-title">🏕 Camping &amp; yards</h2>
@@ -221,7 +325,7 @@ export default function ExtrasManager({ event, onClose }) {
               return (
                 <ExtraForm key={r.id} title={`Edit ${r.name}`} draft={editing.draft}
                   setDraft={(fn) => setEditing((e) => ({ ...e, draft: typeof fn === "function" ? fn(e.draft) : fn }))}
-                  onSubmit={saveEdit} onCancel={() => setEditing(null)} submitLabel="Save" busy={busy} event={event} poolNames={poolNames} />
+                  onSubmit={saveEdit} onCancel={() => setEditing(null)} submitLabel="Save" busy={busy} event={event} poolNames={poolNames} otherItems={otherItems} />
               );
             }
             const nights = extraNights(r, event);
@@ -238,10 +342,10 @@ export default function ExtrasManager({ event, onClose }) {
                   {r.capacity == null ? "No limit" : `${r.capacity} available${isDated(r) ? ` each ${unitNoun(r)}` : ""}`}
                   {isDated(r) && nights.length ? ` · ${nights.length === 1 ? nightLabel(nights[0]) : `${nightLabel(nights[0])} to ${nightLabel(nights[nights.length - 1])} (${nights.length} ${unitNoun(r, nights.length)})`}` : ""}
                   {r.description ? ` · ${r.description}` : ""}
-                  {r.pool ? ` · shared: ${r.pool}` : ""}
+                  {r.pool ? ` · shared with ${sharedWith(r.pool)}` : ""}
                 </div>
                 <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-                  <button className="btn-ghost" onClick={() => { setError(""); setEditing({ id: r.id, draft: draftFrom(r) }); }} disabled={busy}>Edit</button>
+                  <button className="btn-ghost" onClick={() => { setError(""); setEditing({ id: r.id, draft: draftFrom(r, otherItems) }); }} disabled={busy}>Edit</button>
                   <button className="btn-ghost" onClick={() => toggle(r)} disabled={busy}>{r.active ? "Switch off" : "Switch on"}</button>
                   <button className="btn-ghost danger" onClick={() => remove(r)} disabled={busy}>Delete</button>
                 </div>
@@ -252,7 +356,7 @@ export default function ExtrasManager({ event, onClose }) {
       )}
 
       {!missing && !editing && (
-        <ExtraForm title="Add something bookable" draft={draft} setDraft={setDraft} onSubmit={add} submitLabel="Add" busy={busy} event={event} poolNames={poolNames} />
+        <ExtraForm title="Add something bookable" draft={draft} setDraft={setDraft} onSubmit={add} submitLabel="Add" busy={busy} event={event} poolNames={poolNames} otherItems={otherItems} />
       )}
 
       <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
