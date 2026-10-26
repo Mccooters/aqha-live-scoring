@@ -11,7 +11,8 @@ const escapeHtml = (v) => String(v ?? "")
 const missingColumn = (err) => /balance_reminder|schema cache/i.test(err?.message ?? "");
 const dayKey = (d) => new Date(d).toISOString().slice(0, 10);
 
-// Paid registrations on this event with money still owing on a deposit plan.
+// Paid registrations on this event with money still owing on a deposit plan
+// (balanceOwingCents is zero for paid-up AND withdrawn ones — schema-v65).
 export async function owingRegistrations(db, eventId) {
   const { data, error } = await db
     .from("registrations")
@@ -29,6 +30,7 @@ export async function sendBalanceReminder(db, reg, event, { method = "manual", b
   const from = process.env.BOOKING_EMAIL_FROM;
   if (!apiKey || !from) return { sent: false, reason: "Email isn't configured (RESEND_API_KEY / BOOKING_EMAIL_FROM)." };
   if (!reg?.contact_email) return { sent: false, reason: "No email address on the registration." };
+  if (reg.withdrawn_at) return { sent: false, reason: "Withdrawn — the balance was written off." };
   const owing = balanceOwingCents(reg);
   if (owing <= 0) return { sent: false, reason: "Nothing owing." };
 

@@ -228,6 +228,11 @@ function SuccessContent() {
                     ✓ Deposit and balance both paid — nothing owing.
                   </p>
                 )}
+                {balance && balance.withdrawn && (
+                  <p style={{ fontSize: 13.5, color: "var(--quiet)", fontWeight: 700, marginTop: 0 }}>
+                    This entry has been withdrawn — the non-refundable deposit was kept and no balance is owing. Contact the organiser if that isn&apos;t right.
+                  </p>
+                )}
               </>
             ) : (
               <p style={{ fontSize: 14, color: "var(--quiet)", marginTop: 4 }}>

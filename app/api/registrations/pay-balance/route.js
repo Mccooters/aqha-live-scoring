@@ -45,6 +45,14 @@ export async function POST(req) {
     if (reg.balance_paid_at) {
       return NextResponse.json({ error: "The balance has already been paid — nothing owing. See you at the clinic!" }, { status: 400 });
     }
+    if (reg.withdrawn_at) {
+      // Withdrawn (schema-v65): deposit kept, balance written off — the pay
+      // link must not take money for a spot they no longer hold.
+      return NextResponse.json(
+        { error: "This entry has been withdrawn, so no balance is owing. Please contact the organiser if that's not right." },
+        { status: 400 }
+      );
+    }
     const owedFull = Math.max(0, (reg.total_cents ?? 0) - (reg.deposit_cents ?? 0));
     const owing = balanceOwingCents(reg);
     if (owing <= 0) {
