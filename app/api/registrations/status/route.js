@@ -56,10 +56,18 @@ export async function GET(req) {
   try {
     let { data: extra, error: extraErr } = await db
       .from("registrations")
-      .select("deposit_cents, balance_paid_at, balance_payments, event:events(starts_on, event_type)")
+      .select("deposit_cents, balance_paid_at, balance_payments, withdrawn_at, event:events(starts_on, event_type)")
       .eq("id", regId)
       .maybeSingle();
     let partials = true;
+    if (extraErr && /withdrawn_at|does not exist|schema cache/i.test(extraErr.message ?? "")) {
+      // v65 not run — no withdrawals can exist yet.
+      ({ data: extra, error: extraErr } = await db
+        .from("registrations")
+        .select("deposit_cents, balance_paid_at, balance_payments, event:events(starts_on, event_type)")
+        .eq("id", regId)
+        .maybeSingle());
+    }
     if (extraErr && /balance_payments|does not exist|schema cache/i.test(extraErr.message ?? "")) {
       partials = false; // v50 not run — full-balance behaviour only
       ({ data: extra } = await db
@@ -72,15 +80,19 @@ export async function GET(req) {
       const { balanceDueDate, balanceDueLabel, balancePaidCents, MIN_PART_PAYMENT_CENTS } = await import("../../../../lib/clinicPayments");
       const partPaid = partials ? balancePaidCents(extra) : 0;
       const paid = Boolean(extra.balance_paid_at);
-      const owing = paid ? 0 : Math.max(0, (reg.total_cents ?? 0) - extra.deposit_cents - partPaid);
+      // Withdrawn (schema-v65): deposit kept, balance written off — nothing
+      // owing and no pay button.
+      const withdrawn = Boolean(extra.withdrawn_at);
+      const owing = paid || withdrawn ? 0 : Math.max(0, (reg.total_cents ?? 0) - extra.deposit_cents - partPaid);
       balance = {
         deposit_cents: extra.deposit_cents,
         owing_cents: owing,
         paid,
+        withdrawn,
         paid_part_cents: partPaid,
         // Choosing an amount only makes sense when part payments can be
         // recorded and there's more owing than the minimum chunk.
-        partial_allowed: partials && !paid && owing > MIN_PART_PAYMENT_CENTS,
+        partial_allowed: partials && !paid && !withdrawn && owing > MIN_PART_PAYMENT_CENTS,
         min_part_cents: MIN_PART_PAYMENT_CENTS,
         due_label: balanceDueLabel(extra.event?.starts_on),
         overdue: (() => { const d = balanceDueDate(extra.event?.starts_on); return d ? new Date() > d : false; })(),

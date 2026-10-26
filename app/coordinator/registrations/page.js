@@ -203,7 +203,10 @@ function RegistrationsInner() {
     const partPaid = balancePaidCents(reg);
     const owingFull = Math.max(0, (reg.total_cents ?? 0) - reg.deposit_cents);
     if (owingFull <= 0) return null;
-    const owing = reg.balance_paid_at ? 0 : Math.max(0, owingFull - partPaid);
+    // Withdrawn (schema-v65): they pulled out — deposit kept, balance
+    // written off, so nothing is owing and nothing is overdue.
+    const withdrawn = Boolean(reg.withdrawn_at);
+    const owing = reg.balance_paid_at || withdrawn ? 0 : Math.max(0, owingFull - partPaid);
     const ev = selectedEvent;
     const due = balanceDueDate(ev?.starts_on);
     return {
@@ -212,9 +215,44 @@ function RegistrationsInner() {
       partPaid,
       payments: Array.isArray(reg.balance_payments) ? reg.balance_payments : [],
       paid: Boolean(reg.balance_paid_at),
+      withdrawn,
       dueLabel: balanceDueLabel(ev?.starts_on),
-      overdue: !reg.balance_paid_at && due ? new Date() > due : false,
+      overdue: !reg.balance_paid_at && !withdrawn && due ? new Date() > due : false,
     };
+  };
+
+  // Mark a deposit-plan registration withdrawn (schema-v65): the person has
+  // pulled out, the non-refundable deposit is kept and the balance is
+  // written off — no more reminders, no overdue badge, pay link refused.
+  // Their spot stays in the clinic until staff scratch/delete it on the
+  // dashboard (same as after a refund). Undo puts the balance back.
+  const setWithdrawn = async (reg, info, withdrawn) => {
+    const keptCents = Math.min(reg.total_cents ?? 0, (reg.deposit_cents ?? 0) + info.partPaid);
+    const msg = withdrawn
+      ? `Mark ${reg.contact_name} as withdrawn from the clinic?\n\n` +
+        `• ${fmtMoney(keptCents)} already paid (deposit${info.partPaid > 0 ? " + part payments" : ""}) is kept — deposits are non-refundable.\n` +
+        `• The ${fmtMoney(info.owing)} balance is written off: no more reminder emails, no overdue status, and their payment link stops working.\n\n` +
+        `Their spot stays in the clinic until you Scratch or Delete it on the dashboard.`
+      : `Undo the withdrawal for ${reg.contact_name}?\n\nThe ${fmtMoney(Math.max(0, info.owingFull - info.partPaid))} balance goes back to owing and reminders resume.`;
+    if (!window.confirm(msg)) return;
+    setBalanceBusy(reg.id);
+    try {
+      const { error } = await supabase
+        .from("registrations")
+        .update(withdrawn
+          ? { withdrawn_at: new Date().toISOString(), withdrawn_by: session?.user?.email ?? null }
+          : { withdrawn_at: null, withdrawn_by: null })
+        .eq("id", reg.id);
+      if (error) {
+        window.alert(/withdrawn_at|does not exist|schema cache/i.test(error.message ?? "")
+          ? 'Marking someone withdrawn needs a one-time database update — run "schema-v65-withdrawn-registrations.sql" in the Supabase SQL Editor first.'
+          : error.message);
+        return;
+      }
+      await load();
+    } finally {
+      setBalanceBusy(null);
+    }
   };
 
   // Balance reminder emails (schema-v55): one registration, or everyone
@@ -550,8 +588,9 @@ function RegistrationsInner() {
       : (r.total_cents ?? 0);
     return s + received - (r.refunded_cents ?? 0);
   }, 0);
+  // Withdrawn entries (schema-v65) owe nothing — the balance is written off.
   const balancesOwing = paid.reduce((s, r) =>
-    s + (r.deposit_cents > 0 && !r.balance_paid_at
+    s + (r.deposit_cents > 0 && !r.balance_paid_at && !r.withdrawn_at
       ? Math.max(0, (r.total_cents ?? 0) - r.deposit_cents - balancePaidCents(r))
       : 0), 0);
   // Only paid registrations become real entries in the show — pending and
@@ -820,7 +859,9 @@ function RegistrationsInner() {
                   {isPaid && (() => {
                     const b = balanceInfo(reg);
                     if (!b) return null;
-                    return b.paid ? (
+                    return b.withdrawn ? (
+                      <span className="badge" style={{ background: "#8B8073" }} title="Pulled out — deposit kept, balance written off">withdrawn · deposit kept</span>
+                    ) : b.paid ? (
                       <span className="badge" style={{ background: "var(--green)" }}>balance paid</span>
                     ) : (
                       <span className="badge" style={{ background: b.overdue ? "var(--clay)" : "#A05000" }}>
@@ -931,9 +972,11 @@ function RegistrationsInner() {
                     if (!b) return null;
                     const fmtWhen = (s) => (s ? new Date(s).toLocaleDateString("en-AU", { day: "numeric", month: "short" }) : "");
                     return (
-                      <div style={{ padding: "10px 12px", marginTop: 10, borderRadius: 10, border: `1px solid ${b.paid ? "var(--line)" : b.overdue ? "var(--clay)" : "#E0B15A"}`, background: b.paid ? "#F4F8F4" : b.overdue ? "#FDEEE9" : "#FFF7D6" }}>
+                      <div style={{ padding: "10px 12px", marginTop: 10, borderRadius: 10, border: `1px solid ${b.paid || b.withdrawn ? "var(--line)" : b.overdue ? "var(--clay)" : "#E0B15A"}`, background: b.paid ? "#F4F8F4" : b.withdrawn ? "#F1EEE8" : b.overdue ? "#FDEEE9" : "#FFF7D6" }}>
                         <div style={{ fontSize: 13, fontWeight: 800, color: "var(--leather)" }}>
-                          {b.paid
+                          {b.withdrawn
+                            ? `Withdrawn${reg.withdrawn_at ? ` on ${fmtWhen(reg.withdrawn_at)}` : ""}${reg.withdrawn_by ? ` by ${reg.withdrawn_by}` : ""} — deposit ${fmtMoney(reg.deposit_cents)}${b.partPaid > 0 ? ` + ${fmtMoney(b.partPaid)} part payments` : ""} kept, ${fmtMoney(Math.max(0, b.owingFull - b.partPaid))} balance written off.`
+                            : b.paid
                             ? `✓ Deposit ${fmtMoney(reg.deposit_cents)} + balance ${fmtMoney(b.owingFull)} both paid.`
                             : `Deposit ${fmtMoney(reg.deposit_cents)} paid (non-refundable)${b.partPaid > 0 ? ` + ${fmtMoney(b.partPaid)} part payments` : ""} — ${fmtMoney(b.owing)} balance ${b.overdue ? "OVERDUE" : "owing"}${b.dueLabel ? `, due by ${b.dueLabel}` : ""}.`}
                         </div>
@@ -942,10 +985,20 @@ function RegistrationsInner() {
                             Payments: {b.payments.map((p, i) => `${fmtMoney(p.amount_cents)} on ${fmtWhen(p.at)} (${p.method === "manual" ? "recorded by staff" : p.method === "paypal" ? "PayPal" : "Square"})`).join(" · ")}
                           </div>
                         )}
-                        {!b.paid && (
+                        {b.withdrawn && (
+                          <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 4 }}>
+                            No reminders go out and their payment link no longer works. If their spot is still in the clinic, Scratch or Delete it on the dashboard.
+                            {" "}
+                            <button className="btn-ghost" style={{ fontSize: 12, marginLeft: 6 }} disabled={balanceBusy === reg.id}
+                              onClick={() => setWithdrawn(reg, b, false)} title="Put the balance back to owing">
+                              {balanceBusy === reg.id ? "Working…" : "Undo withdrawal"}
+                            </button>
+                          </div>
+                        )}
+                        {!b.paid && !b.withdrawn && (
                           <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 4 }}>{lastReminderLabel(reg)}</div>
                         )}
-                        {!b.paid && (
+                        {!b.paid && !b.withdrawn && (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
                             <button className="btn-ghost" style={{ fontSize: 12, borderColor: "var(--leather)", color: "var(--leather)", fontWeight: 700 }} disabled={reminderBusy === reg.id}
                               onClick={() => sendReminders({ reg })} title="Emails this person what's owing with a button to pay online">
@@ -968,6 +1021,11 @@ function RegistrationsInner() {
                                 Record received outside Square
                               </button>
                             </span>
+                            <button className="btn-ghost" style={{ fontSize: 12, borderColor: "#8B8073", color: "#5C5347" }} disabled={balanceBusy === reg.id}
+                              onClick={() => setWithdrawn(reg, b, true)}
+                              title="They've pulled out: keep the non-refundable deposit, write off the balance, stop reminders">
+                              Withdrawn — keep deposit, write off balance
+                            </button>
                           </div>
                         )}
                       </div>

@@ -739,6 +739,17 @@ each with its own `capacity`) instead of a normal scored show.
   by the Vercel cron in `vercel.json` (22:00 UTC ≈ 8–9am AEST) with
   `Authorization: Bearer CRON_SECRET` — once per person per day at most.
   `CRON_SECRET` must be set in Vercel (health page shows it).
+  **Withdrawn entries (schema-v65)**: `registrations.withdrawn_at` /
+  `withdrawn_by` (owner's report, Oct 2026 — someone who paid the deposit
+  and pulled out stayed BALANCE OVERDUE forever). The Registrations page's
+  balance panel has "Withdrawn — keep deposit, write off balance" (confirm
+  dialog; writes `registrations` directly) and "Undo withdrawal":
+  `balanceOwingCents()` returns 0 for a withdrawn row, so reminders
+  (manual + auto), the Balances-owing stat, the member portal card and
+  the success page all treat it as nothing owing; `pay-balance` refuses
+  the link; the badge reads "withdrawn · deposit kept". Money already
+  received still counts as revenue. Removing the spot from the clinic
+  stays the dashboard's Scratch/Delete, like after a refund.
 
 ## Online registration & payments
 

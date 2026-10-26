@@ -48,6 +48,7 @@ const MIGRATION_CHECKS = [
   { m: "v62", what: "Camping & yards shared between events on one weekend", probe: () => supabase.from("event_extras").select("pool").limit(1) },
   { m: "v63", what: "Digital judge cards (judge links, offline judge page)", probe: () => supabase.from("judge_cards").select("id").limit(1) },
   { m: "v64", what: "Pattern judge cards (Trail, Western Riding, Ranch Riding, Showmanship/Horsemanship/HSE boxes)", probe: () => supabase.from("classes").select("judge_card_type").limit(1) },
+  { m: "v65", what: "Withdrawn clinic entries (deposit kept, balance written off)", probe: () => supabase.from("registrations").select("withdrawn_at").limit(1) },
 ];
 
 const CONFIG_LABELS = {
