@@ -855,7 +855,31 @@ function RegistrationsInner() {
                   })()}
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontWeight: 700, fontSize: 14, textDecoration: isCancelled ? "line-through" : "none" }}>{fmtMoney(reg.total_cents)}</span>
+                  {(() => {
+                    // Deposit plans (schema-v47): the headline figure is what
+                    // has actually been received, with the full price and
+                    // what's owing / written off underneath (owner's request,
+                    // Oct 2026 — a withdrawn $400 entry showed "$400.00" when
+                    // only the $50 deposit had ever been paid).
+                    const b = isPaid ? balanceInfo(reg) : null;
+                    if (!b || b.paid) {
+                      return <span style={{ fontWeight: 700, fontSize: 14, textDecoration: isCancelled ? "line-through" : "none" }}>{fmtMoney(reg.total_cents)}</span>;
+                    }
+                    const received = Math.min(reg.total_cents ?? 0, (reg.deposit_cents ?? 0) + b.partPaid);
+                    const rest = Math.max(0, (reg.total_cents ?? 0) - received);
+                    const note = b.withdrawn
+                      ? `${fmtMoney(rest)} written off`
+                      : `${fmtMoney(rest)} ${b.overdue ? "overdue" : "owing"}`;
+                    return (
+                      <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2 }}
+                        title={`${fmtMoney(received)} received of ${fmtMoney(reg.total_cents)} — ${note}`}>
+                        <span style={{ fontWeight: 700, fontSize: 14 }}>{fmtMoney(received)} paid</span>
+                        <span style={{ fontSize: 11, color: b.withdrawn ? "var(--quiet)" : b.overdue ? "var(--clay)" : "#A05000", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          of {fmtMoney(reg.total_cents)} · {note}
+                        </span>
+                      </span>
+                    );
+                  })()}
                   {isPaid && (() => {
                     const b = balanceInfo(reg);
                     if (!b) return null;
@@ -873,11 +897,21 @@ function RegistrationsInner() {
                     <span className="badge" style={{ background: "#8B8073", color: "#fff" }}>
                       {reg.cancel_reason === "expired" ? "expired" : "cancelled"}
                     </span>
-                  ) : (
-                    <span className={`badge ${isPaid ? "live" : "upcoming"}`}>
-                      {isPaid ? "paid" : "pending"}
-                    </span>
-                  )}
+                  ) : (() => {
+                    // A deposit-plan entry isn't "paid" until the balance is:
+                    // say "deposit paid" while money is owing, and nothing at
+                    // all once withdrawn (the grey badge already says it).
+                    const b = isPaid ? balanceInfo(reg) : null;
+                    if (b?.withdrawn) return null;
+                    if (b && !b.paid) {
+                      return <span className="badge" style={{ background: "var(--brass)" }} title="Deposit received — balance still owing">deposit paid</span>;
+                    }
+                    return (
+                      <span className={`badge ${isPaid ? "live" : "upcoming"}`}>
+                        {isPaid ? "paid" : "pending"}
+                      </span>
+                    );
+                  })()}
                   {reg.payment_provider === "paypal" && (
                     <span className="badge" style={{ background: "#003087", color: "#fff" }} title="Paid through PayPal">PayPal</span>
                   )}
