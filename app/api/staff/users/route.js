@@ -36,13 +36,41 @@ async function requireFullStaff(req) {
   return { staff, db };
 }
 
+const tableMissing = (err) => /does not exist|schema cache/i.test(err?.message ?? "");
+const permissionDenied = (err) => /permission denied/i.test(err?.message ?? "");
+
+const V48_MSG = 'Read-only accounts need a database update — run "schema-v48-committee-viewers.sql" in the Supabase SQL Editor first.';
+const V66_MSG = 'The server isn\'t allowed to change the read-only list yet — run "schema-v66-staff-viewers-service-role-grants.sql" in the Supabase SQL Editor, then try again.';
+
+function viewerWriteError(err) {
+  if (tableMissing(err)) return V48_MSG;
+  if (permissionDenied(err)) return V66_MSG;
+  return err?.message ?? "Couldn't update the read-only list.";
+}
+
 async function viewerIds(db) {
   try {
     const { data, error } = await db.from("staff_viewers").select("user_id");
-    if (error) return { ids: new Set(), missing: /does not exist|schema cache/i.test(error.message ?? "") };
+    if (error) return { ids: new Set(), missing: tableMissing(error) };
     return { ids: new Set((data ?? []).map((r) => r.user_id)), missing: false };
   } catch {
     return { ids: new Set(), missing: true };
+  }
+}
+
+// Can the server actually WRITE the read-only list? v48 granted service_role
+// SELECT only, so the page used to look ready while every read-only create /
+// toggle silently failed. A delete of a row that can't exist is a harmless
+// probe: it succeeds (0 rows) with the v66 grant and is refused without it.
+async function viewersWritable(db) {
+  try {
+    const { error } = await db
+      .from("staff_viewers")
+      .delete()
+      .eq("user_id", "00000000-0000-0000-0000-000000000000");
+    return !error;
+  } catch {
+    return false;
   }
 }
 
@@ -54,6 +82,7 @@ export async function GET(req) {
     const { data, error } = await db.auth.admin.listUsers({ page: 1, perPage: 200 });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const { ids: viewers, missing } = await viewerIds(db);
+    const writable = missing ? false : await viewersWritable(db);
     const users = (data?.users ?? [])
       .map((u) => ({
         id: u.id,
@@ -64,7 +93,7 @@ export async function GET(req) {
         is_you: u.id === staff.id,
       }))
       .sort((a, b) => String(a.email ?? "").localeCompare(String(b.email ?? "")));
-    return NextResponse.json({ users, viewers_ready: !missing });
+    return NextResponse.json({ users, viewers_ready: !missing, viewers_writable: writable });
   } catch (err) {
     return NextResponse.json({ error: err.message ?? "Unexpected error" }, { status: 500 });
   }
@@ -93,16 +122,21 @@ export async function POST(req) {
         : error.message;
       return NextResponse.json({ error: msg }, { status: 400 });
     }
-    let warning = null;
     if (access === "viewer") {
       const { error: vErr } = await db
         .from("staff_viewers")
         .upsert({ user_id: data.user.id, email: cleanEmail }, { onConflict: "user_id" });
       if (vErr) {
-        warning = 'Login created with FULL access — the read-only system needs "schema-v48-committee-viewers.sql" run in the Supabase SQL Editor first.';
+        // Never leave a committee member holding full access by accident:
+        // undo the login and say exactly what's needed.
+        try { await db.auth.admin.deleteUser(data.user.id); } catch {}
+        return NextResponse.json(
+          { error: `Couldn't make that login read-only, so it wasn't created. ${viewerWriteError(vErr)}` },
+          { status: 500 }
+        );
       }
     }
-    return NextResponse.json({ ok: true, warning });
+    return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: err.message ?? "Unexpected error" }, { status: 500 });
   }
@@ -125,16 +159,12 @@ export async function PATCH(req) {
         .from("staff_viewers")
         .upsert({ user_id, email: target?.user?.email ?? null }, { onConflict: "user_id" });
       if (error) {
-        const missing = /does not exist|schema cache/i.test(error.message ?? "");
-        return NextResponse.json(
-          { error: missing ? 'Read-only accounts need a database update — run "schema-v48-committee-viewers.sql" in the Supabase SQL Editor first.' : error.message },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: viewerWriteError(error) }, { status: 500 });
       }
     } else {
       const { error } = await db.from("staff_viewers").delete().eq("user_id", user_id);
-      if (error && !/does not exist|schema cache/i.test(error.message ?? "")) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error && !tableMissing(error)) {
+        return NextResponse.json({ error: viewerWriteError(error) }, { status: 500 });
       }
     }
     return NextResponse.json({ ok: true });
