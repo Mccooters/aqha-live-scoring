@@ -53,7 +53,13 @@ PR with a clear plain-English description.
   to list/create/delete logins and toggles `staff_viewers`; you can never
   remove or downgrade YOUR OWN login, so one full-access admin always
   remains). The SQL snippets at the bottom of the migration file still
-  work as a fallback.
+  work as a fallback. **schema-v66** grants service_role write access to
+  `staff_viewers` (v48 granted SELECT only, so every read-only create /
+  toggle failed with "permission denied" — owner's report, Oct 2026); the
+  route's GET reports `viewers_writable` (a no-op delete probe) and the
+  page shows a "run v66" banner until it's true, and a read-only create
+  whose viewer row can't be written deletes the fresh login again rather
+  than leaving it with full access.
 - **Member accounts (schema-v25)** — the `/account` member portal. CRITICAL
   INVARIANT: members are never Supabase auth users (see the security model
   above — any authenticated user has staff-wide write). Member sessions are
