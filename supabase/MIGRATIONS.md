@@ -12,6 +12,35 @@ one has been applied, just run it again — nothing breaks.
 Run them **in order** (v2 before v3, etc.). You only ever need to run each one
 once on a given database.
 
+## ⚡ The easy way: the catch-up script
+
+You don't have to hunt for each file. **`schema-catch-up.sql`** in this folder
+is every update (`schema.sql` and all the numbered files, in order) in ONE
+script that **skips whatever the database already has**:
+
+1. Open the staff **Health** page and press **"Copy SQL for the n missing
+   updates"** (just the ones you're missing) or **"Copy the full catch-up
+   script"** — or copy `supabase/schema-catch-up.sql` from GitHub.
+2. Supabase dashboard → **SQL Editor** → **New query** → paste → **Run**.
+3. Supabase shows a table of every update with what happened this run:
+   `applied`, `skipped — already in place` (it checked the database and the
+   table/column was already there) or `skipped — recorded earlier`.
+
+Safe to run as often as you like. If any step fails, **nothing** is kept and
+the error names the file, so you can't end up half-updated. On a brand-new
+database it sets everything up from scratch (including `schema.sql`'s sample
+show, which you can delete from the dashboard).
+
+How it remembers: a small `schema_versions` table (created by the script,
+staff-invisible) records each file as it is applied. The first time it runs on
+an existing database that table is empty, so it also looks at the database
+itself — "is the `judge_cards` table there?" — and records those as already in
+place rather than re-running them.
+
+The file is generated from the numbered files by
+`node scripts/build-catch-up-sql.mjs` (it also runs on every website build),
+so it is always in step with them. Don't edit `schema-catch-up.sql` by hand.
+
 ---
 
 ## ⚠️ Still to run on the live database
@@ -258,8 +287,16 @@ hasn't been run.
         obstacle boxes with penalties. Needs v63 first. Until it's run the
         class form saves with the card on Auto only, and the judge page
         still works for placings / scores cards.
+- [ ] **v65** — `schema-v65-withdrawn-registrations.sql`
+      → **Withdrawn clinic entries**: "Withdrawn — keep deposit, write off
+        balance" on the Registrations page, so someone who pulled out stops
+        showing as BALANCE OVERDUE. Until it's run the button says so.
+- [ ] **v66** — `schema-v66-staff-viewers-service-role-grants.sql`
+      → lets the **Staff access** page create read-only (committee view)
+        logins — one permission line the v48 file missed. Until it's run the
+        page shows a yellow "run schema-v66" banner.
 
-Tick these off once you've run them.
+Tick these off once you've run them — or just run the catch-up script above.
 
 ---
 
@@ -331,6 +368,9 @@ Tick these off once you've run them.
 | `schema-v62-extras-pool.sql` | `event_extras.pool` — a shared name that makes the matching items on two events one pool of yards/sites (capacity counted across both; "already booked" shown on the second event's form) |
 | `schema-v63-judge-cards.sql` | Digital judge cards: `judge_codes` (per-judge links), `judge_cards` (what each judge sent per class), `events.judge_entry_mode` (judge taps / scribe enters) |
 | `schema-v64-pattern-cards.sql` | Pattern judge cards: `classes.judge_card_type` (which card — auto / placings / scores / trail / western_riding / ranch_riding / pattern3), `classes.judge_card_config` (obstacle names + tie-breaker order), `judge_cards.layout` (the boxes as that judge's card had them) |
+| `schema-v65-withdrawn-registrations.sql` | Withdrawn clinic entries: `registrations.withdrawn_at` / `withdrawn_by` (deposit kept, balance written off) |
+| `schema-v66-staff-viewers-service-role-grants.sql` | Grants the server (service role) write access to `staff_viewers` so read-only logins can be created from the Staff access page |
+| `schema-catch-up.sql` | GENERATED — all of the above in one skip-what's-done script (see "The easy way" at the top); records what it applied in `schema_versions` |
 
 ## For whoever updates the code next
 
@@ -339,7 +379,16 @@ Tick these off once you've run them.
   needs a schema change gets the next `schema-vN-*.sql` number.
 - After writing a migration file, add a row to the table above **and** the
   checklist at the top, because the owner is not a developer and relies on
-  this file to know what still needs running.
+  this file to know what still needs running. Then run
+  `npm run catch-up` (or just `npm run build`) and commit the regenerated
+  `schema-catch-up.sql` + `lib/schemaCatchUp.generated.mjs`. The new file is
+  picked up automatically; if the database can tell on its own that it has
+  been applied (a table or column it creates), add that test to `PROBES` in
+  `scripts/build-catch-up-sql.mjs` so the first catch-up run on an existing
+  database records it as "already in place" instead of re-running it.
+- **Never edit an already-shipped numbered file** — the catch-up script
+  records each FILE as applied and will not run it again. A fix goes in a
+  new numbered file (that's also why v66 exists instead of a change to v48).
 - The app reads schema changes lazily: most pages just `select *`, so a new
   nullable column appears automatically once the migration is run — no code
   redeploy is needed to "see" it.

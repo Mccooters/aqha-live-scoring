@@ -49,7 +49,25 @@ const MIGRATION_CHECKS = [
   { m: "v63", what: "Digital judge cards (judge links, offline judge page)", probe: () => supabase.from("judge_cards").select("id").limit(1) },
   { m: "v64", what: "Pattern judge cards (Trail, Western Riding, Ranch Riding, Showmanship/Horsemanship/HSE boxes)", probe: () => supabase.from("classes").select("judge_card_type").limit(1) },
   { m: "v65", what: "Withdrawn clinic entries (deposit kept, balance written off)", probe: () => supabase.from("registrations").select("withdrawn_at").limit(1) },
+  // v66 is a server-only grant, so the browser can't probe it: the Staff
+  // access route reports whether the server can write the read-only list.
+  { m: "v66", what: "Read-only staff logins can be created (server write access to the viewers list)", check: async (session) => {
+    const res = await fetch("/api/staff/users", { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const data = await res.json().catch(() => ({}));
+    return Boolean(data.viewers_ready && data.viewers_writable);
+  } },
 ];
+
+// Each MIGRATION_CHECKS row has a `probe` (a cheap select that errors when the
+// table/column is missing) or a `check` (async → true when applied).
+async function runCheck(check, session) {
+  if (check.check) {
+    try { return { ok: await check.check(session), error: null }; } catch { return { ok: false, error: null }; }
+  }
+  const { error } = await check.probe();
+  const missing = error && /does not exist|schema cache/i.test(error.message ?? "");
+  return { ok: !missing, error: !missing && error ? error.message : null };
+}
 
 const CONFIG_LABELS = {
   square_access_token: "Square access token (payments fallback)",
@@ -75,6 +93,7 @@ export default function HealthPage() {
   const [wallets, setWallets] = useState(null);     // Square's answer to "which wallets will you show?"
   const [walletsBusy, setWalletsBusy] = useState(false);
   const [feeRates, setFeeRates] = useState(null);   // website fee rates in use (monthly statement)
+  const [catchUp, setCatchUp] = useState(null);     // { scope, sql, copied, error } once a catch-up script is built
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -85,9 +104,7 @@ export default function HealthPage() {
     (async () => {
       const results = [];
       for (const check of MIGRATION_CHECKS) {
-        const { error } = await check.probe();
-        const missing = error && /does not exist|schema cache/i.test(error.message ?? "");
-        results.push({ ...check, ok: !missing, error: !missing && error ? error.message : null });
+        results.push({ ...check, ...(await runCheck(check, session)) });
       }
       setRows(results);
       try {
@@ -109,6 +126,36 @@ export default function HealthPage() {
       setWallets(res.ok ? data : { error: data.error ?? `Square check failed (${res.status})` });
     } catch (err) { setWallets({ error: err.message ?? "Could not reach the site." }); }
     setWalletsBusy(false);
+  };
+
+  // Builds the SQL that applies the missing updates (or every update), from the
+  // same numbered files as supabase/schema-catch-up.sql, and copies it.
+  const buildCatchUp = async (scope) => {
+    setCatchUp({ scope, sql: null, copied: false, error: null });
+    try {
+      const [{ buildCatchUpSql }, { STEPS }] = await Promise.all([
+        import("../../../lib/schemaCatchUp.mjs"),
+        import("../../../lib/schemaCatchUp.generated.mjs"),
+      ]);
+      const missingVersions = new Set((rows ?? []).filter((r) => !r.ok).map((r) => Number(String(r.m).replace(/^v/, ""))));
+      const steps = scope === "missing" ? STEPS.filter((s) => missingVersions.has(s.version)) : STEPS;
+      const sql = buildCatchUpSql(steps);
+      let copied = false;
+      try { await navigator.clipboard.writeText(sql); copied = true; } catch { copied = false; }
+      setCatchUp({ scope, sql, copied, error: null, count: steps.length });
+    } catch (err) {
+      setCatchUp({ scope, sql: null, copied: false, error: err.message ?? "Couldn't build the script." });
+    }
+  };
+
+  const downloadCatchUp = () => {
+    if (!catchUp?.sql) return;
+    const blob = new Blob([catchUp.sql], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = catchUp.scope === "missing" ? "schema-catch-up-missing.sql" : "schema-catch-up.sql";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
 
   if (!session) {
@@ -136,7 +183,7 @@ export default function HealthPage() {
       <main className="wrap">
         <p style={{ fontSize: 13.5, color: "var(--quiet)", marginTop: 0 }}>
           One glance before a show: is every database update applied, and is everything configured?
-          Anything marked ✗ has run instructions in <code>supabase/MIGRATIONS.md</code>.
+          Anything marked ✗ can be applied with the catch-up SQL below (or by hand, per <code>supabase/MIGRATIONS.md</code>).
         </p>
 
         <section className="card">
@@ -158,6 +205,45 @@ export default function HealthPage() {
                   {!r.ok && <span style={{ fontSize: 11.5, color: "var(--clay)", fontWeight: 700 }}>run schema-{r.m}-…sql</span>}
                 </div>
               ))}
+            </div>
+          )}
+          {rows && (
+            <div style={{ marginTop: 4, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>Catch-up SQL</div>
+              <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "0 0 8px" }}>
+                One script instead of hunting for each file. Copy it, then in Supabase go to <strong>SQL Editor → New query</strong>, paste, and press <strong>Run</strong>.
+                It skips anything the database already has, so it&apos;s safe to run again — nothing is changed if any step fails.
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button className="btn" onClick={() => buildCatchUp("missing")} disabled={!missingCount} style={{ fontSize: 13, padding: "6px 12px" }}>
+                  {missingCount ? `Copy SQL for the ${missingCount} missing update${missingCount === 1 ? "" : "s"}` : "Nothing missing"}
+                </button>
+                <button className="btn-ghost" onClick={() => buildCatchUp("all")} style={{ fontSize: 13 }}>
+                  Copy the full catch-up script (every update)
+                </button>
+              </div>
+              {catchUp && (
+                <div style={{ marginTop: 8, fontSize: 13 }}>
+                  {catchUp.error && <p style={{ color: "var(--clay)", fontWeight: 700, margin: 0 }}>{catchUp.error}</p>}
+                  {!catchUp.error && !catchUp.sql && <p style={{ color: "var(--quiet)", margin: 0 }}>Building…</p>}
+                  {catchUp.sql && (
+                    <>
+                      <p style={{ margin: "0 0 6px", fontWeight: 700, color: catchUp.copied ? "#2D7A52" : "var(--leather)" }}>
+                        {catchUp.copied
+                          ? `✓ Copied — ${catchUp.count} step${catchUp.count === 1 ? "" : "s"}. Paste it into the Supabase SQL Editor and press Run.`
+                          : "Couldn't copy automatically — select everything in the box below and copy it, or download the file."}
+                        {" "}
+                        <button className="btn-ghost" onClick={downloadCatchUp} style={{ fontSize: 12, padding: "2px 8px" }}>⇩ Download .sql</button>
+                      </p>
+                      <textarea readOnly value={catchUp.sql} onFocus={(e) => e.target.select()}
+                        style={{ width: "100%", height: 140, fontFamily: "ui-monospace, monospace", fontSize: 11, border: "1px solid var(--line)", borderRadius: 8, padding: 8, background: "#fff", color: "var(--leather)" }} />
+                      <p style={{ fontSize: 12, color: "var(--quiet)", margin: "6px 0 0" }}>
+                        When it finishes, Supabase shows a table of every update with what happened this run. Reload this page afterwards and the ✗ marks should turn to ✓.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </section>
