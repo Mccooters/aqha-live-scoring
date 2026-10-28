@@ -125,12 +125,16 @@ async function sendApprovedEmail(member) {
 // Square retries webhooks, so this can run twice for one payment — the
 // status guard makes only the first call send the email.
 export async function markMembershipPaid(db, memberId) {
-  const { data: claimed, error } = await db
+  // paid_at (schema-v67) feeds the Revenue page; older databases without
+  // the column still get the status flip.
+  const claim = (patch) => db
     .from("club_members")
-    .update({ status: "paid" })
+    .update(patch)
     .eq("id", memberId)
     .eq("status", "pending")
     .select("*");
+  let { data: claimed, error } = await claim({ status: "paid", paid_at: new Date().toISOString() });
+  if (error && /paid_at/i.test(error.message ?? "")) ({ data: claimed, error } = await claim({ status: "paid" }));
   if (error) throw new Error(error.message);
   if (!claimed?.length) return; // already handled
 

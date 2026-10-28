@@ -258,6 +258,12 @@ hasn't been run.
         obstacle boxes with penalties. Needs v63 first. Until it's run the
         class form saves with the card on Auto only, and the judge page
         still works for placings / scores cards.
+- [ ] **v67** — `schema-v67-paid-at.sql`
+      → **Payment dates** for the staff **Revenue** page (Staff menu →
+        Revenue): records when each registration and membership was paid,
+        and back-fills the old ones. Until it's run the page uses the date
+        each registration / membership was created instead, so a payment
+        made just after midnight on the 1st can land in the previous month.
 
 Tick these off once you've run them.
 
@@ -331,6 +337,7 @@ Tick these off once you've run them.
 | `schema-v62-extras-pool.sql` | `event_extras.pool` — a shared name that makes the matching items on two events one pool of yards/sites (capacity counted across both; "already booked" shown on the second event's form) |
 | `schema-v63-judge-cards.sql` | Digital judge cards: `judge_codes` (per-judge links), `judge_cards` (what each judge sent per class), `events.judge_entry_mode` (judge taps / scribe enters) |
 | `schema-v64-pattern-cards.sql` | Pattern judge cards: `classes.judge_card_type` (which card — auto / placings / scores / trail / western_riding / ranch_riding / pattern3), `classes.judge_card_config` (obstacle names + tie-breaker order), `judge_cards.layout` (the boxes as that judge's card had them) |
+| `schema-v67-paid-at.sql` | Payment dates: `registrations.paid_at` + `club_members.paid_at` (backfilled) so the staff **Revenue** page can list the club's money month by month |
 
 ## For whoever updates the code next
 

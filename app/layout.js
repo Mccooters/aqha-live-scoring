@@ -1,5 +1,6 @@
 import "./globals.css";
 import BottomNav from "./components/BottomNav";
+import StaffNav from "./components/StaffNav";
 
 export const metadata = {
   title: "HCQHA Live Scoring",
@@ -38,6 +39,7 @@ export default function RootLayout({ children }) {
       </head>
       <body>
         <BottomNav />
+        <StaffNav />
         {children}
       </body>
     </html>

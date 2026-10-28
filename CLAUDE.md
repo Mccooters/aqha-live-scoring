@@ -208,6 +208,29 @@ PR with a clear plain-English description.
 
 ## Pages
 
+- **Staff menu row** (`app/components/StaffNav.js`, rendered from
+  `app/layout.js` under the main nav; owner's request, Oct 2026): a second
+  row that appears ONLY with a staff session, holding the club-wide tools
+  that aren't about one show/clinic — Events (dashboard), Memberships,
+  Revenue, Raffles, Website fees, New numbers, Staff access, Health.
+  Hidden on the gate and judge pages (those links go to non-staff).
+  Event-specific tools stay in the dashboard's `ToolSection`s.
+- `app/coordinator/revenue/page.js` — staff **Revenue** page: every
+  payment the club received, month by month (Sydney time), built
+  client-side from `registrations` (first payment split into show entries /
+  clinic booking, camping & yards, ground/admin fees, day membership,
+  replacement numbers; deposit-plan balance payments from
+  `balance_payments`; refunds from `refund_log` as negative lines),
+  `club_members` (paid/approved with a fee; by-hand when no Square order)
+  and `raffle_orders` (paid). "All months" = month × type table; a month =
+  totals by type / payment method / event + every line; Print + CSV. Dates
+  come from `paid_at` (**schema-v67** adds `registrations.paid_at` and
+  `club_members.paid_at`, backfilled; set by `approveRegistration`,
+  `markMembershipPaid`, the Memberships page's mark-paid / manual add and
+  the renew route, each tolerating a pre-v67 database) and fall back to
+  created/approved dates. Reports gross amounts — Square/PayPal processing
+  fees are not deducted.
+
 - `app/page.js` — public home: list of events (status badge per the
   lifecycle below) under two separate headings, **Shows** and **Clinics**
   (owner's rule, Sept 2026 — one mixed list confused spectators). Each

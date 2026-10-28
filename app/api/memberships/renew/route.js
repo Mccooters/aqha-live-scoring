@@ -71,11 +71,16 @@ async function renewOne(db, src, season) {
     ...(includedPeople != null ? { included_people: includedPeople } : {}),
   };
 
-  const { data: member, error: insErr } = await db
+  // paid_at (schema-v67): a renewal is recorded once the member has paid —
+  // the Revenue page dates it today. Retried without it on older databases.
+  let { data: member, error: insErr } = await db
     .from("club_members")
-    .insert(newRow)
+    .insert({ ...newRow, paid_at: new Date().toISOString() })
     .select()
     .single();
+  if (insErr && /paid_at/i.test(insErr.message ?? "")) {
+    ({ data: member, error: insErr } = await db.from("club_members").insert(newRow).select().single());
+  }
   if (insErr) throw new Error(insErr.message);
 
   const { data: people } = await db
