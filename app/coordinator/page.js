@@ -2906,6 +2906,10 @@ export default function Coordinator() {
                 title="Fundraising raffles — sell numbered tickets online and draw the winners">
                 🎟 Raffles
               </Link>
+              <Link href="/coordinator/revenue" className="btn-ghost" style={TOOL_LINK}
+                title="Everything the club has been paid, month by month — entries, memberships, raffles, camping">
+                📈 Revenue
+              </Link>
               <Link href="/coordinator/fees" className="btn-ghost" style={TOOL_LINK}
                 title="Monthly statement of website fees to bill the club (Square + PayPal payments)">
                 💵 Website fees

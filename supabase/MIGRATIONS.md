@@ -295,6 +295,12 @@ hasn't been run.
       → lets the **Staff access** page create read-only (committee view)
         logins — one permission line the v48 file missed. Until it's run the
         page shows a yellow "run schema-v66" banner.
+- [ ] **v67** — `schema-v67-paid-at.sql`
+      → **Payment dates** for the staff **Revenue** page (Staff menu →
+        Revenue): records when each registration and membership was paid,
+        and back-fills the old ones. Until it's run the page uses the date
+        each registration / membership was created instead, so a payment
+        made just after midnight on the 1st can land in the previous month.
 
 Tick these off once you've run them — or just run the catch-up script above.
 
@@ -370,6 +376,7 @@ Tick these off once you've run them — or just run the catch-up script above.
 | `schema-v64-pattern-cards.sql` | Pattern judge cards: `classes.judge_card_type` (which card — auto / placings / scores / trail / western_riding / ranch_riding / pattern3), `classes.judge_card_config` (obstacle names + tie-breaker order), `judge_cards.layout` (the boxes as that judge's card had them) |
 | `schema-v65-withdrawn-registrations.sql` | Withdrawn clinic entries: `registrations.withdrawn_at` / `withdrawn_by` (deposit kept, balance written off) |
 | `schema-v66-staff-viewers-service-role-grants.sql` | Grants the server (service role) write access to `staff_viewers` so read-only logins can be created from the Staff access page |
+| `schema-v67-paid-at.sql` | Payment dates: `registrations.paid_at` + `club_members.paid_at` (backfilled) so the staff **Revenue** page can list the club's money month by month |
 | `schema-catch-up.sql` | GENERATED — all of the above in one skip-what's-done script (see "The easy way" at the top); records what it applied in `schema_versions` |
 
 ## For whoever updates the code next

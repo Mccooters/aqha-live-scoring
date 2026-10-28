@@ -14,6 +14,7 @@ export default function StaffAccessPage() {
   const [session, setSession] = useState(null);
   const [users, setUsers] = useState([]);
   const [viewersReady, setViewersReady] = useState(true);
+  const [viewersWritable, setViewersWritable] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -48,6 +49,7 @@ export default function StaffAccessPage() {
       const data = await authed("GET");
       setUsers(data.users ?? []);
       setViewersReady(Boolean(data.viewers_ready));
+      setViewersWritable(Boolean(data.viewers_writable));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -61,7 +63,7 @@ export default function StaffAccessPage() {
     setBusy(true); setError(""); setNotice("");
     try {
       const res = await authed("POST", { email: newEmail, password: newPassword, access: newAccess });
-      setNotice(res.warning ?? `Login created for ${newEmail.trim()} — give them the email and temporary password to sign in on the Staff page.`);
+      setNotice(`${newAccess === "viewer" ? "Read-only login" : "Login"} created for ${newEmail.trim()} — give them the email and temporary password to sign in on the Staff page.`);
       setNewEmail(""); setNewPassword("");
       await load();
     } catch (err) {
@@ -131,6 +133,14 @@ export default function StaffAccessPage() {
             <p style={{ margin: 0, fontSize: 13, color: "var(--leather)", fontWeight: 700 }}>
               Read-only accounts need a one-time database update — run &quot;schema-v48-committee-viewers.sql&quot; in the Supabase SQL Editor.
               Until then every login has full access.
+            </p>
+          </div>
+        )}
+        {viewersReady && !viewersWritable && !loading && (
+          <div className="card" style={{ padding: "10px 14px", border: "1px solid #E0B15A", background: "#FFF7D6" }}>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--leather)", fontWeight: 700 }}>
+              Read-only logins can&apos;t be created or changed yet — a one-time database update is needed. Run
+              &quot;schema-v66-staff-viewers-service-role-grants.sql&quot; in the Supabase SQL Editor, then reload this page.
             </p>
           </div>
         )}
@@ -214,6 +224,11 @@ export default function StaffAccessPage() {
               onClick={addUser}>
               {busy ? "Working…" : "Create login"}
             </button>
+            {!busy && (!newEmail.trim() || newPassword.length < 8) && (
+              <p style={{ margin: "-4px 0 0", fontSize: 12, color: "var(--quiet)" }}>
+                {!newEmail.trim() ? "Type their email address" : "The temporary password needs at least 8 characters"} to enable Create login.
+              </p>
+            )}
           </div>
         </section>
       </main>

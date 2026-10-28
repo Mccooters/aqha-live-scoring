@@ -306,11 +306,11 @@ export default function MembershipsPage() {
 
   const markPaidManually = async (member) => {
     if (!confirm(`Mark ${member.member_name}'s application as paid?\n\nOnly do this if the fee was received outside Square (cash, bank transfer, or a payment confirmed manually).`)) return;
-    const { error } = await supabase
-      .from("club_members")
-      .update({ status: "paid" })
-      .eq("id", member.id)
-      .eq("status", "pending");
+    // paid_at (schema-v67) dates the payment for the Revenue page; retried
+    // without it on a database that hasn't had that update yet.
+    const mark = (patch) => supabase.from("club_members").update(patch).eq("id", member.id).eq("status", "pending");
+    let { error } = await mark({ status: "paid", paid_at: new Date().toISOString() });
+    if (error && /paid_at/i.test(error.message ?? "")) ({ error } = await mark({ status: "paid" }));
     if (error) alert(error.message);
     else await load();
   };
@@ -324,7 +324,7 @@ export default function MembershipsPage() {
     const type = types.find((t) => t.id === form.type_id);
     // "all" is a view filter, not a real season — add to the current season.
     const addSeason = season === "all" ? currentSeason() : season;
-    const { error } = await supabase.from("club_members").insert({
+    const row = {
       season: addSeason,
       membership_type_id: type?.id ?? null,
       membership_type_name: type?.name ?? null,
@@ -334,7 +334,12 @@ export default function MembershipsPage() {
       total_cents: type?.fee_cents ?? 0,
       status: "approved",
       approved_at: new Date().toISOString(),
-    });
+    };
+    // paid_at (schema-v67): a manually added member has paid by cash /
+    // transfer — the Revenue page dates it today. Retried without the column
+    // on a database that hasn't had that update yet.
+    let { error } = await supabase.from("club_members").insert({ ...row, paid_at: row.approved_at });
+    if (error && /paid_at/i.test(error.message ?? "")) ({ error } = await supabase.from("club_members").insert(row));
     if (error) { setFormError(error.message); return; }
     await load();
     closeModal();

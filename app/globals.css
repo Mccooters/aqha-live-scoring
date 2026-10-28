@@ -96,3 +96,23 @@ td { padding: 9px 12px; border-top: 1px solid var(--line); }
   .hp-seasons > div:first-child { width: 100%; margin-bottom: 2px; }
   .hp-season-btn { flex: 0 0 auto; }
 }
+
+/* Second menu row for signed-in staff (app/components/StaffNav.js):
+   club-wide tools that aren't tied to one show or clinic. Scrolls sideways
+   on phones instead of wrapping into a tall block. */
+.staff-nav {
+  display: flex; gap: 2px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  background: #2C1F14; border-bottom: 1px solid rgba(168,132,60,.35);
+  padding: 0 8px;
+}
+.staff-nav::-webkit-scrollbar { display: none; }
+.staff-nav a {
+  flex: 0 0 auto; padding: 9px 12px; text-decoration: none; white-space: nowrap;
+  font-family: 'Archivo', sans-serif; font-size: 11px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: rgba(242,234,219,0.6); border-bottom: 2px solid transparent;
+}
+.staff-nav a.active { color: var(--brass-soft); border-bottom-color: var(--brass-soft); }
+@media (min-width: 760px) { .staff-nav { justify-content: center; gap: 10px; } }
+@media print { .staff-nav { display: none !important; } }

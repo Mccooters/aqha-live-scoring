@@ -53,7 +53,13 @@ PR with a clear plain-English description.
   to list/create/delete logins and toggles `staff_viewers`; you can never
   remove or downgrade YOUR OWN login, so one full-access admin always
   remains). The SQL snippets at the bottom of the migration file still
-  work as a fallback.
+  work as a fallback. **schema-v66** grants service_role write access to
+  `staff_viewers` (v48 granted SELECT only, so every read-only create /
+  toggle failed with "permission denied" — owner's report, Oct 2026); the
+  route's GET reports `viewers_writable` (a no-op delete probe) and the
+  page shows a "run v66" banner until it's true, and a read-only create
+  whose viewer row can't be written deletes the fresh login again rather
+  than leaving it with full access.
 - **Member accounts (schema-v25)** — the `/account` member portal. CRITICAL
   INVARIANT: members are never Supabase auth users (see the security model
   above — any authenticated user has staff-wide write). Member sessions are
@@ -207,6 +213,29 @@ PR with a clear plain-English description.
   first; joining (`/membership`) is linked from beneath the sign-in card.
 
 ## Pages
+
+- **Staff menu row** (`app/components/StaffNav.js`, rendered from
+  `app/layout.js` under the main nav; owner's request, Oct 2026): a second
+  row that appears ONLY with a staff session, holding the club-wide tools
+  that aren't about one show/clinic — Events (dashboard), Memberships,
+  Revenue, Raffles, Website fees, New numbers, Staff access, Health.
+  Hidden on the gate and judge pages (those links go to non-staff).
+  Event-specific tools stay in the dashboard's `ToolSection`s.
+- `app/coordinator/revenue/page.js` — staff **Revenue** page: every
+  payment the club received, month by month (Sydney time), built
+  client-side from `registrations` (first payment split into show entries /
+  clinic booking, camping & yards, ground/admin fees, day membership,
+  replacement numbers; deposit-plan balance payments from
+  `balance_payments`; refunds from `refund_log` as negative lines),
+  `club_members` (paid/approved with a fee; by-hand when no Square order)
+  and `raffle_orders` (paid). "All months" = month × type table; a month =
+  totals by type / payment method / event + every line; Print + CSV. Dates
+  come from `paid_at` (**schema-v67** adds `registrations.paid_at` and
+  `club_members.paid_at`, backfilled; set by `approveRegistration`,
+  `markMembershipPaid`, the Memberships page's mark-paid / manual add and
+  the renew route, each tolerating a pre-v67 database) and fall back to
+  created/approved dates. Reports gross amounts — Square/PayPal processing
+  fees are not deducted.
 
 - `app/page.js` — public home: list of events (status badge per the
   lifecycle below) under two separate headings, **Shows** and **Clinics**
@@ -397,7 +426,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v66)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v67)
 
 **Catch-up script**: `supabase/schema-catch-up.sql` is GENERATED (by
 `scripts/build-catch-up-sql.mjs`, also the `prebuild` step) from `schema.sql`

@@ -498,12 +498,16 @@ export async function approveRegistration(db, registrationId) {
   // Claim the registration first: flip it to paid only if it isn't already.
   // Square retries webhooks, so this can be called twice for one payment —
   // only the call that wins this update goes on to create entries.
-  const { data: claimed, error: claimErr } = await db
+  // paid_at (schema-v67) records when the money arrived for the Revenue
+  // page; a database without that column just gets the status flip.
+  const claim = (patch) => db
     .from("registrations")
-    .update({ status: "paid" })
+    .update(patch)
     .eq("id", registrationId)
     .neq("status", "paid")
     .select("id, event:events(event_type)");
+  let { data: claimed, error: claimErr } = await claim({ status: "paid", paid_at: new Date().toISOString() });
+  if (claimErr && /paid_at/i.test(claimErr.message ?? "")) ({ data: claimed, error: claimErr } = await claim({ status: "paid" }));
   if (claimErr) throw new Error(claimErr.message);
   if (!claimed?.length) return; // another call already approved it
   const isClinic = claimed[0]?.event?.event_type === "clinic";
