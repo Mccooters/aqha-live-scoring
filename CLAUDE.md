@@ -426,7 +426,29 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v45)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v67)
+
+**Catch-up script**: `supabase/schema-catch-up.sql` is GENERATED (by
+`scripts/build-catch-up-sql.mjs`, also the `prebuild` step) from `schema.sql`
++ every `schema-vNN-*.sql`, each wrapped in `catch_up_apply(file, version,
+probe, sql)` — a temporary plpgsql helper that skips a file recorded in the
+`schema_versions` table (file pk, version, how, last_result; no anon /
+authenticated access), else evaluates the file's PROBE ("is the column /
+table it adds already there?" — `PROBES` map in the build script) and
+records it as "already in place", else EXECUTEs the file and records it.
+One transaction: a failing step rolls everything back and names the file.
+The Health page's "Copy SQL for the n missing updates" / "Copy the full
+catch-up script" buttons build the same thing client-side from
+`lib/schemaCatchUp.mjs` (HEADER/FOOTER/`buildCatchUpSql`) +
+`lib/schemaCatchUp.generated.mjs` (STEPS, dynamic import). Rules: never
+edit a shipped numbered file (it's recorded by filename and won't re-run —
+add a new one); after adding a migration run `npm run catch-up` and commit
+the regenerated files, and add a PROBES entry (not needed for grant-only
+files, which are harmless to re-run). The early files (v2–v5, v10, v18)
+are NOT re-runnable (unguarded `create policy`), which is why the probe
+step exists. The v66 Health-page row is a `check` (async boolean via
+`/api/staff/users` `viewers_writable`) rather than a `probe` select,
+because a grant can't be probed from the browser.
 
 - `events` — name, location, starts_on, ends_on, **status**: see Event
   lifecycle below, entry_fee_cents (per-class fee for online registration),
