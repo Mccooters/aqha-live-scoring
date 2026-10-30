@@ -7,7 +7,7 @@ import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squ
 import { createPayPalOrder, saveCheckout } from "../../_lib/paypal";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
-import { extraNights, extraAmountCents, nightLabel, MAX_QUANTITY, isDated, unitNoun } from "../../../../lib/eventExtras";
+import { extraNights, extraAmountCents, nightLabel, MAX_QUANTITY, isDated, unitNoun, namesKind, namesLabel } from "../../../../lib/eventExtras";
 import { bookedExtraCounts } from "../../_lib/extras";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
@@ -515,9 +515,30 @@ export async function POST(req) {
             );
           }
         }
+        // Names (schema-v68): a person per camp site (the first site is the
+        // booker's own) and a horse per yard. Names may repeat.
+        let names = null;
+        const kindOfName = namesKind(def);
+        if (kindOfName) {
+          const typed = (Array.isArray(want.names) ? want.names : []).map((n) => String(n ?? "").trim().slice(0, 80));
+          if (kindOfName === "person") {
+            names = [contact_name.trim().slice(0, 80), ...typed.slice(1, quantity)];
+            while (names.length < quantity) names.push("");
+          } else {
+            names = typed.slice(0, quantity);
+            while (names.length < quantity) names.push("");
+          }
+          if (names.some((n) => !n)) {
+            return NextResponse.json({
+              error: kindOfName === "person"
+                ? `Please enter a name for each extra camp site in "${def.name}" (it can be the same person).`
+                : `Please enter the horse's name for each yard in "${def.name}".`,
+            }, { status: 400 });
+          }
+        }
         const amount = extraAmountCents(def, quantity, nights);
         extrasCents += amount;
-        extrasRows.push({ def, quantity, nights, amount, notes: String(want.notes ?? "").trim().slice(0, 300) || null });
+        extrasRows.push({ def, quantity, nights, amount, names, notes: String(want.notes ?? "").trim().slice(0, 300) || null });
       }
     }
 
@@ -687,14 +708,24 @@ export async function POST(req) {
 
     // Camping & yards booked with this registration (schema-v61).
     if (extrasRows.length) {
-      const { error: exErr } = await db.from("registration_extras").insert(extrasRows.map((x) => ({
+      const rows = extrasRows.map((x) => ({
         registration_id: reg.id,
         extra_id: x.def.id,
         quantity: x.quantity,
         nights: x.nights,
         amount_cents: x.amount,
         notes: x.notes,
-      })));
+        names: x.names,
+      }));
+      let { error: exErr } = await db.from("registration_extras").insert(rows);
+      if (exErr && /names/i.test(`${exErr.message ?? ""} ${exErr.details ?? ""}`)) {
+        // Pre-v68 database: keep the names by folding them into the notes.
+        console.error("registration_extras.names missing (run schema-v68) — saving names in notes");
+        ({ error: exErr } = await db.from("registration_extras").insert(rows.map(({ names, ...r }, i) => ({
+          ...r,
+          notes: [namesLabel(extrasRows[i].def, names), r.notes].filter(Boolean).join(" — ").slice(0, 600) || null,
+        }))));
+      }
       if (exErr) return NextResponse.json({ error: exErr.message }, { status: 500 });
     }
 
@@ -840,7 +871,7 @@ export async function POST(req) {
         name: `${x.def.name} × ${x.quantity}${isDated(x.def) ? ` — ${x.nights.length} ${unitNoun(x.def, x.nights.length)}` : ""}`,
         quantity: "1",
         base_price_money: { amount: x.amount, currency: "AUD" },
-        note: [isDated(x.def) ? x.nights.map(nightLabel).join(", ") : "Whole event", x.notes].filter(Boolean).join(" · ").slice(0, 500),
+        note: [isDated(x.def) ? x.nights.map(nightLabel).join(", ") : "Whole event", namesLabel(x.def, x.names), x.notes].filter(Boolean).join(" · ").slice(0, 500),
       });
     }
     // One-off fees appear as their own lines on the Square receipt

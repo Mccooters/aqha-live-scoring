@@ -7,7 +7,7 @@ import { groupedByProgramCategory } from "../../../../lib/classCategories";
 import { signupSeason, currentSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
-import { extraNights, nightLabel, extraAmountCents, priceLabel, KIND_ICON, MAX_QUANTITY, isDated, unitNoun } from "../../../../lib/eventExtras";
+import { extraNights, nightLabel, extraAmountCents, priceLabel, KIND_ICON, MAX_QUANTITY, isDated, unitNoun, namesKind } from "../../../../lib/eventExtras";
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 // "2026-2027" → "2026–27"
 const shortSeason = (season) => {
@@ -1003,6 +1003,18 @@ export default function RegisterPage() {
         setError(`Please pick at least one ${unitNoun(extra)} for ${extra.name}.`);
         return;
       }
+      // Names (schema-v68): a person for each extra camp site, a horse for every yard.
+      const kindOfName = namesKind(extra);
+      const names = booking.names ?? [];
+      const firstNeeded = kindOfName === "person" ? 1 : 0;
+      for (let i = firstNeeded; kindOfName && i < booking.quantity; i++) {
+        if (!String(names[i] ?? "").trim()) {
+          setError(kindOfName === "person"
+            ? `Please enter a name for each extra camp site in ${extra.name} (it can be the same person).`
+            : `Please enter the horse's name for each yard in ${extra.name}.`);
+          return;
+        }
+      }
     }
     // Camping/yards can be booked on their own by someone who has already
     // entered — then no class rows are needed.
@@ -1082,6 +1094,9 @@ export default function RegisterPage() {
             quantity: booking.quantity,
             nights: isDated(extra) ? (booking.nights ?? []) : [],
             notes: booking.notes?.trim() || null,
+            names: namesKind(extra)
+              ? Array.from({ length: booking.quantity }, (_, i) => String(booking.names?.[i] ?? "").trim())
+              : null,
           })),
           entries: valid.map((e) => {
             const regList = (rows, none) => (isClinic ? null : none ? [] : rows
@@ -1675,7 +1690,7 @@ export default function RegisterPage() {
                       <>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
                           <label style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-                            How many
+                            {x.kind === "camping" ? "How many camp sites?" : x.kind === "yard" ? "How many yards?" : "How many?"}
                             <select className="field" style={{ fontSize: 14, padding: "6px 10px" }} value={booking.quantity}
                               onChange={(e) => setB({ quantity: parseInt(e.target.value, 10) || 0 })}>
                               {Array.from({ length: Math.max(0, maxQty) + 1 }, (_, i) => <option key={i} value={i}>{i}</option>)}
@@ -1708,9 +1723,41 @@ export default function RegisterPage() {
                             </div>
                           </div>
                         )}
+                        {booking.quantity > 0 && namesKind(x) && (x.kind === "yard" || booking.quantity > 1) && (
+                          <div style={{ marginTop: 10 }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>
+                              {x.kind === "yard" ? (booking.quantity > 1 ? "Horse in each yard" : "Horse in the yard") : "Who's on each site?"}
+                            </div>
+                            <div style={{ display: "grid", gap: 6 }}>
+                              {Array.from({ length: booking.quantity }, (_, i) => {
+                                const names = booking.names ?? [];
+                                if (x.kind === "camping" && i === 0) {
+                                  return (
+                                    <div key={i} style={{ fontSize: 13, color: "var(--quiet)" }}>
+                                      Site 1: <strong style={{ color: "var(--leather)" }}>{contactName.trim() || "you"}</strong> (your details above)
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <label key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700 }}>
+                                    <span style={{ minWidth: 52 }}>{x.kind === "yard" ? `Yard ${i + 1}` : `Site ${i + 1}`}</span>
+                                    <input className="field" style={{ flex: 1, minWidth: 0, fontSize: 14, padding: "7px 10px", boxSizing: "border-box" }}
+                                      placeholder={x.kind === "yard" ? "Horse's name" : "Person's name (can be the same person)"}
+                                      value={names[i] ?? ""} maxLength={80}
+                                      onChange={(e) => {
+                                        const next = Array.from({ length: Math.max(names.length, booking.quantity) }, (_, j) => names[j] ?? "");
+                                        next[i] = e.target.value;
+                                        setB({ names: next });
+                                      }} />
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                         {booking.quantity > 0 && (
                           <input className="field" style={{ width: "100%", fontSize: 14, padding: "7px 10px", marginTop: 8, boxSizing: "border-box" }}
-                            placeholder={x.kind === "yard" ? "Horse name(s) for the yard(s) — optional" : x.kind === "camping" ? "Vehicle / float details — optional" : "Notes — optional"}
+                            placeholder={x.kind === "camping" ? "Vehicle / float details — optional" : "Notes — optional"}
                             value={booking.notes ?? ""} onChange={(e) => setB({ notes: e.target.value })} maxLength={300} />
                         )}
                       </>

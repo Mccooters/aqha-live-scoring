@@ -99,6 +99,7 @@ const PROBES = {
   "schema-v66-staff-viewers-service-role-grants.sql":
     "catch_up_has_table('staff_viewers') and has_table_privilege('service_role', 'public.staff_viewers', 'insert')",
   "schema-v67-paid-at.sql": "catch_up_has_column('registrations', 'paid_at')",
+  "schema-v68-extras-names.sql": "catch_up_has_column('registration_extras', 'names')",
 };
 
 function versionOf(file) {

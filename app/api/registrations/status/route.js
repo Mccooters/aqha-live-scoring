@@ -15,11 +15,17 @@ export async function GET(req) {
   const db = adminClient();
   const baseSelect = "id, status, contact_name, contact_email, total_cents, day_membership, day_membership_cents, replacement_numbers, replacement_numbers_cents, registration_entries(id, back_number, horse_name, exhibitor)";
   // Camping & yards (schema-v61) ride along when the tables exist.
+  // Names per site / yard (schema-v68) when that column exists too.
+  const extrasSelect = (withNames) =>
+    `${baseSelect}, registration_extras(id, quantity, nights, amount_cents, notes${withNames ? ", names" : ""}, event_extras(name, kind, unit))`;
   let { data: reg, error } = await db
     .from("registrations")
-    .select(`${baseSelect}, registration_extras(id, quantity, nights, amount_cents, notes, event_extras(name, kind, unit))`)
+    .select(extrasSelect(true))
     .eq("id", regId)
     .maybeSingle();
+  if (error && /names/i.test(`${error.message ?? ""} ${error.details ?? ""}`)) {
+    ({ data: reg, error } = await db.from("registrations").select(extrasSelect(false)).eq("id", regId).maybeSingle());
+  }
   if (error && /registration_extras|event_extras/i.test(`${error.message ?? ""} ${error.details ?? ""}`)) {
     ({ data: reg, error } = await db.from("registrations").select(baseSelect).eq("id", regId).maybeSingle());
   }
@@ -101,7 +107,7 @@ export async function GET(req) {
   } catch {}
 
   const extras = (reg.registration_extras ?? []).map((x) => ({
-    id: x.id, quantity: x.quantity, nights: x.nights ?? [], amount_cents: x.amount_cents, notes: x.notes,
+    id: x.id, quantity: x.quantity, nights: x.nights ?? [], amount_cents: x.amount_cents, notes: x.notes, names: x.names ?? null,
     name: x.event_extras?.name ?? "Extra", kind: x.event_extras?.kind ?? "other", unit: x.event_extras?.unit ?? "night",
   }));
   const { registration_extras: _omit, ...rest } = reg;
