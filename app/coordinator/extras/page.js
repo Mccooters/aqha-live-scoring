@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabaseClient";
-import { KIND_ICON, extraNights, nightLabel, priceLabel, isDated, unitNoun } from "../../../lib/eventExtras";
+import { KIND_ICON, extraNights, nightLabel, priceLabel, isDated, unitNoun, namesLabel } from "../../../lib/eventExtras";
 
 // Staff: who has booked which yards and camping sites for an event, day by
 // day (schema-v61) — the list the ground steward works from. Paid
@@ -78,8 +78,8 @@ function ExtrasListInner() {
     // steward's list covers the whole weekend.
     const ids = (ex ?? []).map((x) => x.id);
     const pools = [...new Set((ex ?? []).map((x) => String(x.pool ?? "").trim()).filter(Boolean))];
-    const withPool = "*, event_extras!inner(id, name, unit, pool, event_id), registrations!inner(id, contact_name, contact_email, status, event_id)";
-    const noPool = "*, event_extras!inner(id, name, unit, event_id), registrations!inner(id, contact_name, contact_email, status, event_id)";
+    const withPool = "*, event_extras!inner(id, name, kind, unit, pool, event_id), registrations!inner(id, contact_name, contact_email, status, event_id)";
+    const noPool = "*, event_extras!inner(id, name, kind, unit, event_id), registrations!inner(id, contact_name, contact_email, status, event_id)";
     let rows = [];
     if (ids.length) {
       let { data, error } = await supabase.from("registration_extras").select(withPool).in("extra_id", ids);
@@ -109,6 +109,8 @@ function ExtrasListInner() {
   const samePool = (x, b) => x.pool && String(b.event_extras?.pool ?? "").trim() === String(x.pool).trim();
   const forExtra = (x) => (bookings ?? []).filter((b) => b.extra_id === x.id || samePool(x, b));
   const eventName = (id) => events.find((e) => e.id === id)?.name ?? "another event";
+  // Who is on each camp site / which horse is in each yard (schema-v68).
+  const siteNames = (b) => namesLabel(b.event_extras, b.names);
   const totalBooked = (list) => list.reduce((s, b) => s + (Number(b.quantity) || 0), 0);
   const who = (b) => `${b.registrations?.contact_name ?? "—"}${b.registrations?.contact_email ? ` · ${b.registrations.contact_email}` : ""}`
     + (b.event_extras?.event_id && b.event_extras.event_id !== eventId ? ` (${eventName(b.event_extras.event_id)})` : "");
@@ -161,12 +163,13 @@ function ExtrasListInner() {
                     <div key={n}>
                       <h3>{nightLabel(n)} — {booked} booked{x.capacity != null ? ` of ${x.capacity}` : ""}</h3>
                       <table className="x-table">
-                        <thead><tr><th className="n">Qty</th><th>Who</th><th>Notes</th><th>Paid</th></tr></thead>
+                        <thead><tr><th className="n">Qty</th><th>Who</th><th>Names</th><th>Notes</th><th>Paid</th></tr></thead>
                         <tbody>
                           {rows.map((b) => (
                             <tr key={b.id}>
                               <td className="n">{b.quantity}</td>
                               <td>{who(b)}</td>
+                              <td>{siteNames(b)}</td>
                               <td>{b.notes ?? ""}</td>
                               <td>{fmtMoney(b.amount_cents)} for {b.nights.length} {unitNoun(x, b.nights.length)}</td>
                             </tr>
@@ -179,12 +182,13 @@ function ExtrasListInner() {
                   <>
                     <h3>{totalBooked(list)} booked{x.capacity != null ? ` of ${x.capacity}` : ""}</h3>
                     <table className="x-table">
-                      <thead><tr><th className="n">Qty</th><th>Who</th><th>Notes</th><th>Paid</th></tr></thead>
+                      <thead><tr><th className="n">Qty</th><th>Who</th><th>Names</th><th>Notes</th><th>Paid</th></tr></thead>
                       <tbody>
                         {list.map((b) => (
                           <tr key={b.id}>
                             <td className="n">{b.quantity}</td>
                             <td>{who(b)}</td>
+                            <td>{siteNames(b)}</td>
                             <td>{b.notes ?? ""}</td>
                             <td>{fmtMoney(b.amount_cents)}</td>
                           </tr>

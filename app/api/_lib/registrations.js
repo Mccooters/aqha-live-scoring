@@ -213,14 +213,17 @@ async function sendBookingConfirmation(db, registrationId) {
   // Camping & yards booked with the entry (schema-v61) — best-effort.
   let extras = [];
   try {
-    const { data: ex, error: exErr } = await db
-      .from("registration_extras")
-      .select("quantity, nights, amount_cents, notes, event_extras(name, unit)")
-      .eq("registration_id", registrationId);
+    const sel = (withNames) => `quantity, nights, amount_cents, notes${withNames ? ", names" : ""}, event_extras(name, kind, unit)`;
+    let { data: ex, error: exErr } = await db
+      .from("registration_extras").select(sel(true)).eq("registration_id", registrationId);
+    if (exErr) ({ data: ex, error: exErr } = await db
+      .from("registration_extras").select(sel(false)).eq("registration_id", registrationId));
     if (!exErr) extras = ex ?? [];
   } catch {}
-  const { bookingSummary } = await import("../../../lib/eventExtras");
-  const extraLabel = (x) => bookingSummary(x.event_extras, x) + (x.notes ? ` — ${x.notes}` : "");
+  const { bookingSummary, namesLabel } = await import("../../../lib/eventExtras");
+  const extraLabel = (x) => bookingSummary(x.event_extras, x)
+    + (namesLabel(x.event_extras, x.names) ? ` (${namesLabel(x.event_extras, x.names)})` : "")
+    + (x.notes ? ` — ${x.notes}` : "");
   const eventName = reg.event?.name ?? "your event";
   const eventDate = formatDate(reg.event?.starts_on);
   const eventMeta = [eventDate, reg.event?.location].filter(Boolean).join(" - ");

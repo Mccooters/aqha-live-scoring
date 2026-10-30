@@ -426,7 +426,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v67)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v68)
 
 **Catch-up script**: `supabase/schema-catch-up.sql` is GENERATED (by
 `scripts/build-catch-up-sql.mjs`, also the `prebuild` step) from `schema.sql`
@@ -1167,6 +1167,19 @@ expanded row. `/coordinator/extras?event=` (header link on Registrations,
 for the ground steward: paid bookings only, per item, per night, with
 booked-of-capacity counts, names, notes and amounts. The refund policy
 does not yet mention camping/yards (follow-up for the committee).
+
+**Names per site / yard (schema-v68)**: `registration_extras.names`
+(jsonb list, one per unit booked, in order). Owner's request, Oct 2026:
+the form asks "How many camp sites?" / "How many yards?"; a camping
+booking asks a person's name for each ADDITIONAL site (site 1 is the
+booker — the server fills names[0] with contact_name; repeats allowed)
+and a yard booking asks the horse's name for EVERY yard. Required on the
+form and in `registrations/create` (kind `other` asks nothing).
+`namesKind()` / `namesLabel()` in `lib/eventExtras.js` ("Site 1: … ·
+Site 2: …"; a single camp site shows nothing, the booker is already
+named). Shown on Registrations, the printable list (Names column), the
+success page, the booking email and the Square line note. A pre-v68
+database folds the names into `notes` instead of losing them.
 
 **Shared between events (schema-v62)**: `event_extras.pool` — the "Shared
 with another event" name (owner's question, Oct 2026: two events on one
