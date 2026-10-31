@@ -156,6 +156,11 @@ function SuccessContent() {
                   {hasPayment ? "Your payment receipt comes from Square or PayPal (whichever you paid with), and we will email your booking confirmation" : "We will email your booking confirmation"} to <strong>{reg.contact_email}</strong>.
                   If you don&apos;t see it within a few minutes, check your spam folder.
                 </p>
+                {(reg.credit_cents ?? 0) > 0 && (
+                  <p style={{ fontSize: 13.5, color: "#2D7A52", fontWeight: 700, margin: "8px 0 0" }}>
+                    ✓ {`$${((reg.credit_cents ?? 0) / 100).toFixed(2)}`} of your club credit was put towards this booking.
+                  </p>
+                )}
                 {hasDayMembership && (
                   <p style={{ fontSize: 13.5, color: "var(--leather)", fontWeight: 700, marginTop: 0 }}>
                     Includes a day membership for this event ({`$${((reg.day_membership_cents ?? 2000) / 100).toFixed(2)}`}).

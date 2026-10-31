@@ -429,6 +429,8 @@ export default function RegisterPage() {
   const [annualTypeId, setAnnualTypeId] = useState("");
   const [replacementNumbers, setReplacementNumbers] = useState(false);
   const [feesDue, setFeesDue] = useState(null); // null = unknown (assume due), false = already paid for this event
+  const [credit, setCredit] = useState(null); // club credit (schema-v68): { signed_in: true, available_cents } or { signed_in: false, has_credit }
+  const [useCredit, setUseCredit] = useState(true);
   const [rulesAccepted, setRulesAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("square"); // "square" | "paypal" (schema-v58)
@@ -615,6 +617,29 @@ export default function RegisterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberAccount, oneOffFees]);
 
+  // Club credit (schema-v68): a signed-in member sees their available credit
+  // and can put it towards this checkout; someone who only typed their
+  // email is told to sign in when that email has credit (the amount itself
+  // stays private until they do).
+  const checkCredit = async (email) => {
+    if (!email?.trim() || !email.includes("@")) { setCredit(null); return; }
+    try {
+      const params = new URLSearchParams({ email: email.trim() });
+      const res = await fetch(`/api/credits/check?${params.toString()}`, { cache: "no-store" });
+      const data = res.ok ? await res.json() : null;
+      setCredit(data?.has_credit ? { signed_in: false, has_credit: true } : null);
+    } catch { setCredit(null); }
+  };
+  useEffect(() => {
+    if (!memberAccount?.email) return;
+    let cancelled = false;
+    fetch("/api/account/credits", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.ok) setCredit({ signed_in: true, available_cents: d.available_cents ?? 0 }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [memberAccount]);
+
   // Camping & yards already booked under this email (schema-v62): this
   // event's items plus any pool they share with another event that weekend,
   // so nobody books the same yard twice.
@@ -722,6 +747,13 @@ export default function RegisterPage() {
   const depositDueNowCents = spotDepositCents + extrasCents;
   const dueNowCents = payDeposit ? depositDueNowCents : totalCents;
   const balanceLaterCents = payDeposit ? totalCents - depositDueNowCents : 0;
+  // Club credit applies to what's due now, and only for the signed-in member
+  // whose email is on the entry (the server checks the same thing).
+  const creditUsable = credit?.signed_in && memberAccount && !useDifferentDetails
+    && contactEmail.trim().toLowerCase() === String(memberAccount.email ?? "").trim().toLowerCase()
+    ? (credit.available_cents ?? 0) : 0;
+  const creditAppliedCents = useCredit ? Math.min(creditUsable, dueNowCents) : 0;
+  const payNowCents = Math.max(0, dueNowCents - creditAppliedCents);
   const dueLabel = balanceDueLabel(event?.starts_on);
 
   useEffect(() => {
@@ -1077,6 +1109,7 @@ export default function RegisterPage() {
           membership_renewal_type_id: renewalTypeId || null,
           payment_plan: payDeposit ? "deposit" : "full",
           payment_method: paypalAvailable ? paymentMethod : "square",
+          use_credit: creditAppliedCents > 0,
           extras: bookedExtras.map(({ extra, booking }) => ({
             extra_id: extra.id,
             quantity: booking.quantity,
@@ -1243,7 +1276,7 @@ export default function RegisterPage() {
                 <input className="field" type="email" style={{ width: "100%", fontSize: 16 }}
                   value={contactEmail}
                   onChange={(e) => { setContactEmail(e.target.value); setMembershipStatus(null); setDayMembership(false); setAnnualJoin(false); setFeesDue(null); }}
-                  onBlur={(e) => { checkMembership(e.target.value); checkFees(e.target.value); checkMyExtras(e.target.value); }}
+                  onBlur={(e) => { checkMembership(e.target.value); checkFees(e.target.value); checkMyExtras(e.target.value); checkCredit(e.target.value); }}
                   placeholder="e.g. sarah@example.com" />
               </>
             )}
@@ -1801,7 +1834,19 @@ export default function RegisterPage() {
                     ✓ Ground/admin fees already paid with your earlier entries — not charged again.
                   </div>
                 )}
-                {totalCents > 0 && (
+                {creditUsable > 0 && dueNowCents > 0 && (
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 6, fontSize: 13, color: "#2D7A52", fontWeight: 700, cursor: "pointer" }}>
+                    <input type="checkbox" checked={useCredit} onChange={(e) => setUseCredit(e.target.checked)}
+                      style={{ width: 18, height: 18, marginTop: 1, flexShrink: 0 }} />
+                    <span>Use my club credit — {fmtMoney(creditUsable)} available{useCredit ? `, ${fmtMoney(creditAppliedCents)} applied to this booking` : ""}.</span>
+                  </label>
+                )}
+                {credit && !credit.signed_in && credit.has_credit && !memberAccount && (
+                  <div style={{ fontSize: 12.5, color: "#2D7A52", fontWeight: 700, marginTop: 6 }}>
+                    This email has club credit. <Link href="/account" target="_blank" rel="noreferrer" style={{ color: "var(--brass)" }}>Sign in to the member portal</Link>, then reload this page to use it.
+                  </div>
+                )}
+                {payNowCents > 0 && (
                   <div style={{ fontSize: 12.5, color: "var(--quiet)", marginTop: 2 }}>
                     Paid securely via {paypalAvailable && paymentMethod === "paypal" ? "PayPal" : "Square"} · receipt and booking confirmation emailed to you
                   </div>
@@ -1809,8 +1854,13 @@ export default function RegisterPage() {
               </div>
               <div style={{ textAlign: "right" }}>
                 <div className="display" style={{ fontWeight: 700, fontSize: 28, color: "var(--leather)" }}>
-                  {fmtMoney(dueNowCents)}
+                  {fmtMoney(payNowCents)}
                 </div>
+                {creditAppliedCents > 0 && (
+                  <div style={{ fontSize: 11.5, color: "#2D7A52", fontWeight: 700 }}>
+                    {fmtMoney(dueNowCents)} less {fmtMoney(creditAppliedCents)} credit
+                  </div>
+                )}
                 {payDeposit && (
                   <div style={{ fontSize: 11.5, color: "var(--quiet)" }}>
                     then {fmtMoney(balanceLaterCents)}{dueLabel ? ` by ${dueLabel}` : ""}
@@ -1892,7 +1942,7 @@ export default function RegisterPage() {
                 </span>
               </label>
             )}
-            {dueNowCents > 0 && paypalAvailable && (
+            {payNowCents > 0 && paypalAvailable && (
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>How would you like to pay?</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1916,8 +1966,10 @@ export default function RegisterPage() {
               onClick={submit} disabled={submitting}>
               {submitting
                 ? "Setting up payment…"
-                : dueNowCents > 0
-                ? `Register & Pay ${fmtMoney(dueNowCents)}${payDeposit ? " deposit" : ""}${paypalAvailable && paymentMethod === "paypal" ? " with PayPal" : ""}`
+                : payNowCents > 0
+                ? `Register & Pay ${fmtMoney(payNowCents)}${payDeposit ? " deposit" : ""}${paypalAvailable && paymentMethod === "paypal" ? " with PayPal" : ""}`
+                : creditAppliedCents > 0
+                ? `Register — ${fmtMoney(creditAppliedCents)} covered by your club credit`
                 : isClinic ? "Register" : "Submit entries"}
             </button>
             <p style={{ fontSize: 11.5, color: "var(--quiet)", lineHeight: 1.45, margin: "10px 0 0" }}>

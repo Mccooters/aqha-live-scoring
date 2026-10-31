@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { deleteSquarePaymentLink } from "./squarePayments";
 import { assignHorseNumber } from "./horseNumbers";
+import { recordCreditUse } from "./credits";
 
 // Committee read-only accounts (schema-v48): listed logins can see the back
 // end but never change it. Staff-JWT write routes call this after verifying
@@ -226,6 +227,13 @@ async function sendBookingConfirmation(db, registrationId) {
   const eventMeta = [eventDate, reg.event?.location].filter(Boolean).join(" - ");
   const subject = `Booking confirmation - ${eventName}`;
   const hasPayment = (reg.total_cents ?? 0) > 0;
+  // Club credit applied at checkout (schema-v68) — best-effort read so the
+  // email can show "credit applied / paid" instead of a misleading total.
+  let creditApplied = 0;
+  try {
+    const { data: c } = await db.from("registrations").select("credit_cents").eq("id", registrationId).maybeSingle();
+    creditApplied = Math.max(0, Number(c?.credit_cents) || 0);
+  } catch {}
   const hasDayMembership = !!reg.day_membership;
   const dayMembershipAmount = reg.day_membership_cents ?? 2000;
   const hasReplacementNumbers = !!reg.replacement_numbers;
@@ -311,7 +319,7 @@ async function sendBookingConfirmation(db, registrationId) {
         <p style="margin:0 0 6px;"><strong>Balance to pay: ${escapeHtml(formatMoney(balanceInfo.owing))}</strong>${balanceInfo.dueLabel ? ` — due by <strong>${escapeHtml(balanceInfo.dueLabel)}</strong>` : " — due 2 weeks before the clinic"}.</p>
         <p style="margin:0;">Pay it any time here: <a href="${balanceInfo.url}">${balanceInfo.url}</a></p>
       </div>
-      ` : `<p>Total paid: <strong>${escapeHtml(formatMoney(reg.total_cents))}</strong></p>`}
+      ` : creditApplied > 0 ? `<p>Total: <strong>${escapeHtml(formatMoney(reg.total_cents))}</strong><br>Club credit applied: &minus;${escapeHtml(formatMoney(creditApplied))}<br>Paid: <strong>${escapeHtml(formatMoney(Math.max(0, (reg.total_cents ?? 0) - creditApplied)))}</strong></p>` : `<p>Total paid: <strong>${escapeHtml(formatMoney(reg.total_cents))}</strong></p>`}
       ${hasPayment ? `<p style="color:#6e6254;">Square sends the payment receipt separately.</p>` : ""}
       <p style="color:#6e6254;font-size:13px;">Refunds and cancellations follow the club's refund policy: <a href="${policyUrl}">${policyUrl}</a></p>
     </div>
@@ -331,6 +339,8 @@ async function sendBookingConfirmation(db, registrationId) {
     "",
     balanceInfo
       ? `Deposit paid (non-refundable): ${formatMoney(balanceInfo.deposit)}`
+      : creditApplied > 0
+      ? `Total: ${formatMoney(reg.total_cents)} - club credit applied: ${formatMoney(creditApplied)} - paid: ${formatMoney(Math.max(0, (reg.total_cents ?? 0) - creditApplied))}`
       : `Total paid: ${formatMoney(reg.total_cents)}`,
     balanceInfo
       ? `Balance to pay: ${formatMoney(balanceInfo.owing)}${balanceInfo.dueLabel ? ` - due by ${balanceInfo.dueLabel}` : " - due 2 weeks before the clinic"}. Pay any time at ${balanceInfo.url}`
@@ -500,17 +510,27 @@ export async function approveRegistration(db, registrationId) {
   // only the call that wins this update goes on to create entries.
   // paid_at (schema-v67) records when the money arrived for the Revenue
   // page; a database without that column just gets the status flip.
-  const claim = (patch) => db
+  const claim = (patch, cols) => db
     .from("registrations")
     .update(patch)
     .eq("id", registrationId)
     .neq("status", "paid")
-    .select("id, event:events(event_type)");
-  let { data: claimed, error: claimErr } = await claim({ status: "paid", paid_at: new Date().toISOString() });
-  if (claimErr && /paid_at/i.test(claimErr.message ?? "")) ({ data: claimed, error: claimErr } = await claim({ status: "paid" }));
+    .select(cols);
+  // credit_cents (schema-v68) rides along so the club credit this
+  // registration applied can be spent below; older databases fall back.
+  const fullCols = "id, credit_cents, contact_email, event_id, event:events(event_type, name)";
+  const baseCols = "id, contact_email, event_id, event:events(event_type, name)";
+  const nowIso = new Date().toISOString();
+  let { data: claimed, error: claimErr } = await claim({ status: "paid", paid_at: nowIso }, fullCols);
+  if (claimErr && /credit_cents/i.test(claimErr.message ?? "")) ({ data: claimed, error: claimErr } = await claim({ status: "paid", paid_at: nowIso }, baseCols));
+  if (claimErr && /paid_at/i.test(claimErr.message ?? "")) ({ data: claimed, error: claimErr } = await claim({ status: "paid" }, baseCols));
   if (claimErr) throw new Error(claimErr.message);
   if (!claimed?.length) return; // another call already approved it
-  const isClinic = claimed[0]?.event?.event_type === "clinic";
+  const claimedRow = claimed[0];
+  const isClinic = claimedRow?.event?.event_type === "clinic";
+  // Club credit applied to this registration is spent now that the money
+  // side is settled — once only, whatever webhook retries follow.
+  if ((Number(claimedRow?.credit_cents) || 0) > 0) await recordCreditUse(db, claimedRow, claimedRow?.event?.name);
 
   const { data: regEntries, error: fetchErr } = await db
     .from("registration_entries")

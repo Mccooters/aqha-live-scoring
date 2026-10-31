@@ -57,6 +57,7 @@ const MIGRATION_CHECKS = [
     return Boolean(data.viewers_ready && data.viewers_writable);
   } },
   { m: "v67", what: "Payment dates for the Revenue page (registrations.paid_at, club_members.paid_at)", probe: () => supabase.from("registrations").select("paid_at").limit(1) },
+  { m: "v68", what: "Club credits (credit instead of a refund, spent on a later event)", probe: () => supabase.from("member_credits").select("id").limit(1) },
 ];
 
 // Each MIGRATION_CHECKS row has a `probe` (a cheap select that errors when the

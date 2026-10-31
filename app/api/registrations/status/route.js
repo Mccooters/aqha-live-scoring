@@ -104,6 +104,12 @@ export async function GET(req) {
     id: x.id, quantity: x.quantity, nights: x.nights ?? [], amount_cents: x.amount_cents, notes: x.notes,
     name: x.event_extras?.name ?? "Extra", kind: x.event_extras?.kind ?? "other", unit: x.event_extras?.unit ?? "night",
   }));
+  // Club credit applied at checkout (schema-v68) — best-effort.
+  let credit_cents = 0;
+  try {
+    const { data: c } = await db.from("registrations").select("credit_cents").eq("id", regId).maybeSingle();
+    credit_cents = Math.max(0, Number(c?.credit_cents) || 0);
+  } catch {}
   const { registration_extras: _omit, ...rest } = reg;
-  return NextResponse.json({ ...rest, extras, balance });
+  return NextResponse.json({ ...rest, extras, balance, credit_cents });
 }

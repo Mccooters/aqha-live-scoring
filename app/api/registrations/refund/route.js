@@ -5,6 +5,7 @@ import { adminClient, isCommitteeViewer } from "../../_lib/registrations";
 import { refundSquarePayment, getSquareRefund } from "../../_lib/squarePayments";
 import { refundPayPalCapture, getPayPalRefund } from "../../_lib/paypal";
 import { recordWebsiteFee } from "../../_lib/websiteFees";
+import { grantCredit, creditStatus } from "../../_lib/credits";
 
 // Issuing a refund moves real money, so only signed-in show staff may call it.
 // The dashboard sends the coordinator's login token; we verify it with
@@ -29,7 +30,7 @@ export async function POST(req) {
       return NextResponse.json({ error: "Staff sign-in required" }, { status: 401 });
     }
 
-    const { registration_id, amount_cents, reason, manual, check } = await req.json();
+    const { registration_id, amount_cents, reason, manual, credit, check } = await req.json();
     const db = adminClient();
 
     // "check": re-ask Square for the current status of every Square refund in
@@ -59,7 +60,8 @@ export async function POST(req) {
     // A "manual" refund records money you already returned OUTSIDE Square
     // (cash, bank transfer, etc.) — it never calls Square, it just logs it so
     // the refunded total and revenue are right.
-    const isManual = Boolean(manual);
+    const isCredit = Boolean(credit);             // keep the money as club credit (schema-v68)
+    const isManual = Boolean(manual) || isCredit; // neither one calls the payment provider
     const amount = Math.round(Number(amount_cents));
     if (!registration_id || !Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: "registration_id and a refund amount are required" }, { status: 400 });
@@ -158,11 +160,31 @@ export async function POST(req) {
       });
     }
 
+    // Credit instead of a refund (schema-v68): the money stays with the club
+    // and the person gets the amount as club credit on their email, to
+    // spend on a later event. Written first, so a database without the
+    // credits table stops here with nothing half-done.
+    let creditBalance = null;
+    if (isCredit) {
+      const { data: ev } = await db.from("events").select("name").eq("id", reg.event_id).maybeSingle();
+      const granted = await grantCredit(db, {
+        email: reg.contact_email,
+        amount_cents: amount,
+        kind: "credit",
+        reason: reason ? String(reason).slice(0, 300) : `Credit instead of a refund — ${ev?.name ?? "event"} registration`,
+        event_id: reg.event_id,
+        registration_id: reg.id,
+        created_by: staff.email ?? "staff",
+      });
+      if (granted.error) return NextResponse.json({ error: granted.error }, { status: 500 });
+      creditBalance = (await creditStatus(db, reg.contact_email)).balance_cents;
+    }
+
     // Record the refund. Best-effort for a Square refund: on a pre-v36
     // database the columns don't exist yet — the money is already refunded at
     // Square, so don't fail; just report it couldn't be recorded. A MANUAL
     // record is only useful if it saves, so it treats that as an error.
-    const noteReason = reason || (isManual ? `Refunded outside ${providerName}` : null);
+    const noteReason = reason || (isCredit ? "Kept as club credit" : isManual ? `Refunded outside ${providerName}` : null);
     const patch = {
       refunded_cents: alreadyRefunded + amount,
       last_refund_at: new Date().toISOString(),
@@ -175,9 +197,9 @@ export async function POST(req) {
     const logEntry = {
       amount_cents: amount,
       at: new Date().toISOString(),
-      method: isManual ? "manual" : provider,
+      method: isCredit ? "credit" : isManual ? "manual" : provider,
       refund_id: refund?.id ?? null,
-      status: isManual ? "RECORDED" : (refund?.status ?? "PENDING"),
+      status: isCredit ? "CREDITED" : isManual ? "RECORDED" : (refund?.status ?? "PENDING"),
       reason: noteReason ? String(noteReason).slice(0, 200) : null,
       by: staff.email ?? null,
     };
@@ -210,7 +232,8 @@ export async function POST(req) {
       total_refunded_cents: alreadyRefunded + amount,
       refund_status: refund?.status ?? null,
       refund_id: refund?.id ?? null,
-      provider: isManual ? "manual" : provider,
+      provider: isCredit ? "credit" : isManual ? "manual" : provider,
+      credit_balance_cents: creditBalance,
       recorded,
     });
   } catch (err) {

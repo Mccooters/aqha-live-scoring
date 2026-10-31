@@ -41,8 +41,8 @@ const KINDS = [
   ["refund",      "Refunds"],
 ];
 const KIND_LABEL = Object.fromEntries(KINDS);
-const VIA = { square: "Square", paypal: "PayPal", manual: "Cash / transfer", free: "Free" };
-const viaOf = (provider, manual) => (manual ? "manual" : (provider === "paypal" ? "paypal" : "square"));
+const VIA = { square: "Square", paypal: "PayPal", manual: "Cash / transfer", credit: "Club credit", free: "Free" };
+const viaOf = (provider, manual) => (manual ? "manual" : provider === "credit" ? "credit" : provider === "paypal" ? "paypal" : "square");
 
 // Turn the raw rows into one line per payment received (or refund given).
 function buildLines({ registrations, members, raffleOrders }) {
@@ -67,16 +67,26 @@ function buildLines({ registrations, members, raffleOrders }) {
       // The first payment: everything, or (deposit plan) the deposits plus
       // the add-ons that are always charged up front.
       let firstPayment = depositPlan ? Math.min(total, r.deposit_cents) : total;
+      // Club credit (schema-v68) that paid part of the first payment is shown
+      // under "Club credit", so the Square / PayPal totals match the money
+      // that actually arrived.
+      let creditLeft = Math.min(firstPayment, Math.max(0, Number(r.credit_cents) || 0));
+      const pushPaid = (line) => {
+        const fromCredit = Math.min(creditLeft, line.amount_cents);
+        creditLeft -= fromCredit;
+        if (fromCredit > 0) push({ ...line, amount_cents: fromCredit, via: "credit", note: `${line.note} (club credit)` });
+        if (line.amount_cents - fromCredit > 0) push({ ...line, amount_cents: line.amount_cents - fromCredit });
+      };
       const parts = [
         ["extras", extras], ["event_fees", fees], ["day_member", day], ["numbers", numbers],
       ];
       for (const [kind, cents] of parts) {
         const c = Math.min(cents, firstPayment);
-        if (c > 0) push({ at: paidAt, kind, amount_cents: c, via: onlineVia, who, where, note: KIND_LABEL[kind] });
+        if (c > 0) pushPaid({ at: paidAt, kind, amount_cents: c, via: onlineVia, who, where, note: KIND_LABEL[kind] });
         firstPayment -= c;
       }
       if (firstPayment > 0) {
-        push({
+        pushPaid({
           at: paidAt, kind: isClinic ? "clinic" : "entries", amount_cents: firstPayment, via: onlineVia, who, where,
           note: depositPlan ? "Deposit" : (isClinic ? "Booking" : `${(r.registration_entries ?? []).length || ""} ${(r.registration_entries ?? []).length === 1 ? "entry" : "entries"}`.trim()),
         });

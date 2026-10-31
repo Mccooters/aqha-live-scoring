@@ -5,6 +5,8 @@ import { supabase } from "../../../lib/supabaseClient";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
 import { currentSeason, signupSeason, seasonLabel } from "../../../lib/membershipSeason";
 import ClubRegistrations, { registrationsToRows } from "../../components/ClubRegistrations";
+import CreditPanel from "../CreditPanel";
+import { creditBalanceMap, normalizeCreditEmail } from "../../../lib/memberCredits";
 
 const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
 const fmtDate = (s) =>
@@ -34,6 +36,7 @@ export default function MembershipsPage() {
   const [loading, setLoading] = useState(true);
   const [tableError, setTableError] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [creditMap, setCreditMap] = useState({}); // email → { balance_cents, held_cents, available_cents } (schema-v68)
   const [acting, setActing] = useState(null);
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({});
@@ -74,6 +77,13 @@ export default function MembershipsPage() {
       (peopleByMember[p.member_id] ??= []).push(p);
     });
     setMembers((memberData ?? []).map((m) => ({ ...m, people: peopleByMember[m.id] ?? [] })));
+    // Club credits (schema-v68): a balance badge per member. Empty on a
+    // database without the table.
+    const { data: creditRows, error: creditErr } = await supabase.from("member_credits").select("email, amount_cents");
+    if (!creditErr) {
+      const { data: holds } = await supabase.from("registrations").select("contact_email, credit_cents").eq("status", "pending").gt("credit_cents", 0);
+      setCreditMap(creditBalanceMap(creditRows ?? [], holds ?? []));
+    }
     setTypes(typeData ?? []);
     setLoading(false);
   }, []);
@@ -661,6 +671,12 @@ export default function MembershipsPage() {
                   <div style={{ fontWeight: 600, fontSize: 15 }}>
                     {m.member_name}
                     {m.hcqha_number != null && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 800, color: "var(--brass)", letterSpacing: ".04em" }}>HCQHA #{m.hcqha_number}</span>}
+                    {(creditMap[normalizeCreditEmail(m.email)]?.balance_cents ?? 0) > 0 && (
+                      <span title="Club credit on this email — open the row to see or change it"
+                        style={{ marginLeft: 8, fontSize: 11, fontWeight: 800, padding: "1px 7px", borderRadius: 999, background: "#2D7A52", color: "#fff" }}>
+                        Credit {fmtMoney(creditMap[normalizeCreditEmail(m.email)].balance_cents)}
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: 12.5, color: "var(--quiet)" }}>
                     {showCardSeason && <><strong style={{ color: "var(--leather)" }}>{m.season}</strong> · </>}
@@ -678,6 +694,7 @@ export default function MembershipsPage() {
 
               {isExpanded && (
                 <div style={{ paddingBottom: 12 }}>
+                  <CreditPanel email={m.email} name={m.member_name} onChanged={load} />
                   <div style={{ fontSize: 13.5, color: "var(--ink)", display: "grid", gap: 3 }}>
                     {m.phone && <div><strong>Phone:</strong> {m.phone}</div>}
                     {m.address && <div><strong>Address:</strong> {m.address}</div>}

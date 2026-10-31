@@ -301,6 +301,12 @@ hasn't been run.
         and back-fills the old ones. Until it's run the page uses the date
         each registration / membership was created instead, so a payment
         made just after midnight on the 1st can land in the previous month.
+- [ ] **v68** — `schema-v68-member-credits.sql`
+      → **Club credits**: keep a refund as credit on someone's membership
+        (Registrations page → "Keep as club credit instead"; Memberships
+        page → give or take back credit) and let them spend it at checkout
+        when they next enter signed in to the member portal. Until it's run
+        the credit buttons say so and nothing is offered at checkout.
 
 Tick these off once you've run them — or just run the catch-up script above.
 
@@ -377,6 +383,7 @@ Tick these off once you've run them — or just run the catch-up script above.
 | `schema-v65-withdrawn-registrations.sql` | Withdrawn clinic entries: `registrations.withdrawn_at` / `withdrawn_by` (deposit kept, balance written off) |
 | `schema-v66-staff-viewers-service-role-grants.sql` | Grants the server (service role) write access to `staff_viewers` so read-only logins can be created from the Staff access page |
 | `schema-v67-paid-at.sql` | Payment dates: `registrations.paid_at` + `club_members.paid_at` (backfilled) so the staff **Revenue** page can list the club's money month by month |
+| `schema-v68-member-credits.sql` | Club credits: `member_credits` ledger per email (credit instead of a refund, given/taken back by staff, spent at checkout) + `registrations.credit_cents` |
 | `schema-catch-up.sql` | GENERATED — all of the above in one skip-what's-done script (see "The easy way" at the top); records what it applied in `schema_versions` |
 
 ## For whoever updates the code next
