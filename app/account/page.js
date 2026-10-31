@@ -816,6 +816,50 @@ function RafflesCard() {
   );
 }
 
+// Club credit (schema-v68): what the member can put towards their next
+// entry, with the history. Hidden when there's nothing to show.
+function CreditsCard() {
+  const [credit, setCredit] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    api("/api/account/credits")
+      .then(({ ok, data }) => { if (!cancelled && ok && data?.ok) setCredit(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  if (!credit || (!(credit.balance_cents > 0) && !(credit.rows?.length))) return null;
+  const money = (c) => `$${((c ?? 0) / 100).toFixed(2)}`;
+  const when = (s) => (s ? new Date(s).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" }) : "");
+  return (
+    <section className="card" style={{ border: "1px solid #2D7A52", background: "#E6F2EA" }}>
+      <div style={{ padding: "14px 16px" }}>
+        <div className="display" style={{ fontWeight: 700, fontSize: 17, color: "var(--leather)" }}>
+          Club credit: {money(credit.available_cents)}
+        </div>
+        {credit.held_cents > 0 && (
+          <p style={{ fontSize: 12.5, color: "var(--quiet)", margin: "3px 0 0" }}>
+            {money(credit.held_cents)} more is set aside for a checkout you started but haven&apos;t paid — it comes back if that lapses.
+          </p>
+        )}
+        <p style={{ fontSize: 13, color: "var(--leather)", margin: "6px 0 0" }}>
+          Use it when you next enter a show or clinic: stay signed in and the entry form offers it at checkout.
+        </p>
+        {credit.rows?.length > 0 && (
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ cursor: "pointer", fontSize: 12.5, color: "var(--quiet)" }}>History</summary>
+            {credit.rows.map((r) => (
+              <div key={r.id} style={{ fontSize: 12.5, marginTop: 4 }}>
+                <strong style={{ color: r.amount_cents < 0 ? "var(--clay)" : "#2D7A52" }}>{r.amount_cents < 0 ? "−" : "+"}{money(Math.abs(r.amount_cents))}</strong>
+                {" · "}{when(r.at)}{r.event_name ? ` · ${r.event_name}` : ""}{r.reason ? ` — ${r.reason}` : ""}
+              </div>
+            ))}
+          </details>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function BalancesCard() {
   const [balances, setBalances] = useState(null);
   useEffect(() => {
@@ -939,6 +983,7 @@ export default function AccountPage() {
 
         {phase === "portal" && (
           <>
+            <CreditsCard />
             <BalancesCard />
             <RafflesCard />
 

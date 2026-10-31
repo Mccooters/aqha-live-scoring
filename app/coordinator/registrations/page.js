@@ -425,7 +425,7 @@ function RegistrationsInner() {
     setApproving(null);
   };
 
-  const refund = async (reg, refundableCents, { manual = false } = {}) => {
+  const refund = async (reg, refundableCents, { manual = false, credit = false } = {}) => {
     const dollars = refundAmount[reg.id];
     const cents = Math.round(parseFloat(dollars) * 100);
     if (!Number.isFinite(cents) || cents <= 0) {
@@ -437,7 +437,9 @@ function RegistrationsInner() {
       return;
     }
     const providerName = reg.payment_provider === "paypal" ? "PayPal" : "Square";
-    const confirmMsg = manual
+    const confirmMsg = credit
+      ? `Keep ${fmtMoney(cents)} as CLUB CREDIT for ${reg.contact_name} instead of refunding it?\n\nNo money moves. The credit sits on ${reg.contact_email} and is offered at checkout when they next enter an event signed in to the member portal. It counts as refunded on this registration.`
+      : manual
       ? `Record a ${fmtMoney(cents)} refund for ${reg.contact_name} that you gave OUTSIDE ${providerName} (cash, bank transfer, etc.)?\n\nThis does NOT move any money — it just records the refund so your totals are right.`
       : `Refund ${fmtMoney(cents)} to ${reg.contact_name} via ${providerName}?\n\nThis sends the money back to ${providerName === "PayPal" ? "their PayPal account / card" : "their card"} and can't be undone here. Remember to also Delete or Scratch the affected entry on the dashboard if they're out of a class.`;
     if (!confirm(confirmMsg)) return;
@@ -449,13 +451,15 @@ function RegistrationsInner() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${sessionData?.session?.access_token ?? ""}`,
       },
-      body: JSON.stringify({ registration_id: reg.id, amount_cents: cents, manual }),
+      body: JSON.stringify({ registration_id: reg.id, amount_cents: cents, manual, credit }),
     });
     const data = await res.json();
-    if (data.error) alert((manual ? "Could not record refund: " : "Refund not completed: ") + data.error);
+    if (data.error) alert((credit ? "Could not record the credit: " : manual ? "Could not record refund: " : "Refund not completed: ") + data.error);
     else {
       setRefundAmount((prev) => ({ ...prev, [reg.id]: "" }));
-      if (!manual && data.recorded === false) {
+      if (credit) {
+        alert(`Done — ${reg.contact_name} now has ${fmtMoney(data.credit_balance_cents ?? cents)} of club credit on ${reg.contact_email}.\n\nIt's offered at checkout when they next enter an event signed in to the member portal. You can see or change it from the Memberships page.`);
+      } else if (!manual && data.recorded === false) {
         alert(`Refunded at ${providerName}, but the amount couldn't be recorded in the app — run schema-v36 so it shows here.`);
       } else if (!manual) {
         const st = data.refund_status ?? "PENDING";
@@ -496,6 +500,7 @@ function RegistrationsInner() {
     REJECTED: { text: "REJECTED — not refunded", color: "var(--clay)" },
     FAILED: { text: "FAILED — not refunded", color: "var(--clay)" },
     RECORDED: { text: "recorded (given outside Square)", color: "var(--quiet)" },
+    CREDITED: { text: "kept as club credit on their membership", color: "#2D7A52" },
   };
 
   // Square connection card: current status, plus the outcome message when
@@ -843,6 +848,7 @@ function RegistrationsInner() {
                     {" · "}{reg.registration_entries?.length ?? 0} {reg.registration_entries?.length === 1 ? "entry" : "entries"}
                     {reg.day_membership && ` · day membership ${fmtMoney(reg.day_membership_cents ?? 2000)}`}
                     {reg.replacement_numbers && ` · replacement numbers ${fmtMoney(reg.replacement_numbers_cents ?? 500)}`}
+                    {(reg.credit_cents ?? 0) > 0 && ` · ${fmtMoney(reg.credit_cents)} paid with club credit`}
                   </div>
                   {isPaid && (() => {
                     const b = membershipBadge(reg);
@@ -1099,7 +1105,7 @@ function RegistrationsInner() {
                                 return (
                                   <div key={i} style={{ fontSize: 12, color: "var(--ink)", margin: "2px 0", lineHeight: 1.4 }}>
                                     <strong>{fmtMoney(r.amount_cents ?? 0)}</strong>
-                                    {" · "}{r.method === "paypal" ? "PayPal refund" : r.method === "square" ? "Square refund" : "Given outside Square/PayPal"}
+                                    {" · "}{r.method === "credit" ? "Kept as club credit" : r.method === "paypal" ? "PayPal refund" : r.method === "square" ? "Square refund" : "Given outside Square/PayPal"}
                                     {r.at ? ` · ${new Date(r.at).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" })}` : ""}
                                     {" · "}<span style={{ color: st.color, fontWeight: 700 }}>{st.text}</span>
                                     {r.refund_id && (
@@ -1167,6 +1173,15 @@ function RegistrationsInner() {
                               >
                                 {refunding === reg.id ? "Working…" : `Record refund given outside ${reg.payment_provider === "paypal" ? "PayPal" : "Square"}`}
                               </button>
+                              <button
+                                className="btn-ghost"
+                                style={{ fontSize: 12, color: "#2D7A52", borderColor: "#2D7A52", fontWeight: 700 }}
+                                onClick={() => refund(reg, refundableCents, { credit: true })}
+                                disabled={refunding === reg.id}
+                                title="No money moves — the amount becomes club credit on their email, offered at checkout next time they enter signed in to the member portal"
+                              >
+                                {refunding === reg.id ? "Working…" : "Keep as club credit instead"}
+                              </button>
                             </div>
                           </>
                         )}
@@ -1176,7 +1191,7 @@ function RegistrationsInner() {
                           </p>
                         )}
                         <p style={{ fontSize: 11.5, color: "var(--quiet)", margin: "8px 0 0" }}>
-                          A Square refund sends money back to the card; recording an outside refund just logs it. Removing an entry from a class is separate — Delete or Scratch it on the dashboard.
+                          A Square refund sends money back to the card; recording an outside refund just logs it; keeping it as club credit moves no money and puts the amount on their email as credit for a future event. Removing an entry from a class is separate — Delete or Scratch it on the dashboard.
                         </p>
                       </div>
                     );

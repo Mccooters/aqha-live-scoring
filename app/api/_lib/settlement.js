@@ -58,13 +58,22 @@ export async function settleCompletedPayment(db, payment, orderId, { provider = 
   // deposit when the payer chose the deposit plan (schema-v47; the balance
   // comes later through its own checkout). Fail closed: if the amount is
   // missing or not a number, treat it as NOT covering rather than approving.
-  const dueCents = (reg.deposit_cents ?? 0) > 0 ? reg.deposit_cents : (reg.total_cents ?? 0);
+  const baseDueCents = (reg.deposit_cents ?? 0) > 0 ? reg.deposit_cents : (reg.total_cents ?? 0);
+  // Club credit applied at checkout (schema-v68) came off the amount charged.
+  const creditCents = Math.max(0, Number(reg.credit_cents) || 0);
+  const dueCents = Math.max(0, baseDueCents - creditCents);
   const paidCents = payment?.amount_money?.amount;
   if (typeof paidCents !== "number" || paidCents < dueCents) {
     console.error(
       `Payment ${payment.id} paid ${paidCents}c but registration ${reg.id} needed ${dueCents}c — not approving`
     );
     return NextResponse.json({ ok: true });
+  }
+  if (creditCents > 0 && paidCents >= baseDueCents) {
+    // The checkout collected the full amount after all (the credit discount
+    // didn't apply) — leave the credit unspent rather than charge twice.
+    console.error(`Payment ${payment.id} covered the full ${baseDueCents}c for registration ${reg.id}; its ${creditCents}c club credit is left unspent`);
+    await db.from("registrations").update({ credit_cents: 0 }).eq("id", reg.id);
   }
 
   await db

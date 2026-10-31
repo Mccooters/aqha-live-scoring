@@ -9,6 +9,8 @@ import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
 import { extraNights, extraAmountCents, nightLabel, MAX_QUANTITY, isDated, unitNoun, quantityLabel } from "../../../../lib/eventExtras";
 import { bookedExtraCounts } from "../../_lib/extras";
+import { creditStatus } from "../../_lib/credits";
+import { normalizeCreditEmail } from "../../../../lib/memberCredits";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
 const REPLACEMENT_NUMBERS_CENTS = 500;
@@ -31,6 +33,7 @@ export async function POST(req) {
       annual_membership_type_id,
       payment_plan, // "full" (default) | "deposit" — clinics only (schema-v47)
       payment_method, // "square" (default) | "paypal" (schema-v58)
+      use_credit: useCreditInput, // club credit (schema-v68): put the signed-in member's credit towards what's due now
       extras: extrasInput, // camping & yards (schema-v61): [{ extra_id, quantity, nights, notes }]
     } = await req.json();
 
@@ -556,7 +559,24 @@ export async function POST(req) {
       ? entryDepositCents + dayMembershipCents + replacementNumbersCents + feesCents + extrasCents
       : 0;
     const dueNowCents = wantsDeposit ? depositCents : totalCents;
-    const chargeCents = dueNowCents + renewalCents + annualCents;
+    // Club credit (schema-v68): a signed-in member can put their credit
+    // towards what's due now. The server works the amount out itself, and
+    // only for the member-portal account whose email is on the entry —
+    // typing someone else's email never spends their credit. The credit is
+    // HELD on the pending registration and spent when it is approved.
+    let creditCents = 0;
+    if (useCreditInput && dueNowCents > 0) {
+      const account = await getMemberAccount(db);
+      if (!account || normalizeCreditEmail(account.email) !== normalizeCreditEmail(contact_email)) {
+        return NextResponse.json(
+          { error: "To use your club credit, sign in to the member portal with the same email address as this entry, then try again." },
+          { status: 400 }
+        );
+      }
+      const credit = await creditStatus(db, account.email);
+      creditCents = Math.max(0, Math.min(credit.available_cents, dueNowCents));
+    }
+    const chargeCents = Math.max(0, dueNowCents - creditCents) + renewalCents + annualCents;
 
     // Double-submit guard: if this same person already started an unpaid
     // checkout for this event moments ago with the same amount and the same
@@ -606,6 +626,11 @@ export async function POST(req) {
     if (feesCents > 0) {
       registrationRow.fees_cents = feesCents;
     }
+    // Club credit applied (schema-v68) — only written when there is some,
+    // so nothing changes on a database without the column.
+    if (creditCents > 0) {
+      registrationRow.credit_cents = creditCents;
+    }
     if (wantsDeposit) {
       // Deposit plan (schema-v47): total_cents stays the FULL price; this is
       // the non-refundable portion paid up front.
@@ -633,6 +658,12 @@ export async function POST(req) {
       if (wantsDeposit && msg.includes("deposit_cents")) {
         return NextResponse.json(
           { error: "Deposits need the latest database update before they can be taken. Run schema-v47." },
+          { status: 500 }
+        );
+      }
+      if (creditCents > 0 && msg.includes("credit_cents")) {
+        return NextResponse.json(
+          { error: "Club credits need the latest database update before they can be used. Run schema-v68." },
           { status: 500 }
         );
       }
@@ -883,6 +914,11 @@ export async function POST(req) {
         location_id: process.env.SQUARE_LOCATION_ID,
         reference_id: reg.id,
         line_items: lineItems,
+        // Club credit comes off the order as a discount, so the receipt shows
+        // the full prices and the credit as its own line (schema-v68).
+        ...(creditCents > 0
+          ? { discounts: [{ uid: "club-credit", name: "Club credit", type: "FIXED_AMOUNT", amount_money: { amount: creditCents, currency: "AUD" }, scope: "ORDER" }] }
+          : {}),
       },
       checkout_options: {
         redirect_url: `${baseUrl}/event/${event_id}/register/success?reg=${reg.id}`,

@@ -426,7 +426,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v67)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v68)
 
 **Catch-up script**: `supabase/schema-catch-up.sql` is GENERATED (by
 `scripts/build-catch-up-sql.mjs`, also the `prebuild` step) from `schema.sql`
@@ -1299,3 +1299,54 @@ stage 4 = printable scoresheets, dry-run mode.
   numbers; ⋯ menu "📋 <judge>'s card" opens a read-only viewer (box grid
   for pattern cards) with an Unlock button. Stage 3 (reining / cattle /
   sub-score cards) and stage 4 still pending.
+
+## Club credits (schema-v68)
+
+Credit instead of a refund, spent on a later event (owner's request, Oct
+2026 — a camper who over-booked wanted the difference kept on her
+membership). A credit belongs to an EMAIL ADDRESS, the same
+email-as-identity rule memberships use, so it follows the person across
+seasons. `member_credits` ledger (email lower-case, amount_cents + given /
+− used or taken back, kind credit|use|adjust, reason, event_id,
+registration_id, created_by staff email or 'system'; staff read/write, v48
+viewers blocked, NO anon access — the public only ever sees its own
+through the server) and `registrations.credit_cents` (the credit a
+registration applied). Maths in `lib/memberCredits.js`: balance = ledger
+sum; **held** = `credit_cents` on PENDING registrations (an unpaid checkout
+may still be paid, and lapses after 48 h); available = balance − held.
+Server helpers `app/api/_lib/credits.js`: `creditStatus(db, email)` (ready
+false on a pre-v68 database → nothing available), `grantCredit`,
+`recordCreditUse(db, reg, eventName)` (one `use` row per registration —
+unique partial index — so webhook retries can't spend it twice).
+
+- **Giving**: the Registrations page's refund panel has "Keep as club
+  credit instead" → `registrations/refund` with `credit: true`: no
+  provider call; `grantCredit` first (a missing table stops it cleanly),
+  then the refund is logged like a manual one with method `credit` /
+  status `CREDITED` and `refunded_cents` goes up (so the Revenue page
+  shows it as a refund line via "Club credit" and the running total caps
+  further refunds). Staff can also give or take back credit by hand from
+  a member's expanded row on the Memberships page (`CreditPanel.js`,
+  writes `member_credits` directly; the row header shows a green "Credit
+  $x" badge from `creditBalanceMap`).
+- **Spending**: only a member signed in to the portal whose account email
+  matches the entry's contact email. The entry form reads
+  `/api/account/credits` (signed in: amount + history) or
+  `/api/credits/check?email=` (not signed in: yes/no only → "sign in to
+  use it"), shows a ticked "Use my club credit" box and the amount due
+  less the credit; `registrations/create` takes `use_credit`, re-checks
+  the session + email, applies `min(available, due now)` to the EVENT
+  money only (never membership fees in the same checkout), writes
+  `credit_cents`, and takes it off the charge — an ORDER-scope
+  `FIXED_AMOUNT` discount on the Square order, the plain amount for
+  PayPal; a fully covered checkout goes down the free path.
+  `approveRegistration` spends it (`recordCreditUse`) right after
+  claiming the registration; `settleCompletedPayment` expects
+  `due − credit_cents` and, if the payment somehow covered the full
+  amount, zeroes `credit_cents` so nobody pays twice. Shown on the
+  success page, in the booking email ("Total / credit applied / paid"),
+  on the staff Registrations row ("$x paid with club credit") and in the
+  member portal's green "Club credit" card (`CreditsCard`). The Revenue
+  page splits the credit part of a first payment under "Club credit" so
+  provider totals match the cash. Balance payments, memberships and
+  raffles can't use credit yet.
