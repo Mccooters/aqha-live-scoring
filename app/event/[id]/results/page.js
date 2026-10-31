@@ -6,6 +6,7 @@ import { supabase } from "../../../../lib/supabaseClient";
 import { programDisplayRows, withoutHiddenClasses } from "../../../../lib/classCategories";
 import { championshipTitles } from "../../../../lib/championship";
 import { activeEntries, dateRange, dayDate, fmtBack, resultEntries, scoreText } from "../../../../lib/showPrint";
+import { sponsorsForEvent, classSponsors, sponsoredByText } from "../../../../lib/sponsors";
 
 function PrintStyles() {
   return (
@@ -22,6 +23,7 @@ function PrintStyles() {
       .class-heading { display: grid; grid-template-columns: 25px 1fr; gap: 4px; margin-bottom: 2px; }
       .class-num { text-align: right; font-weight: 700; }
       .class-name { font-weight: 700; }
+      .sponsor-line { grid-column: 2; color: #7A5C10; font-size: 8.5px; font-weight: 700; }
       .result-list { margin: 2px 0 0 29px; padding: 0; list-style: none; font-size: 9px; }
       .result-list li { display: grid; grid-template-columns: minmax(18px, auto) 1fr auto; gap: 5px; margin: 1px 0; }
       .result-place { font-weight: 800; color: #003DE0; white-space: nowrap; }
@@ -50,6 +52,7 @@ export default function ResultsPrintPage() {
   const searchParams = useSearchParams();
   const [event, setEvent] = useState(null);
   const [classes, setClasses] = useState([]);
+  const [sponsors, setSponsors] = useState([]); // schema-v69
 
   const load = useCallback(async () => {
     const [{ data: ev }, { data: cls }] = await Promise.all([
@@ -57,6 +60,9 @@ export default function ResultsPrintPage() {
       supabase.from("classes").select("*, entries(*)").eq("event_id", id).order("day").order("sort_order"),
     ]);
     if (ev) setEvent(ev);
+    // Sponsors (schema-v69) — absent before the migration.
+    supabase.from("sponsors").select("*").or(`event_id.is.null,event_id.eq.${id}`).order("sort_order")
+      .then(({ data, error }) => { if (!error) setSponsors(sponsorsForEvent(data, id)); });
     // Hidden classes (schema-v38) stay off public results, and so does any
     // class with no competitors left (all scratched, or never filled) — there
     // is nothing to report. Program breaks carry onto the next shown class.
@@ -124,6 +130,9 @@ export default function ResultsPrintPage() {
                 <div className="class-heading">
                   <div className="class-num">{cls.num}.</div>
                   <div className="class-name">{cls.name}</div>
+                  {sponsoredByText(classSponsors(sponsors, cls.id)) && (
+                    <div className="sponsor-line">{sponsoredByText(classSponsors(sponsors, cls.id))}</div>
+                  )}
                 </div>
                 {results.length > 0 ? (
                   <ol className="result-list">
