@@ -362,7 +362,10 @@ PR with a clear plain-English description.
   the registry number under the name (horse back number from `horses`,
   rider association numbers from `riders`/`rider_registrations`; breed
   suffix stripped before the name match; decoration only — no match, no
-  line). Only COMPLETED classes WITH an `hp_category` are ever pushed; the
+  line). Equal totals share a rank, shown as "1=", with the next rank
+  skipping the tied places, and ties sort by name (owner's report, Oct
+  2026 — three horses on 8 points were listed 1st, 2nd, 3rd in database
+  order). Only COMPLETED classes WITH an `hp_category` are ever pushed; the
   dashboard flags an upcoming class that already holds results ("⚠ Has
   results but isn't completed") with an inline ✓ Mark completed button,
   and a completed class with results but NO category ("⚠ No HP category —
