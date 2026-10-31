@@ -258,10 +258,14 @@ export default function EventPage() {
           <div style={{ maxWidth: 1480, margin: "0 auto" }}>
             <div style={{ fontSize: 11, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)", marginBottom: 4 }}>Clinic</div>
             <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,4vw,30px)", margin: "0 0 2px" }}>{event.name}</h1>
-            <div style={{ fontSize: 13, color: "#CBBFA9" }}>
-              {event.location}{event.starts_on ? ` · ${event.starts_on}` : ""}{event.ends_on && event.ends_on !== event.starts_on ? ` – ${event.ends_on}` : ""}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 13, color: "#CBBFA9" }}>
+                  {event.location}{event.starts_on ? ` · ${event.starts_on}` : ""}{event.ends_on && event.ends_on !== event.starts_on ? ` – ${event.ends_on}` : ""}
+                </div>
+              </div>
+              <TitleSponsorLine sponsors={sponsors} large />
             </div>
-            <TitleSponsorLine sponsors={sponsors} />
           </div>
         </header>
         <main className="wrap">
@@ -508,8 +512,10 @@ export default function EventPage() {
               </div>
               <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,4vw,30px)", margin: "0 0 2px" }}>{event.name}</h1>
               <div style={{ fontSize: 13, color: "#CBBFA9" }}>{event.location}</div>
-              <TitleSponsorLine sponsors={sponsors} />
             </div>
+            {/* Platinum = event title sponsor: big, beside the event name (owner's
+                request, Nov 2026 — it sat under the title, in a small line). */}
+            <TitleSponsorLine sponsors={sponsors} large />
             {VAPID_PUBLIC_KEY && notifStatus !== "subscribed" && notifStatus !== "denied" && (
               iosNeedsInstall ? (
                 <button onClick={() => setShowIosHint((v) => !v)}
