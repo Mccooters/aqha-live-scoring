@@ -303,10 +303,22 @@ export default function HighPoints() {
       map[key].shows[r.show_name] = (map[key].shows[r.show_name] ?? 0) + r.points;
       map[key].total += r.points;
     });
-    return Object.values(map).sort((a, b) => b.total - a.total);
+    return Object.values(map).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
   };
 
-  const leaderboard = buildLeaderboard(catRows);
+  // Equal totals share a rank, shown as "1=" like a show's own results, and
+  // the next rank skips the tied places (8, 8, 8, 6 → 1=, 1=, 1=, 4). Owner's
+  // report, Oct 2026: three horses on 8 points were listed 1st, 2nd and 3rd
+  // in whatever order they came out of the database.
+  const withRanks = (rows) => {
+    let rank = 0;
+    return rows.map((e, i) => {
+      if (i === 0 || e.total !== rows[i - 1].total) rank = i + 1;
+      const tied = rows.some((o, j) => j !== i && o.total === e.total);
+      return { ...e, rank, tied };
+    });
+  };
+  const leaderboard = withRanks(buildLeaderboard(catRows));
 
   // ---- edit / add ----
   const openEdit = (entry) => {
@@ -650,9 +662,11 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                       </tr>
                     </thead>
                     <tbody>
-                      {leaderboard.map((entry, i) => (
-                        <tr key={entry.name} style={i === 0 ? { background: "#FBF4E4" } : {}}>
-                          <td className="display" style={{ fontWeight: 700, color: i === 0 ? "var(--brass)" : "var(--quiet)" }}>{i + 1}</td>
+                      {leaderboard.map((entry) => (
+                        <tr key={entry.name} style={entry.rank === 1 ? { background: "#FBF4E4" } : {}}>
+                          <td className="display" style={{ fontWeight: 700, color: entry.rank === 1 ? "var(--brass)" : "var(--quiet)", whiteSpace: "nowrap" }}>
+                            {entry.rank}{entry.tied ? "=" : ""}
+                          </td>
                           <td style={{ fontWeight: 600 }}>
                             {entry.name}
                             {(() => {
