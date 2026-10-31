@@ -8,6 +8,8 @@ import { hasResult, resultOrder } from "../../../lib/showPrint";
 import { championshipTitles } from "../../../lib/championship";
 import { breakState, fmtClock } from "../../../lib/breakTimer";
 import { priceLabel } from "../../../lib/eventExtras";
+import SponsorBoard, { TitleSponsorLine, ClassSponsorLine } from "../../components/Sponsors";
+import { sponsorsForEvent, classSponsors, sponsoredByText } from "../../../lib/sponsors";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -31,13 +33,17 @@ function classCategoryText(cls) {
   return normaliseCategoryLabel(cls?.program_category);
 }
 
-function LiveClassLabel({ cls }) {
+function LiveClassLabel({ cls, sponsors }) {
   const category = classCategoryText(cls);
+  // Sponsored classes (schema-v69) get their "Proudly sponsored by" in the
+  // live banner too — the announcer's line, on screen.
+  const sponsorText = sponsoredByText(classSponsors(sponsors, cls.id));
   return (
     <>
       Live
       {category ? ` · ${category}` : ""}
       {" · "}Class {cls.num} — {cls.name}
+      {sponsorText ? <span style={{ color: "#F5D87B" }}> · {sponsorText}</span> : null}
     </>
   );
 }
@@ -86,6 +92,7 @@ export default function EventPage() {
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
   const [classes, setClasses] = useState([]);
   const [extras, setExtras] = useState([]); // camping & yards on offer (schema-v61)
+  const [sponsors, setSponsors] = useState([]); // club-wide + this event's sponsors (schema-v69)
   const [notifStatus, setNotifStatus] = useState("idle"); // idle | loading | subscribed | denied
   const [notifError, setNotifError] = useState("");
   // iPhone only allows notifications for sites added to the Home Screen, so we
@@ -111,6 +118,9 @@ export default function EventPage() {
     // Camping & yards on offer (schema-v61) — absent before the migration.
     supabase.from("event_extras").select("name, kind, unit, price_cents, sort_order").eq("event_id", id).eq("active", true)
       .order("sort_order").then(({ data, error }) => { if (!error) setExtras(data ?? []); });
+    // Sponsors (schema-v69) — absent before the migration.
+    supabase.from("sponsors").select("*").or(`event_id.is.null,event_id.eq.${id}`).order("sort_order")
+      .then(({ data, error }) => { if (!error) setSponsors(sponsorsForEvent(data, id)); });
     if (cls) {
       // Hidden classes (schema-v38) never appear to the public — and a class
       // whose every entry is scratched is effectively not running, so it's
@@ -251,6 +261,7 @@ export default function EventPage() {
             <div style={{ fontSize: 13, color: "#CBBFA9" }}>
               {event.location}{event.starts_on ? ` · ${event.starts_on}` : ""}{event.ends_on && event.ends_on !== event.starts_on ? ` – ${event.ends_on}` : ""}
             </div>
+            <TitleSponsorLine sponsors={sponsors} />
           </div>
         </header>
         <main className="wrap">
@@ -310,6 +321,7 @@ export default function EventPage() {
               )}
             </>
           )}
+          {sponsors.length > 0 && <div style={{ marginTop: 22 }}><SponsorBoard sponsors={sponsors} /></div>}
         </main>
       </>
     );
@@ -382,6 +394,7 @@ export default function EventPage() {
                           : `Judge: ${cls.judge}`}
                       </div>
                     )}
+                    <ClassSponsorLine sponsors={classSponsors(sponsors, cls.id)} />
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     {cls.pattern_url && (
@@ -495,6 +508,7 @@ export default function EventPage() {
               </div>
               <h1 className="display" style={{ fontWeight: 700, fontSize: "clamp(22px,4vw,30px)", margin: "0 0 2px" }}>{event.name}</h1>
               <div style={{ fontSize: 13, color: "#CBBFA9" }}>{event.location}</div>
+              <TitleSponsorLine sponsors={sponsors} />
             </div>
             {VAPID_PUBLIC_KEY && notifStatus !== "subscribed" && notifStatus !== "denied" && (
               iosNeedsInstall ? (
@@ -580,7 +594,7 @@ export default function EventPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
               <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
-                <LiveClassLabel cls={liveClass} />
+                <LiveClassLabel cls={liveClass} sponsors={sponsors} />
               </span>
             </div>
             <div className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", lineHeight: 1.2 }}>
@@ -596,7 +610,7 @@ export default function EventPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
               <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
-                <LiveClassLabel cls={liveClass} />
+                <LiveClassLabel cls={liveClass} sponsors={sponsors} />
               </span>
             </div>
             <div className="display" style={{ fontWeight: 700, fontSize: "clamp(20px,4vw,28px)", lineHeight: 1.2 }}>
@@ -612,7 +626,7 @@ export default function EventPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
               <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
-                <LiveClassLabel cls={liveClass} />
+                <LiveClassLabel cls={liveClass} sponsors={sponsors} />
               </span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
@@ -658,7 +672,7 @@ export default function EventPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--clay)", animation: "pulse 1.6s infinite" }} />
               <span style={{ fontSize: 11.5, letterSpacing: ".2em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 600 }}>
-                <LiveClassLabel cls={liveClass} />
+                <LiveClassLabel cls={liveClass} sponsors={sponsors} />
               </span>
             </div>
             <div className="display" style={{ fontWeight: 700, fontSize: "clamp(18px,4vw,24px)", lineHeight: 1.15 }}>
@@ -726,6 +740,7 @@ export default function EventPage() {
           )}
           {programDisplayRows(visibleClasses).map(renderClassRow)}
         </div>
+        {sponsors.length > 0 && <div style={{ marginTop: 22 }}><SponsorBoard sponsors={sponsors} /></div>}
       </main>
     </>
   );

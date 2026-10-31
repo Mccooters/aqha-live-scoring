@@ -3,12 +3,15 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
+import { ClassSponsorLine } from "../../../components/Sponsors";
+import { sponsorsForEvent, classSponsors } from "../../../../lib/sponsors";
 import { programDisplayRows, withoutHiddenClasses } from "../../../../lib/classCategories";
 
 export default function SchedulePage() {
   const { id } = useParams();
   const [event, setEvent] = useState(null);
   const [classes, setClasses] = useState([]);
+  const [sponsors, setSponsors] = useState([]); // schema-v69
 
   const load = useCallback(async () => {
     const [{ data: ev }, { data: cls }] = await Promise.all([
@@ -21,6 +24,9 @@ export default function SchedulePage() {
         .order("sort_order"),
     ]);
     if (ev) setEvent(ev);
+    // Sponsors (schema-v69) — absent before the migration.
+    supabase.from("sponsors").select("*").or(`event_id.is.null,event_id.eq.${id}`).order("sort_order")
+      .then(({ data, error }) => { if (!error) setSponsors(sponsorsForEvent(data, id)); });
     if (cls) setClasses(withoutHiddenClasses(cls)); // hidden classes (schema-v38) stay off the public schedule; their program breaks carry over
   }, [id]);
 
@@ -147,6 +153,7 @@ export default function SchedulePage() {
                             </td>
                             <td>
                               <div style={{ fontWeight: 600, fontSize: 14 }}>{cls.name}</div>
+                              <ClassSponsorLine sponsors={classSponsors(sponsors, cls.id)} />
                               {(cls.judge || cls.judge2) && (
                                 <div style={{ fontSize: 12, color: "var(--quiet)" }}>
                                   {cls.judge2 ? `Judges: ${cls.judge || "—"} · ${cls.judge2}` : `Judge: ${cls.judge}`}

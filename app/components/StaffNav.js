@@ -17,6 +17,7 @@ const STAFF_NAV = [
   { href: "/coordinator/revenue",     label: "Revenue" },
   { href: "/coordinator/raffles",     label: "Raffles" },
   { href: "/coordinator/fees",        label: "Website fees" },
+  { href: "/coordinator/sponsors",    label: "Sponsors" },
   { href: "/coordinator/numbers",     label: "New numbers" },
   { href: "/coordinator/staff",       label: "Staff access" },
   { href: "/coordinator/health",      label: "Health" },

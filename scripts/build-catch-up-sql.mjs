@@ -100,6 +100,7 @@ const PROBES = {
     "catch_up_has_table('staff_viewers') and has_table_privilege('service_role', 'public.staff_viewers', 'insert')",
   "schema-v67-paid-at.sql": "catch_up_has_column('registrations', 'paid_at')",
   "schema-v68-member-credits.sql": "catch_up_has_table('member_credits')",
+  "schema-v69-sponsors.sql": "catch_up_has_table('sponsors')",
 };
 
 function versionOf(file) {

@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
 import { programDisplayRows, withoutHiddenClasses } from "../../../../lib/classCategories";
 import { activeEntries, BEGINNER_RULES, dateRange, dayDate, drawIsPublished, fmtBack, HCQHA_RULES, IMPROVER_RULES } from "../../../../lib/showPrint";
+import { sponsorsForEvent, classSponsors, sponsoredByText, sortSponsors, tierOf } from "../../../../lib/sponsors";
 
 // The program is laid out into explicit A4 pages, each with three columns that
 // we pack ourselves (by measuring every item's real height). This avoids
@@ -41,6 +42,7 @@ function PrintStyles() {
       .class-num { text-align: right; font-weight: 700; }
       .class-name { font-weight: 600; }
       .judge-line { grid-column: 2; color: #444; font-size: 8.5px; }
+      .sponsor-line { grid-column: 2; color: #7A5C10; font-size: 8.5px; font-weight: 700; }
       .draw-list { grid-column: 2; margin: 2px 0 4px 0; padding-left: 0; list-style: none; font-size: 8.8px; color: #222; }
       .draw-list li { margin: 1px 0; }
       .entry-back { font-weight: 700; }
@@ -97,6 +99,7 @@ function ItemView({ item }) {
                 {cls.judge2 ? `Judges: ${cls.judge || "-"} / ${cls.judge2}` : `Judge: ${cls.judge}`}
               </div>
             )}
+            {item.sponsorText && <div className="sponsor-line">{item.sponsorText}</div>}
             {item.entries.length > 0 && (
               <ul className="draw-list">
                 {item.entries.map((entry) => (
@@ -115,15 +118,21 @@ function ItemView({ item }) {
   }
 }
 
-function buildItems(dayClasses, showDraw) {
+function buildItems(dayClasses, showDraw, sponsors = []) {
   const items = programDisplayRows(dayClasses).map((row) => {
     if (row.type === "category") return { key: row.key, kind: "category", label: row.label };
     if (row.type === "break") return { key: row.key, kind: "break", label: row.label };
     const cls = row.cls;
-    return { key: row.key, kind: "class", cls, entries: showDraw ? activeEntries(cls) : [] };
+    // "Proudly sponsored by …" under a sponsored class (schema-v69).
+    return { key: row.key, kind: "class", cls, entries: showDraw ? activeEntries(cls) : [], sponsorText: sponsoredByText(classSponsors(sponsors, cls.id)) };
   });
   items.push({ key: "note", kind: "note", text: "All EWD classes are walk/jog or walk/trot only." });
   items.push({ key: "finish", kind: "break", label: "FINISH" });
+  // The thank-you board, in print: every sponsor by name, biggest tier first.
+  if (sponsors.length) {
+    items.push({ key: "sponsors-title", kind: "rulesTitle", label: "Thank you to our sponsors" });
+    sortSponsors(sponsors).forEach((s, i) => items.push({ key: `sponsor-${i}`, kind: "ruleLine", text: `${s.name} (${tierOf(s.tier).label})${s.sponsored_for ? ` - ${s.sponsored_for}` : ""}` }));
+  }
   items.push({ key: "hcqha-title", kind: "rulesTitle", label: "HCQHA Rules" });
   HCQHA_RULES.forEach((rule, i) => items.push({ key: `hcqha-${i}`, kind: "ruleLine", text: rule }));
   items.push({ key: "beg-title", kind: "rulesTitle", label: "Beginner Rules" });
@@ -163,6 +172,7 @@ export default function ProgramPrintPage() {
   const searchParams = useSearchParams();
   const [event, setEvent] = useState(null);
   const [classes, setClasses] = useState([]);
+  const [sponsors, setSponsors] = useState([]); // schema-v69
   const [drawOverride, setDrawOverride] = useState(null);
   const [pages, setPages] = useState(null);
 
@@ -175,6 +185,9 @@ export default function ProgramPrintPage() {
       supabase.from("classes").select("*, entries(*)").eq("event_id", id).order("day").order("sort_order"),
     ]);
     if (ev) setEvent(ev);
+    // Sponsors (schema-v69) — absent before the migration.
+    supabase.from("sponsors").select("*").or(`event_id.is.null,event_id.eq.${id}`).order("sort_order")
+      .then(({ data, error }) => { if (!error) setSponsors(sponsorsForEvent(data, id)); });
     if (cls) setClasses(withoutHiddenClasses(cls).map((c) => ({ ...c, entries: activeEntries(c) }))); // hidden classes (schema-v38) stay off the printed program; their program breaks carry over
   }, [id]);
 
@@ -189,7 +202,7 @@ export default function ProgramPrintPage() {
   const multiDay = days.length > 1;
   const anyEntries = classes.some((cls) => (cls.entries?.length ?? 0) > 0);
   const showDraw = drawOverride ?? drawIsPublished(event);
-  const items = useMemo(() => buildItems(dayClasses, showDraw), [dayClasses, showDraw]);
+  const items = useMemo(() => buildItems(dayClasses, showDraw, sponsors), [dayClasses, showDraw, sponsors]);
 
   const title = event ? `HUNTER COAST QUARTER HORSE ASSOCIATION - ${event.name} ${showDraw ? "Draw" : "Show Program"}` : "";
   const subtitle = event

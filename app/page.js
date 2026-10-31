@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../lib/supabaseClient";
+import SponsorBoard from "./components/Sponsors";
+import { activeSponsors } from "../lib/sponsors";
 
 const STATUS_LABEL = {
   pre_open:  "Coming soon",
@@ -34,6 +36,14 @@ function SectionHeading({ title, count, first }) {
 export default function Home() {
   const [events, setEvents] = useState(null);
   const [raffles, setRaffles] = useState([]);
+  const [sponsors, setSponsors] = useState([]);
+
+  // Sponsors (schema-v69): club-wide ones plus those of events still on the
+  // page. Guarded: a database without the table simply has none.
+  useEffect(() => {
+    supabase.from("sponsors").select("*").order("sort_order")
+      .then(({ data, error }) => setSponsors(error ? [] : activeSponsors(data)));
+  }, []);
 
   // Fundraising raffles (schema-v56) get a card above the events while tickets
   // are on sale. Guarded: on a database without the table there simply are none.
@@ -54,6 +64,8 @@ export default function Home() {
   const active    = events?.filter((e) => e.status !== "archived" && e.status !== "cancelled") ?? [];
   const cancelled = events?.filter((e) => e.status === "cancelled") ?? [];
   const archived  = events?.filter((e) => e.status === "archived") ?? [];
+  const liveEventIds = new Set(active.map((e) => e.id));
+  const homeSponsors = sponsors.filter((s) => !s.event_id || liveEventIds.has(s.event_id));
 
   // Finished events are collapsed away by default (owner's rule, Sept 2026) —
   // the list is for what's coming up or on now; results stay two taps away.
@@ -222,6 +234,11 @@ export default function Home() {
               ))}
             </div>
           </details>
+        )}
+        {homeSponsors.length > 0 && (
+          <div style={{ marginTop: 26 }}>
+            <SponsorBoard sponsors={homeSponsors} title="Thank you to our sponsors" />
+          </div>
         )}
         <p style={{ textAlign: "center", marginTop: 28, fontSize: 12.5, color: "var(--quiet)" }}>
           <Link href="/refunds" style={{ color: "var(--brass)" }}>Refund policy</Link>

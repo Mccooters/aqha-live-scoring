@@ -1353,3 +1353,32 @@ unique partial index — so webhook retries can't spend it twice).
   page splits the credit part of a first payment under "Club credit" so
   provider totals match the cash. Balance payments, memberships and
   raffles can't use credit yet.
+
+## Sponsors (schema-v69)
+
+Sponsor logos and thank-yous on the public site, configured by staff
+(owner's request, Oct 2026, from the club's sponsorship invitation letter —
+tiers Platinum $1,000+, Gold, Silver, Bronze, Class/Ribbon, In-Kind; first
+event "Get Your Ranch On", 22 Nov 2026). `sponsors` table: name, tier
+(platinum|gold|silver|bronze|class|in_kind), logo_url, website_url, blurb,
+sponsored_for ("Ribbons for the trail classes"), event_id (null = club-wide:
+home page + every event), class_ids (jsonb list of sponsored class ids),
+active, sort_order. Public read, staff write, v48 viewers blocked, service
+role granted. Logos upload into the existing public `patterns` bucket under
+`sponsors/…` (no new bucket). Shared rules in `lib/sponsors.js` (`TIERS`
+with per-tier logo size, `sponsorsForEvent`, `classSponsors`,
+`sponsoredByText`, `groupByTier`); displays in `app/components/Sponsors.js`:
+`SponsorBoard` (tiered "Thank you to our sponsors" — Platinum biggest,
+Class/Ribbon and In-Kind by name; a sponsor without a logo shows a name
+pill), `TitleSponsorLine` ("Proudly presented by" under the event name for
+Platinum), `ClassSponsorLine` ("🏅 Proudly sponsored by …" under a class).
+Shown on: the home page (club-wide + sponsors of events still listed), the
+public event page (header line, class cards, live banner's class label,
+board at the bottom; clinics too), the schedule, and the printable program
+(sponsor line under the class + a "Thank you to our sponsors" list after the
+rules) and results. Staff page `/coordinator/sponsors` ("Sponsors" in the
+StaffNav row): add/edit (name, tier buttons, logo upload or pasted link,
+website, what they sponsor, blurb, event picker, class tick-list for that
+event, show/hide), ▲▼ order within a tier, Hide/Show, Remove (confirm), and
+a live preview of the board. Do not publish the president's phone/email on
+the site unless asked.
