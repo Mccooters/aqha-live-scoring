@@ -33,7 +33,7 @@ export async function eventExtraItems(db, eventId) {
 // quantity, nights, amount_cents, notes, pool, item_name, unit, event_id,
 // registration: { id, status, event_id, contact_name?, contact_email? } }.
 export async function poolBookingRows(db, ids, pools, { hasPool = true, withContact = false } = {}) {
-  const extrasCols = hasPool ? "id, name, unit, pool, event_id" : "id, name, unit, event_id";
+  const extrasCols = hasPool ? "id, name, kind, unit, pool, event_id" : "id, name, kind, unit, event_id";
   const regCols = withContact ? "id, status, event_id, contact_name, contact_email" : "id, status, event_id";
   const sel = `id, extra_id, quantity, nights, amount_cents, notes, event_extras!inner(${extrasCols}), registrations!inner(${regCols})`;
   const byId = new Map();
@@ -49,6 +49,7 @@ export async function poolBookingRows(db, ids, pools, { hasPool = true, withCont
         notes: r.notes ?? null,
         pool: hasPool ? poolOf(r.event_extras?.pool) : null,
         item_name: r.event_extras?.name ?? "Extra",
+        kind: r.event_extras?.kind ?? "other",
         unit: r.event_extras?.unit ?? "night",
         event_id: r.event_extras?.event_id ?? null,
         registration: r.registrations ?? null,
@@ -148,6 +149,7 @@ export async function bookingsForEmail(db, eventId, email) {
       event_id: r.event_id,
       event_name: nameById[r.event_id] ?? null,
       name: r.item_name,
+      kind: r.kind,
       unit: r.unit,
       quantity: r.quantity,
       nights: r.nights,

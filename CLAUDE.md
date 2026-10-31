@@ -1146,9 +1146,23 @@ those numbers (never names) so the entry form can show what's left.
 Flow: staff define items from the dashboard's "🏕 Camping & yards" button
 (`app/coordinator/ExtrasManager.js` in the modal: add / edit / switch off /
 delete, per-night defaults shown). The entry form's "🏕 Camping & yards"
-section (shown whenever the event has active items) takes a quantity per
-item, the nights (toggle buttons with "n left" per night, capped by what's
-left) and an optional note (horse names / vehicle); the money joins
+section (shown whenever the event has active items) asks for the DATES
+FIRST on dated items (toggle buttons with "n left" per night, capped by
+what's left; ticking the first date books 1, unticking the last clears
+it) and only then the quantity — "How many sites each night?" / "How many
+yards each day?" with a hint that it is sites, not nights (owner's report,
+Oct 2026: with a bare "How many" asked before the dates, every camper at a
+clinic answered with the number of nights and paid for 2 sites) — plus an
+optional note (horse names / vehicle). Quantities are written everywhere
+with `quantityLabel()` ("2 sites", "1 yard": form summary, success page,
+booking email, Square line names, staff pages). Staff fix a booking after
+the fact from the Registrations page's expanded row ("Edit" on each
+camping/yard line → `app/coordinator/ExtrasBookingEditor.js`: dates,
+quantity, note, or Remove behind a confirm; writes `registration_extras`
+directly with the staff login, recalculating `amount_cents` from the
+item's price so the steward's list and the "n left" counts come right;
+refunding money already paid stays a separate Refund-button step). The
+money joins
 `extrasCents` so it is charged up front even on a clinic deposit plan. A
 booking may be extras-only (no classes — someone who already entered and
 now needs a yard): the form allows it, `registrations/create` accepts
