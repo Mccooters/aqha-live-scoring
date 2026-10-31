@@ -5,7 +5,8 @@ import { supabase } from "../../../lib/supabaseClient";
 import ReadOnlyBanner from "../../components/ReadOnlyBanner";
 import { activeSeasons } from "../../../lib/membershipSeason";
 import { balanceDueDate, balanceDueLabel, balancePaidCents } from "../../../lib/clinicPayments";
-import { nightLabel, isDated } from "../../../lib/eventExtras";
+import { nightLabel, isDated, quantityLabel } from "../../../lib/eventExtras";
+import ExtrasBookingEditor from "../ExtrasBookingEditor";
 
 const fmtMoney = (cents) => (cents != null ? `$${(cents / 100).toFixed(2)}` : "—");
 // "AQHA 12345 · PHAA 678" from an entry's stored registration numbers.
@@ -34,6 +35,7 @@ export default function RegistrationsPage() {
   const [refundAmount, setRefundAmount] = useState({}); // reg id -> typed dollars
   const [checkingRefunds, setCheckingRefunds] = useState(null); // registration id mid-check
   const [classById, setClassById] = useState({}); // class id -> { num, name, sort_order }
+  const [editingExtra, setEditingExtra] = useState(null); // registration_extras id being edited
   const [squareStatus, setSquareStatus] = useState(null);
   const [connecting, setConnecting] = useState(false);
   const [squareNotice, setSquareNotice] = useState("");
@@ -63,7 +65,7 @@ export default function RegistrationsPage() {
     // older database answers the plain query.
     const withExtras = await supabase
       .from("registrations")
-      .select("*, registration_entries(*), registration_extras(*, event_extras(name, kind, unit))")
+      .select("*, registration_entries(*), registration_extras(*, event_extras(*))")
       .eq("event_id", eventId)
       .order("created_at", { ascending: false });
     const [{ data }, { data: clsRows }] = await Promise.all([
@@ -873,11 +875,18 @@ export default function RegistrationsPage() {
                     <div style={{ padding: "8px 0 0", fontSize: 13 }}>
                       <div style={{ fontWeight: 800, color: "var(--leather)", marginBottom: 4 }}>🏕 Camping &amp; yards</div>
                       {reg.registration_extras.map((x) => (
-                        <div key={x.id}>
-                          {x.event_extras?.name ?? "Extra"} × {x.quantity}
+                        <div key={x.id} style={{ marginBottom: 4 }}>
+                          {x.event_extras?.name ?? "Extra"} — {quantityLabel(x.event_extras, x.quantity)}
                           {isDated(x.event_extras) && Array.isArray(x.nights) && x.nights.length ? ` · ${x.nights.map(nightLabel).join(", ")}` : ""}
                           {" — "}{fmtMoney(x.amount_cents)}
                           {x.notes ? <span style={{ color: "var(--quiet)" }}> · {x.notes}</span> : null}
+                          {editingExtra !== x.id && (
+                            <button className="btn-ghost" style={{ fontSize: 11, marginLeft: 8 }} onClick={() => setEditingExtra(x.id)}>Edit</button>
+                          )}
+                          {editingExtra === x.id && (
+                            <ExtrasBookingEditor booking={x} event={selectedEvent}
+                              onDone={(changed) => { setEditingExtra(null); if (changed) load(); }} />
+                          )}
                         </div>
                       ))}
                     </div>

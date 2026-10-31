@@ -2,7 +2,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { nightLabel, isDated } from "../../../../../lib/eventExtras";
+import { nightLabel, isDated, quantityLabel } from "../../../../../lib/eventExtras";
 
 // Poll for up to ~5 minutes (2s early, then 10s) — the Square webhook can lag
 // under load, and stopping at 30s while still telling the user "this updates
@@ -267,7 +267,7 @@ function SuccessContent() {
                   {reg.extras.map((x, i) => (
                     <div key={x.id} style={{ padding: "10px 14px", borderBottom: i < reg.extras.length - 1 ? "1px solid var(--line)" : "none", fontSize: 14 }}>
                       <div style={{ fontWeight: 600 }}>
-                        {x.name} × {x.quantity}{isDated(x) && x.nights?.length ? ` · ${x.nights.map(nightLabel).join(", ")}` : ""}
+                        {x.name} — {quantityLabel(x, x.quantity)}{isDated(x) && x.nights?.length ? ` · ${x.nights.map(nightLabel).join(", ")}` : ""}
                       </div>
                       {x.notes && <div style={{ color: "var(--quiet)", fontSize: 13 }}>{x.notes}</div>}
                     </div>

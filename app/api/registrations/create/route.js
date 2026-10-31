@@ -7,7 +7,7 @@ import { createSquarePaymentLink, deleteSquarePaymentLink } from "../../_lib/squ
 import { createPayPalOrder, saveCheckout } from "../../_lib/paypal";
 import { signupSeason, activeSeasons } from "../../../../lib/membershipSeason";
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
-import { extraNights, extraAmountCents, nightLabel, MAX_QUANTITY, isDated, unitNoun } from "../../../../lib/eventExtras";
+import { extraNights, extraAmountCents, nightLabel, MAX_QUANTITY, isDated, unitNoun, quantityLabel } from "../../../../lib/eventExtras";
 import { bookedExtraCounts } from "../../_lib/extras";
 
 const DAY_MEMBERSHIP_CENTS = 2000;
@@ -837,7 +837,7 @@ export async function POST(req) {
     for (const x of extrasRows) {
       if (!(x.amount > 0)) continue;
       lineItems.push({
-        name: `${x.def.name} × ${x.quantity}${isDated(x.def) ? ` — ${x.nights.length} ${unitNoun(x.def, x.nights.length)}` : ""}`,
+        name: `${x.def.name} — ${quantityLabel(x.def, x.quantity)}${isDated(x.def) ? ` × ${x.nights.length} ${unitNoun(x.def, x.nights.length)}` : ""}`,
         quantity: "1",
         base_price_money: { amount: x.amount, currency: "AUD" },
         note: [isDated(x.def) ? x.nights.map(nightLabel).join(", ") : "Whole event", x.notes].filter(Boolean).join(" · ").slice(0, 500),

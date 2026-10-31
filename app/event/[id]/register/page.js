@@ -7,7 +7,7 @@ import { groupedByProgramCategory } from "../../../../lib/classCategories";
 import { signupSeason, currentSeason, activeSeasons } from "../../../../lib/membershipSeason";
 
 import { classFeeCents, depositWindowOpen, balanceDueLabel } from "../../../../lib/clinicPayments";
-import { extraNights, nightLabel, extraAmountCents, priceLabel, KIND_ICON, MAX_QUANTITY, isDated, unitNoun } from "../../../../lib/eventExtras";
+import { extraNights, nightLabel, extraAmountCents, priceLabel, KIND_ICON, MAX_QUANTITY, isDated, unitNoun, quantityLabel } from "../../../../lib/eventExtras";
 const fmtMoney = (cents) => `$${(cents / 100).toFixed(2)}`;
 // "2026-2027" → "2026–27"
 const shortSeason = (season) => {
@@ -1628,7 +1628,7 @@ export default function RegisterPage() {
                 <div style={{ fontWeight: 800, color: "#2D7A52" }}>✓ Already booked under this email</div>
                 {myExtras.map((m, i) => (
                   <div key={i}>
-                    {m.name} × {m.quantity}
+                    {m.name} — {quantityLabel(m, m.quantity)}
                     {isDated(m) && m.nights?.length ? ` · ${m.nights.map(nightLabel).join(", ")}` : ""}
                     {m.event_name && m.event_id !== eventId ? ` (booked with ${m.event_name})` : ""}
                   </div>
@@ -1657,6 +1657,19 @@ export default function RegisterPage() {
                 const maxQty = isDated(x)
                   ? Math.min(MAX_QUANTITY, ...(chosen.length ? chosen.map((n) => leftFor(n) ?? MAX_QUANTITY) : [x.capacity ?? MAX_QUANTITY]))
                   : Math.min(MAX_QUANTITY, leftTotal ?? MAX_QUANTITY);
+                const qtyMax = isDated(x) ? Math.max(1, maxQty) : maxQty;
+                // Say what the number counts. Owner's report, Oct 2026: asked a
+                // bare "How many" before the dates, every camper at a clinic
+                // answered with the number of nights and paid for two sites.
+                const qtyNoun = x.kind === "camping" ? "sites" : x.kind === "yard" ? "yards" : "";
+                const qtyLabel = isDated(x)
+                  ? `How many ${qtyNoun ? `${qtyNoun} ` : ""}each ${unitNoun(x)}?`
+                  : `How many${qtyNoun ? ` ${qtyNoun}` : ""}?`;
+                const qtyHint = x.kind === "camping"
+                  ? `One site fits one vehicle or caravan. This is the number of sites, not the number of ${unitNoun(x, 2)} — most people need 1.`
+                  : x.kind === "yard"
+                    ? `One yard per horse. This is the number of yards, not the number of ${unitNoun(x, 2)}.`
+                    : `This is how many you need each ${unitNoun(x)}, not the number of ${unitNoun(x, 2)}.`;
                 return (
                   <div key={x.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "#fff" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
@@ -1673,29 +1686,23 @@ export default function RegisterPage() {
                       <div style={{ fontSize: 13, color: "var(--clay)", fontWeight: 700, marginTop: 6 }}>Sold out</div>
                     ) : (
                       <>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
-                          <label style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-                            How many
-                            <select className="field" style={{ fontSize: 14, padding: "6px 10px" }} value={booking.quantity}
-                              onChange={(e) => setB({ quantity: parseInt(e.target.value, 10) || 0 })}>
-                              {Array.from({ length: Math.max(0, maxQty) + 1 }, (_, i) => <option key={i} value={i}>{i}</option>)}
-                            </select>
-                          </label>
-                          {!isDated(x) && leftTotal != null && (
-                            <span style={{ fontSize: 12, color: "var(--quiet)" }}>{leftTotal} left</span>
-                          )}
-                        </div>
-                        {isDated(x) && booking.quantity > 0 && (
+                        {isDated(x) && (
                           <div style={{ marginTop: 8 }}>
                             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--quiet)", marginBottom: 6 }}>Which {unitNoun(x, 2)}?</div>
                             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                               {nights.map((n) => {
                                 const on = chosen.includes(n);
                                 const left = leftFor(n);
-                                const full = !on && left != null && left < booking.quantity;
+                                const full = !on && left != null && left < Math.max(1, booking.quantity);
                                 return (
                                   <button key={n} type="button" disabled={full} aria-pressed={on}
-                                    onClick={() => setB({ nights: on ? chosen.filter((d) => d !== n) : [...chosen, n].sort() })}
+                                    onClick={() => {
+                                      // Dates come first; ticking the first one books ONE site/yard
+                                      // and unticking the last clears the booking. The quantity
+                                      // question only appears after a date is chosen.
+                                      const next = on ? chosen.filter((d) => d !== n) : [...chosen, n].sort();
+                                      setB({ nights: next, quantity: next.length ? Math.max(1, booking.quantity) : 0 });
+                                    }}
                                     style={{ fontFamily: "inherit", fontSize: 13, fontWeight: 700, padding: "7px 11px", borderRadius: 9, cursor: full ? "not-allowed" : "pointer",
                                       border: `2px solid ${on ? "var(--leather)" : "var(--line)"}`, background: on ? "var(--leather)" : "#fff",
                                       color: on ? "#F2EADB" : full ? "var(--quiet)" : "var(--leather)", opacity: full ? 0.6 : 1 }}>
@@ -1707,6 +1714,25 @@ export default function RegisterPage() {
                               })}
                             </div>
                           </div>
+                        )}
+                        {(!isDated(x) || chosen.length > 0) && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                            <label style={{ fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+                              {qtyLabel}
+                              <select className="field" style={{ fontSize: 14, padding: "6px 10px" }} value={booking.quantity}
+                                onChange={(e) => setB({ quantity: parseInt(e.target.value, 10) || 0 })}>
+                                {Array.from({ length: Math.max(0, qtyMax) + 1 }, (_, i) => i)
+                                  .filter((i) => !isDated(x) || i > 0)
+                                  .map((i) => <option key={i} value={i}>{i}</option>)}
+                              </select>
+                            </label>
+                            {!isDated(x) && leftTotal != null && (
+                              <span style={{ fontSize: 12, color: "var(--quiet)" }}>{leftTotal} left</span>
+                            )}
+                          </div>
+                        )}
+                        {isDated(x) && chosen.length > 0 && (
+                          <div style={{ fontSize: 12, color: "var(--quiet)", marginTop: 4 }}>{qtyHint}</div>
                         )}
                         {booking.quantity > 0 && (
                           <input className="field" style={{ width: "100%", fontSize: 14, padding: "7px 10px", marginTop: 8, boxSizing: "border-box" }}
@@ -1754,8 +1780,9 @@ export default function RegisterPage() {
                 )}
                 {bookedExtras.map(({ extra, booking }) => (
                   <div key={extra.id} style={{ fontSize: 13, color: "var(--leather)", fontWeight: 700, marginTop: 3 }}>
-                    {extra.name} × {booking.quantity}
-                    {isDated(extra) ? ` · ${(booking.nights ?? []).length} ${unitNoun(extra, (booking.nights ?? []).length)}` : ""}
+                    {isDated(extra)
+                      ? `${extra.name}: ${quantityLabel(extra, booking.quantity)} × ${(booking.nights ?? []).length} ${unitNoun(extra, (booking.nights ?? []).length)}`
+                      : `${extra.name} × ${booking.quantity}`}
                     {" — "}{fmtMoney(extraAmountCents(extra, booking.quantity, booking.nights ?? []))}
                   </div>
                 ))}
