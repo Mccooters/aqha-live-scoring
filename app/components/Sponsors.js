@@ -90,18 +90,23 @@ export default function SponsorBoard({ sponsors, title = "Thank you to our spons
 
 // Platinum = Event Title Sponsor: "Proudly presented by" under the event
 // name in the dark header.
-export function TitleSponsorLine({ sponsors }) {
+// `large` = the event-page header version: sits in the flex row beside the
+// event name (owner's request, Nov 2026 — "larger and inline with the
+// event"), takes the free space, wraps underneath on a phone.
+export function TitleSponsorLine({ sponsors, large = false }) {
   const list = (sponsors ?? []).filter((s) => s.tier === "platinum");
   if (!list.length) return null;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
-      <span style={{ fontSize: 10.5, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 700 }}>
+    <div style={large
+      ? { display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", flex: "1 1 320px", justifyContent: "center", padding: "6px 0" }
+      : { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
+      <span style={{ fontSize: large ? 12 : 10.5, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass-soft)", fontWeight: 700 }}>
         Proudly presented by
       </span>
       {list.map((s) => (
-        <SponsorLink key={s.id} sponsor={s} style={{ flexDirection: "row", gap: 8 }}>
-          <SponsorLogo sponsor={s} size={56} dark />
-          {s.logo_url && <span style={{ fontSize: 13, fontWeight: 700, color: "#F5EFE4" }}>{s.name}</span>}
+        <SponsorLink key={s.id} sponsor={s} style={{ flexDirection: "row", gap: large ? 14 : 8 }}>
+          <SponsorLogo sponsor={s} size={large ? 110 : 56} dark />
+          {s.logo_url && <span className={large ? "display" : undefined} style={{ fontSize: large ? 20 : 13, fontWeight: 700, color: "#F5EFE4" }}>{s.name}</span>}
         </SponsorLink>
       ))}
     </div>
