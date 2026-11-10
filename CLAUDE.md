@@ -303,7 +303,24 @@ PR with a clear plain-English description.
 - `app/coordinator/ImportClasses.js` — bulk class-list import (no entries,
   just classes) so exhibitors have something to pick from when registering
   online before the secretary has full draw data. Maps a "Type" column to
-  scoring mode, including the two TBC variants.
+  scoring mode, including the two TBC variants. **Re-uploading an updated
+  list** (owner's report, Nov 2026 — the changes were hard to see and
+  booked classes had to keep their bookings): `lib/classImportPlan.js`
+  plans the import BEFORE anything is written — `autoMatch` (number+name,
+  category+name, name; each existing class claimed once), `suggestLinks`
+  (a new row with the same number as an unmatched class and a similar
+  name = a likely rename), `buildPlan` (added / changed field-by-field /
+  unchanged / in the program but not in the file, plus `finalOrder`, which
+  keeps a left-out class right after the class it used to follow, and
+  duplicate class numbers). The modal loads the event's classes with
+  booking counts (non-scratched entries + pending online registrations)
+  and shows "n new · n changed · n unchanged · n not in the file (kept)",
+  "n booked" badges, old → new values, and a dropdown on each new class to
+  link it to an existing one (rename instead of add, so its bookings move
+  with it). Nothing is ever deleted; updates keep the class id, so every
+  booking stays attached; the Type is never changed on a class that is
+  live/completed or already has results; a capacity below the bookings is
+  flagged (nobody loses a place).
 - `app/coordinator/program/page.js` — staff **Program builder** ("📋 Program
   builder" toolbar link, shows only): the whole running order on one screen
   with ＋ strips between classes to add/rename/remove section headings

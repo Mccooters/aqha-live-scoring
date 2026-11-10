@@ -3,6 +3,7 @@ import { useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { normaliseBreakLabel, normaliseCategoryLabel } from "../../lib/classCategories";
 import { isChampionship, looksLikeChampionship, looksLikeSupreme, suggestFeederIds } from "../../lib/championship";
+import { autoMatch, suggestLinks, buildPlan } from "../../lib/classImportPlan";
 
 const ALIASES = {
   num:          ["class #", "class no", "class number", "class num", "num", "#", "number", "no"],
@@ -57,22 +58,6 @@ function looksLikeCategoryHeading(obj) {
   return letters.length >= 4 && name === name.toUpperCase();
 }
 
-function classIdentityKey(cls) {
-  const category = normaliseCategoryLabel(cls.program_category).toLowerCase();
-  const name = String(cls.name ?? "").trim().toLowerCase();
-  return `${category}::${name}`;
-}
-
-function uniqueMap(rows, keyFn) {
-  const map = new Map();
-  rows.forEach((row) => {
-    const key = keyFn(row);
-    if (!key) return;
-    map.set(key, map.has(key) ? null : row);
-  });
-  return map;
-}
-
 function parseOptionalInt(raw) {
   const value = String(raw ?? "").trim();
   if (!value) return null;
@@ -86,6 +71,39 @@ export default function ImportClasses({ eventId, onDone }) {
   const [importing, setImporting] = useState(false);
   const [done, setDone]       = useState(false);
   const [error, setError]     = useState("");
+  // The event's classes as they stand, with how many people have booked each
+  // (placed entries + unpaid online bookings) — loaded when a file is chosen
+  // so the preview can show exactly what the import changes.
+  const [existing, setExisting] = useState(null);
+  const [links, setLinks]       = useState([]); // per sheet row: existing class id it updates, or null = new class
+  const [showAll, setShowAll]   = useState(false);
+
+  const loadExisting = async (parsed) => {
+    const { data: cls, error: clsErr } = await supabase
+      .from("classes").select("*").eq("event_id", eventId);
+    if (clsErr) throw clsErr;
+    const ids = (cls ?? []).map((c) => c.id);
+    const booked = {}, results = {};
+    if (ids.length) {
+      const { data: ents } = await supabase
+        .from("entries").select("class_id, scratched, score, score2").in("class_id", ids);
+      for (const e of ents ?? []) {
+        if (!e.scratched) booked[e.class_id] = (booked[e.class_id] ?? 0) + 1;
+        if (e.score != null || e.score2 != null) results[e.class_id] = true;
+      }
+      // Unpaid online bookings waiting on payment count too — they become
+      // entries in this class the moment they're paid.
+      const { data: pend } = await supabase
+        .from("registration_entries").select("class_id, registrations!inner(status)")
+        .in("class_id", ids).eq("registrations.status", "pending");
+      for (const p of pend ?? []) booked[p.class_id] = (booked[p.class_id] ?? 0) + 1;
+    }
+    const rows = (cls ?? []).map((c) => ({ ...c, booked: booked[c.id] ?? 0, hasResults: !!results[c.id] }));
+    const auto = autoMatch(parsed, rows);
+    const sugg = suggestLinks(parsed, rows, auto);
+    setExisting(rows);
+    setLinks(auto.map((id, i) => id ?? sugg[i] ?? null));
+  };
 
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
@@ -178,78 +196,42 @@ export default function ImportClasses({ eventId, onDone }) {
       if (!parsed.length) { setError("No class names found. Make sure the spreadsheet has a 'Class Name' column."); return; }
       setRows(parsed);
       setWarnings(warns);
+      await loadExisting(parsed);
     } catch (err) {
       setError("Could not read file: " + (err?.message ?? String(err)));
     }
   };
 
+  const plan = rows && existing ? buildPlan(rows, existing, links) : null;
+
   const commit = async () => {
-    if (!rows?.length) return;
+    if (!rows?.length || !plan) return;
     setImporting(true);
     try {
-      // Find the current max num and sort_order so we don't collide
-      const { data: existing } = await supabase
-        .from("classes").select("id, num, name, sort_order, program_category")
-        .eq("event_id", eventId);
-
-      const existingRows = existing ?? [];
-      const existingByNumAndName = uniqueMap(existingRows, (c) => c.num == null ? "" : `${c.num}::${String(c.name ?? "").trim().toLowerCase()}`);
-      const existingByIdentity = uniqueMap(existingRows, classIdentityKey);
-      const existingByName = uniqueMap(existingRows, (c) => String(c.name ?? "").trim().toLowerCase());
-      let maxNum   = Math.max(0, ...(existing ?? []).map((c) => c.num));
-      let maxOrder = Math.max(0, ...(existing ?? []).map((c) => c.sort_order));
-
-      const toInsert = [];
-      const toUpdate = [];
-
-      for (const r of rows) {
-        const numNameMatch = r.num == null ? null : existingByNumAndName.get(`${r.num}::${r.name.toLowerCase()}`);
-        const identityMatch = existingByIdentity.get(classIdentityKey(r));
-        const nameMatch = r.num == null ? existingByName.get(r.name.toLowerCase()) : null;
-        const match = numNameMatch || identityMatch || nameMatch;
-        if (match) {
-          // Update judges and other fields on the existing class
-          // Only overwrite the scoring mode when the sheet actually had a
-          // Type column — a judges-only re-upload must never reset
-          // Placing/TBC classes back to Score.
-          const patch = { sort_order: r.sort_order };
-          if (r.hasModeCol) patch.scoring_mode = r.scoring_mode;
-          if (r.hasJudgeCol) patch.judge = r.judge;
-          if (r.hasJudge2Col) patch.judge2 = r.judge2 || null;
-          if (r.hasCategoryCol) patch.program_category = normaliseCategoryLabel(r.program_category) || null;
-          if (r.hasBreakCol) patch.program_break_before = normaliseBreakLabel(r.program_break_before) || null;
-          if (r.hasBreakAfterCol) patch.program_break_after = normaliseBreakLabel(r.program_break_after) || null;
-          if (r.hp_category !== null) patch.hp_category = r.hp_category;
-          if (r.hasDayCol) patch.day = r.day || 1;
-          if (r.hasCapacityCol) patch.capacity = r.capacity;
-          if (r.hasPatternCol) patch.pattern_url = r.pattern_url;
-          if (r.num !== null) patch.num = r.num;
-          toUpdate.push({ id: match.id, ...patch });
-        } else {
-          const assignedNum = r.num ?? (maxNum + 1);
-          maxNum   = Math.max(maxNum, assignedNum);
-          const assignedOrder = r.sort_order ?? (maxOrder + 1);
-          maxOrder = Math.max(maxOrder, assignedOrder);
-          const insertRow = {
-            event_id:     eventId,
-            num:          assignedNum,
-            name:         r.name,
-            judge:        r.judge,
-            judge2:       r.judge2 || null,
-            sort_order:   assignedOrder,
-            status:       "upcoming",
-            scoring_mode: r.scoring_mode,
-            hp_category:  r.hp_category,
-            day:          r.day || 1,
-            capacity:     r.capacity,
-            pattern_url:  r.pattern_url,
-          };
-          if (r.program_category) insertRow.program_category = normaliseCategoryLabel(r.program_category);
-          if (r.program_break_before) insertRow.program_break_before = normaliseBreakLabel(r.program_break_before);
-          if (r.program_break_after) insertRow.program_break_after = normaliseBreakLabel(r.program_break_after);
-          toInsert.push(insertRow);
-        }
-      }
+      const toInsert = plan.writes.inserts.map(({ i, sort_order }) => {
+        const r = rows[i];
+        const insertRow = {
+          event_id:     eventId,
+          num:          r.num,
+          name:         r.name,
+          judge:        r.judge,
+          judge2:       r.judge2 || null,
+          sort_order,
+          status:       "upcoming",
+          scoring_mode: r.scoring_mode,
+          hp_category:  r.hp_category,
+          day:          r.day || 1,
+          capacity:     r.capacity,
+          pattern_url:  r.pattern_url,
+        };
+        if (r.program_category) insertRow.program_category = normaliseCategoryLabel(r.program_category);
+        if (r.program_break_before) insertRow.program_break_before = normaliseBreakLabel(r.program_break_before);
+        if (r.program_break_after) insertRow.program_break_after = normaliseBreakLabel(r.program_break_after);
+        return insertRow;
+      });
+      // Rows without a class number get the next free one.
+      let maxNum = Math.max(0, ...existing.map((c) => c.num ?? 0), ...toInsert.map((r) => r.num ?? 0));
+      toInsert.forEach((r) => { if (r.num == null) r.num = ++maxNum; });
 
       const insertedIds = new Set();
       if (toInsert.length) {
@@ -257,7 +239,9 @@ export default function ImportClasses({ eventId, onDone }) {
         if (insErr) throw insErr;
         (inserted ?? []).forEach((c) => insertedIds.add(c.id));
       }
-      for (const { id, ...patch } of toUpdate) {
+      // Updates only ever change fields on an existing class — its id, and so
+      // every entry and online booking attached to it, stays the same.
+      for (const { id, patch } of plan.writes.updates) {
         const { error: updErr } = await supabase.from("classes").update(patch).eq("id", id);
         if (updErr) throw updErr;
       }
@@ -290,7 +274,8 @@ export default function ImportClasses({ eventId, onDone }) {
         }
       }
 
-      setDone({ created: toInsert.length, updated: toUpdate.length, linked });
+      setDone({ created: toInsert.length, updated: plan.updated.length, kept: plan.kept.length, linked,
+        bookedKept: plan.bookedClasses.length });
     } catch (err) {
       setError(err.message?.includes("program_category")
         ? 'Database migration needed. Please run "schema-v19-class-categories.sql" in your Supabase SQL Editor first.'
@@ -306,9 +291,15 @@ export default function ImportClasses({ eventId, onDone }) {
       <>
         <h2 className="display modal-title">Classes imported</h2>
         <p style={{ color: "var(--green)", fontWeight: 700 }}>
-          ✓ {done.created} class{done.created !== 1 ? "es" : ""} created
-          {done.updated > 0 && `, ${done.updated} updated`}.
+          ✓ {done.created} class{done.created !== 1 ? "es" : ""} added
+          {done.updated > 0 && `, ${done.updated} changed`}
+          {done.kept > 0 && `, ${done.kept} kept that weren't in the file`}.
         </p>
+        {done.bookedKept > 0 && (
+          <p style={{ fontSize: 13, color: "var(--leather)", marginTop: 0 }}>
+            All {done.bookedKept} class{done.bookedKept !== 1 ? "es" : ""} people had booked are still in the program with their bookings.
+          </p>
+        )}
         {done.linked > 0 && (
           <p style={{ fontSize: 13, color: "var(--leather)", marginTop: 0 }}>
             🏆 {done.linked} championship class{done.linked !== 1 ? "es" : ""} linked to the classes above {done.linked !== 1 ? "them" : "it"} in the program. Open a championship from its ⋯ menu to check the ticked feeder classes.
@@ -326,7 +317,8 @@ export default function ImportClasses({ eventId, onDone }) {
     <>
       <h2 className="display modal-title">Import class list</h2>
       <p style={{ marginTop: 0, fontSize: 13.5, color: "var(--quiet)" }}>
-        Upload a spreadsheet of classes to add to this event. No entries needed — just the class list.
+        Upload a spreadsheet of classes to add to this event, or an updated version of the whole list — classes already
+        in the program are matched and updated, never deleted, and you see every change before it is saved. No entries needed — just the class list.
         Exhibitors will then be able to pick from these classes when registering online. The example file includes an Options tab and grey free-entry cells for class numbers, names, and judges.{" "}
         <a href="/hcqha-class-list-template.xlsx" download style={{ color: "var(--brass)", fontWeight: 700 }}>
           Download example class template
@@ -347,9 +339,11 @@ export default function ImportClasses({ eventId, onDone }) {
         </>
       ) : (
         <>
-          <p style={{ fontSize: 13, color: "var(--quiet)", marginBottom: 8 }}>
-            {rows.length} classes ready to create.
-          </p>
+          {!plan ? (
+            <p style={{ fontSize: 13, color: "var(--quiet)" }}>Comparing with the current program…</p>
+          ) : (
+            <ImportChanges plan={plan} rows={rows} existing={existing} links={links} setLinks={setLinks} />
+          )}
           {warnings.length > 0 && (
             <div style={{ background: "#FFF8EC", border: "1px solid var(--brass)", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 13 }}>
               <strong>Notes:</strong>
@@ -358,6 +352,8 @@ export default function ImportClasses({ eventId, onDone }) {
               </ul>
             </div>
           )}
+          <details open={showAll} onToggle={(e) => setShowAll(e.currentTarget.open)} style={{ marginBottom: 12 }}>
+            <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 700, color: "var(--leather)" }}>Everything in the file ({rows.length} classes)</summary>
           <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12 }}>
             <table>
               <thead>
@@ -398,15 +394,123 @@ export default function ImportClasses({ eventId, onDone }) {
               </tbody>
             </table>
           </div>
+          </details>
           {error && <p className="modal-error">{error}</p>}
           <div style={{ display: "flex", gap: 10 }}>
-            <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={commit} disabled={importing}>
-              {importing ? "Importing…" : `Import ${rows.length} class${rows.length !== 1 ? "es" : ""}`}
+            <button className="btn" style={{ flex: 1, background: "var(--leather)" }} onClick={commit} disabled={importing || !plan}>
+              {importing ? "Saving…" : !plan ? "Comparing…" : `Apply: ${plan.added.length} new, ${plan.updated.length} changed`}
             </button>
             <button className="btn-ghost" style={{ padding: "10px 18px" }}
-              onClick={() => { setRows(null); setWarnings([]); setError(""); }}>Back</button>
+              onClick={() => { setRows(null); setWarnings([]); setError(""); setExisting(null); setLinks([]); }}>Back</button>
           </div>
         </>
+      )}
+    </>
+  );
+}
+
+// The "what will change" preview. Booked classes are called out everywhere:
+// nothing here can remove a booking, but a class renamed in the sheet only
+// keeps its bookings if it is linked to the existing class (the dropdown on
+// each new class).
+const bookedTag = (n) => (n > 0 ? (
+  <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 800, padding: "1px 7px", borderRadius: 999, background: "#2D7A52", color: "#fff", whiteSpace: "nowrap" }}>
+    {n} booked
+  </span>
+) : null);
+const clsLabel = (c) => `${c.num != null ? `#${c.num} ` : ""}${c.name}`;
+
+export function ImportChanges({ plan, rows, existing, links, setLinks }) {
+  const linkedIds = new Set(links.filter(Boolean));
+  const box = { border: "1px solid var(--line)", borderRadius: 8, padding: "8px 12px", marginBottom: 10, fontSize: 13, background: "#fff" };
+  const h = { fontWeight: 800, color: "var(--leather)", marginBottom: 4 };
+  const bookedKept = plan.bookedClasses.length;
+  return (
+    <>
+      <div style={{ ...box, background: "#E6F2EA", borderColor: "#2D7A52" }}>
+        <div style={{ fontWeight: 800, color: "#2D7A52" }}>
+          {plan.added.length} new · {plan.updated.length} changed · {plan.unchanged.length} unchanged
+          {plan.kept.length > 0 ? ` · ${plan.kept.length} not in the file (kept)` : ""}
+        </div>
+        <div style={{ color: "var(--leather)", marginTop: 2 }}>
+          No class is deleted.{bookedKept > 0 ? ` All ${bookedKept} class${bookedKept !== 1 ? "es" : ""} people have booked stay in the program, and every booking stays with its class.` : ""}
+          {plan.moved > 0 ? ` ${plan.moved} class${plan.moved !== 1 ? "es" : ""} move to match the file's order.` : ""}
+        </div>
+      </div>
+
+      {plan.duplicateNumbers.length > 0 && (
+        <div style={{ ...box, background: "#FFF8EC", borderColor: "var(--brass)" }}>
+          <div style={h}>⚠ Two classes would share a number</div>
+          {plan.duplicateNumbers.map((d) => (
+            <div key={d.num}>#{d.num}: {d.names.join(" and ")}</div>
+          ))}
+          <div style={{ color: "var(--quiet)", marginTop: 4 }}>If one is the other renamed, link it below so it is updated instead of added.</div>
+        </div>
+      )}
+
+      {plan.added.length > 0 && (
+        <div style={box}>
+          <div style={h}>New classes ({plan.added.length})</div>
+          <div style={{ color: "var(--quiet)", marginBottom: 6 }}>
+            If one of these is an existing class with a new name, choose it in the box — it is then renamed instead, and keeps its bookings.
+          </div>
+          {plan.added.map(({ i, row }) => {
+            const options = existing.filter((c) => !linkedIds.has(c.id) || links[i] === c.id)
+              .sort((a, b) => (a.num ?? 0) - (b.num ?? 0));
+            return (
+              <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "4px 0", borderTop: "1px solid var(--line)" }}>
+                <span style={{ fontWeight: 700, flex: "1 1 200px" }}>{clsLabel(row)}{row.program_category ? <span style={{ color: "var(--quiet)", fontWeight: 400 }}> · {row.program_category}</span> : null}</span>
+                <select className="field" style={{ fontSize: 12.5, padding: "4px 6px", maxWidth: 320 }} value=""
+                  onChange={(e) => setLinks((cur) => cur.map((v, k) => (k === i ? (e.target.value || null) : v)))}>
+                  <option value="">Add as a new class</option>
+                  {options.map((c) => (
+                    <option key={c.id} value={c.id}>Same class as {clsLabel(c)}{c.booked ? ` (${c.booked} booked)` : ""}</option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {plan.updated.length > 0 && (
+        <div style={box}>
+          <div style={h}>Changes to existing classes ({plan.updated.length})</div>
+          {plan.updated.map(({ i, cls, changes, notes }) => (
+            <div key={cls.id} style={{ padding: "5px 0", borderTop: "1px solid var(--line)" }}>
+              <div style={{ fontWeight: 700 }}>
+                {clsLabel(cls)}{bookedTag(cls.booked)}
+                {links[i] && rows[i] && String(rows[i].name).trim().toLowerCase() !== String(cls.name).trim().toLowerCase() && (
+                  <button className="btn-ghost" style={{ fontSize: 11, marginLeft: 8 }}
+                    onClick={() => setLinks((cur) => cur.map((v, k) => (k === i ? null : v)))}>Unlink</button>
+                )}
+              </div>
+              {changes.map((c) => (
+                <div key={c.field} style={{ color: "var(--ink)" }}>
+                  {c.label}: <span style={{ color: "var(--quiet)", textDecoration: "line-through" }}>{c.from}</span> → <strong>{c.to}</strong>
+                </div>
+              ))}
+              {notes.map((n, k) => <div key={k} style={{ color: "#A05000" }}>⚠ {n}</div>)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {plan.kept.length > 0 && (
+        <div style={box}>
+          <div style={h}>In the program but not in the file ({plan.kept.length})</div>
+          <div style={{ color: "var(--quiet)", marginBottom: 4 }}>
+            These stay exactly as they are, in their usual place in the running order. Delete or hide them on the dashboard if they're no longer wanted.
+          </div>
+          {plan.kept.map((c) => (
+            <div key={c.id} style={{ padding: "3px 0", borderTop: "1px solid var(--line)" }}>
+              {clsLabel(c)}{bookedTag(c.booked)}
+              {c.booked > 0 && plan.added.length > 0 && (
+                <span style={{ color: "#A05000" }}> — renamed in the file? Link it under New classes.</span>
+              )}
+            </div>
+          ))}
+        </div>
       )}
     </>
   );
