@@ -187,7 +187,7 @@ export default function SponsorsPage() {
           <>
             <section className="card" style={{ padding: "14px 16px" }}>
               <p style={{ margin: "0 0 10px", fontSize: 14, color: "var(--quiet)" }}>
-                Add each sponsor once. The website sizes their logo by tier — <strong>Platinum</strong> is named as the event title sponsor at the top of the event page, <strong>Gold / Silver / Bronze</strong> logos appear on the sponsor board (biggest first), and <strong>Class / Ribbon</strong> and <strong>In-Kind</strong> sponsors are listed by name. Tick the classes a sponsor pays for and &ldquo;Proudly sponsored by …&rdquo; appears on those classes in the program, the schedule, live scoring and the results.
+                Add each sponsor once. The website sizes their logo by tier — <strong>Platinum</strong> is named as the event title sponsor at the top of the event page, <strong>Gold / Silver / Bronze</strong> logos appear large to small on the sponsor board, and <strong>Class / Ribbon</strong> and <strong>In-Kind</strong> logos appear smaller at the bottom of it. A sponsor without a logo is listed by name. The board also prints at the bottom of the show program. Tick the classes a sponsor pays for and &ldquo;Proudly sponsored by …&rdquo; appears on those classes in the program, the schedule, live scoring and the results.
               </p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <button className="btn" onClick={openNew} style={{ background: "var(--leather)" }}>+ Add sponsor</button>
@@ -278,8 +278,8 @@ export default function SponsorsPage() {
               {formTier.key === "gold" && "Large logo on the sponsor board of the home page and event pages."}
               {formTier.key === "silver" && "Logo on the sponsor board, plus naming of a class or ribbon set — tick the classes below."}
               {formTier.key === "bronze" && "Small logo (or name) on the thank-you board."}
-              {formTier.key === "class" && "Listed by name on the thank-you board, and “Proudly sponsored by …” on the classes you tick below."}
-              {formTier.key === "in_kind" && "Listed by name under “With thanks for in-kind support”."}
+              {formTier.key === "class" && "Small logo (or name) on the thank-you board, and “Proudly sponsored by …” on the classes you tick below."}
+              {formTier.key === "in_kind" && "Small logo (or name) under “With thanks for in-kind support”."}
             </div>
 
             <label className="modal-label">Logo</label>

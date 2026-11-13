@@ -37,51 +37,40 @@ export function SponsorLogo({ sponsor, size, dark = false }) {
   );
 }
 
-// "Our sponsors" board: one row per tier, biggest first.
+// "Our sponsors" board: one row per tier, biggest first. Everything is
+// centred and every sponsor with a logo shows it, whatever the tier
+// (owner's request, Nov 2026 — Class/Ribbon and In-Kind logos used to be
+// left off and the smaller tiers sat against the left edge).
 export default function SponsorBoard({ sponsors, title = "Thank you to our sponsors", compact = false }) {
   const groups = groupByTier(sponsors);
   if (!groups.length) return null;
   return (
-    <section className="card sponsor-board" style={{ padding: compact ? "14px 16px" : "18px 20px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+    <section className="card sponsor-board" style={{ padding: compact ? "14px 16px" : "18px 20px", textAlign: "center" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
         <h2 className="display" style={{ margin: 0, fontWeight: 700, fontSize: 15, letterSpacing: ".12em", textTransform: "uppercase", color: "var(--leather)" }}>
           {title}
         </h2>
         <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
       </div>
       {groups.map(({ tier, sponsors: list }) => (
-        <div key={tier.key} style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 10.5, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass)", fontWeight: 800, marginBottom: 8 }}>
+        <div key={tier.key} style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10.5, letterSpacing: ".18em", textTransform: "uppercase", color: "var(--brass)", fontWeight: 800, marginBottom: 8, textAlign: "center" }}>
             {tier.key === "platinum" ? "Platinum · Event title sponsor" : tier.key === "class" ? "Class & ribbon sponsors" : tier.key === "in_kind" ? "With thanks for in-kind support" : `${tier.label} sponsors`}
           </div>
-          {tier.logo > 0 ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: tier.key === "platinum" ? 20 : 14, alignItems: "flex-end", justifyContent: tier.key === "platinum" ? "center" : "flex-start" }}>
-              {list.map((s) => (
-                <SponsorLink key={s.id} sponsor={s}>
-                  <SponsorLogo sponsor={s} size={compact ? Math.round(tier.logo * 0.7) : tier.logo} />
-                  {s.logo_url && (tier.key === "platinum" || tier.key === "gold") && (
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--leather)" }}>{s.name}</span>
-                  )}
-                  {(s.sponsored_for || s.blurb) && !compact && (
-                    <span style={{ fontSize: 11.5, color: "var(--quiet)", maxWidth: 220, textAlign: "center" }}>{s.sponsored_for || s.blurb}</span>
-                  )}
-                </SponsorLink>
-              ))}
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 8px" }}>
-              {list.map((s) => {
-                const href = normaliseUrl(s.website_url);
-                const Tag = href ? "a" : "span";
-                return (
-                  <Tag key={s.id} {...(href ? { href, target: "_blank", rel: "noopener noreferrer sponsored" } : {})}
-                    style={{ fontSize: 13, fontWeight: 600, color: "var(--leather)", textDecoration: "none", background: "var(--paper)", border: "1px solid var(--line)", borderRadius: 20, padding: "4px 11px" }}>
-                    {s.name}{s.sponsored_for ? <span style={{ color: "var(--quiet)", fontWeight: 500 }}> · {s.sponsored_for}</span> : null}
-                  </Tag>
-                );
-              })}
-            </div>
-          )}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: tier.key === "platinum" ? 20 : 14, alignItems: "flex-end", justifyContent: "center" }}>
+            {list.map((s) => (
+              <SponsorLink key={s.id} sponsor={s}>
+                <SponsorLogo sponsor={s} size={compact ? Math.round(tier.logo * 0.7) : tier.logo} />
+                {s.logo_url && (
+                  <span style={{ fontSize: tier.rank <= 1 ? 12.5 : 11.5, fontWeight: 700, color: "var(--leather)" }}>{s.name}</span>
+                )}
+                {(s.sponsored_for || s.blurb) && !compact && (
+                  <span style={{ fontSize: 11.5, color: "var(--quiet)", maxWidth: 220, textAlign: "center" }}>{s.sponsored_for || s.blurb}</span>
+                )}
+              </SponsorLink>
+            ))}
+          </div>
         </div>
       ))}
     </section>
