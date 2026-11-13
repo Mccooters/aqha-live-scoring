@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
 import { programDisplayRows, withoutHiddenClasses } from "../../../../lib/classCategories";
 import { activeEntries, BEGINNER_RULES, dateRange, dayDate, drawIsPublished, fmtBack, HCQHA_RULES, IMPROVER_RULES } from "../../../../lib/showPrint";
-import { sponsorsForEvent, classSponsors, sponsoredByText, sortSponsors, tierOf } from "../../../../lib/sponsors";
+import { sponsorsForEvent, classSponsors, sponsoredByText, groupByTier } from "../../../../lib/sponsors";
 
 // The program is laid out into explicit A4 pages, each with three columns that
 // we pack ourselves (by measuring every item's real height). This avoids
@@ -49,6 +49,18 @@ function PrintStyles() {
       .program-note { font-size: 8.6px; margin: 8px 0 4px; }
       .rules-title { color: #2D7A52; font-weight: 800; text-transform: uppercase; margin: 8px 0 3px; font-size: 8.6px; }
       .rule-line { font-size: 8.4px; line-height: 1.25; margin: 0 0 2px; padding-left: 10px; text-indent: -10px; }
+
+      /* Sponsor logos across the foot of the last page (owner's request, Nov
+         2026) — full width under the columns, everything centred. */
+      .program-sponsors { clear: both; padding-top: 6mm; text-align: center; }
+      .program-sponsors-title { color: #2D7A52; font-weight: 800; text-transform: uppercase; font-size: 10px; margin: 0 0 4px; }
+      .program-sponsors-tier { color: #7A5C10; font-weight: 800; text-transform: uppercase; letter-spacing: .12em; font-size: 7.5px; margin: 5px 0 3px; }
+      .program-sponsors-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 4mm 6mm; }
+      .program-sponsor { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; max-width: 45mm; }
+      .program-sponsor img { width: auto; height: auto; object-fit: contain; }
+      .program-sponsor .sponsor-name { font-size: 8.5px; font-weight: 700; color: #000; }
+      .program-sponsor .sponsor-for { font-size: 7.5px; color: #444; }
+      .program-sponsor .sponsor-pill { font-size: 9px; font-weight: 700; border: 1px solid #bbb; border-radius: 10px; padding: 2px 8px; }
 
       /* Off-screen measuring copy — never shown, never printed. */
       .program-measure { position: absolute; left: -10000px; top: 0; visibility: hidden; pointer-events: none; }
@@ -118,6 +130,40 @@ function ItemView({ item }) {
   }
 }
 
+// "Thank you to our sponsors" with every logo, printed full width at the
+// bottom of the program (owner's request, Nov 2026). Logo height follows the
+// tier (Platinum biggest); a sponsor without a logo shows its name.
+function ProgramSponsors({ sponsors }) {
+  const groups = groupByTier(sponsors);
+  if (!groups.length) return null;
+  return (
+    <div className="program-sponsors">
+      <div className="program-sponsors-title">Thank you to our sponsors</div>
+      {groups.map(({ tier, sponsors: list }) => {
+        const h = Math.round(tier.logo * 0.45); // print scale: Platinum ≈ 80px ≈ 21mm
+        return (
+          <div key={tier.key}>
+            <div className="program-sponsors-tier">
+              {tier.key === "platinum" ? "Platinum · Event title sponsor" : tier.key === "class" ? "Class & ribbon sponsors" : tier.key === "in_kind" ? "With thanks for in-kind support" : `${tier.label} sponsors`}
+            </div>
+            <div className="program-sponsors-row">
+              {list.map((s) => (
+                <div className="program-sponsor" key={s.id}>
+                  {s.logo_url
+                    ? <img src={s.logo_url} alt={s.name} style={{ maxHeight: h, maxWidth: Math.round(h * 2.4) }} />
+                    : <span className="sponsor-pill">{s.name}</span>}
+                  {s.logo_url && <span className="sponsor-name">{s.name}</span>}
+                  {s.sponsored_for && <span className="sponsor-for">{s.sponsored_for}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function buildItems(dayClasses, showDraw, sponsors = []) {
   const items = programDisplayRows(dayClasses).map((row) => {
     if (row.type === "category") return { key: row.key, kind: "category", label: row.label };
@@ -128,11 +174,8 @@ function buildItems(dayClasses, showDraw, sponsors = []) {
   });
   items.push({ key: "note", kind: "note", text: "All EWD classes are walk/jog or walk/trot only." });
   items.push({ key: "finish", kind: "break", label: "FINISH" });
-  // The thank-you board, in print: every sponsor by name, biggest tier first.
-  if (sponsors.length) {
-    items.push({ key: "sponsors-title", kind: "rulesTitle", label: "Thank you to our sponsors" });
-    sortSponsors(sponsors).forEach((s, i) => items.push({ key: `sponsor-${i}`, kind: "ruleLine", text: `${s.name} (${tierOf(s.tier).label})${s.sponsored_for ? ` - ${s.sponsored_for}` : ""}` }));
-  }
+  // The sponsor logos print across the foot of the last page instead
+  // (ProgramSponsors), not in the columns.
   items.push({ key: "hcqha-title", kind: "rulesTitle", label: "HCQHA Rules" });
   HCQHA_RULES.forEach((rule, i) => items.push({ key: `hcqha-${i}`, kind: "ruleLine", text: rule }));
   items.push({ key: "beg-title", kind: "rulesTitle", label: "Beginner Rules" });
@@ -144,24 +187,28 @@ function buildItems(dayClasses, showDraw, sponsors = []) {
 
 // Greedily pack item indices into columns of `cap` px (first page smaller to
 // make room for the title), three columns per page.
+// Returns the pages plus `lastUsed`: the tallest column on the last page,
+// so the caller knows how much room is left under it for the sponsor board.
 function paginate(heights, firstCap, cap) {
   const pages = [];
   let cols = [[], [], []];
   let col = 0;
   let used = 0;
+  let tallest = 0;
   for (let i = 0; i < heights.length; i++) {
     const h = heights[i];
     const capacity = pages.length === 0 ? firstCap : cap;
     if (used > 0 && used + h > capacity) {
       col += 1;
       used = 0;
-      if (col > 2) { pages.push(cols); cols = [[], [], []]; col = 0; }
+      if (col > 2) { pages.push(cols); cols = [[], [], []]; col = 0; tallest = 0; }
     }
     cols[col].push(i);
     used += h;
+    if (used > tallest) tallest = used;
   }
   if (cols.some((c) => c.length)) pages.push(cols);
-  return pages;
+  return { pages, lastUsed: tallest };
 }
 
 const MM_TO_PX = 96 / 25.4;
@@ -175,9 +222,11 @@ export default function ProgramPrintPage() {
   const [sponsors, setSponsors] = useState([]); // schema-v69
   const [drawOverride, setDrawOverride] = useState(null);
   const [pages, setPages] = useState(null);
+  const [sponsorsOwnPage, setSponsorsOwnPage] = useState(false); // the logo board didn't fit under the last page's columns
 
   const measureColRef = useRef(null);
   const measureTitleRef = useRef(null);
+  const measureSponsorsRef = useRef(null);
 
   const load = useCallback(async () => {
     const [{ data: ev }, { data: cls }] = await Promise.all([
@@ -220,8 +269,14 @@ export default function ProgramPrintPage() {
     // second sheet (which shows up as doubled page counts in Safari).
     const cap = PAGE_CONTENT_H_PX * 0.93;
     const firstCap = (PAGE_CONTENT_H_PX - titleH - 6) * 0.93;
-    setPages(paginate(heights, firstCap, cap));
-  }, [items, title, subtitle]);
+    const { pages: next, lastUsed } = paginate(heights, firstCap, cap);
+    setPages(next);
+    // The sponsor logos go under the last page's columns when they fit,
+    // otherwise on a page of their own.
+    const sponsorsH = measureSponsorsRef.current ? measureSponsorsRef.current.getBoundingClientRect().height : 0;
+    const lastCap = next.length <= 1 ? firstCap : cap;
+    setSponsorsOwnPage(sponsorsH > 0 && lastUsed + sponsorsH > lastCap);
+  }, [items, title, subtitle, sponsors]);
 
   if (!event) return <main className="wrap"><p style={{ color: "var(--quiet)" }}>Loading...</p></main>;
 
@@ -264,6 +319,9 @@ export default function ProgramPrintPage() {
             <div className="prog-item" key={item.key}><ItemView item={item} /></div>
           ))}
         </div>
+        <div ref={measureSponsorsRef} style={{ width: "190mm" }}>
+          <ProgramSponsors sponsors={sponsors} />
+        </div>
       </div>
 
       <div className="program-shell">
@@ -284,8 +342,14 @@ export default function ProgramPrintPage() {
                 </div>
               ))}
             </div>
+            {pi === pages.length - 1 && !sponsorsOwnPage && <ProgramSponsors sponsors={sponsors} />}
           </section>
         ))}
+        {pages && sponsorsOwnPage && (
+          <section className="program-page">
+            <ProgramSponsors sponsors={sponsors} />
+          </section>
+        )}
       </div>
     </>
   );
