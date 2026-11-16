@@ -360,15 +360,13 @@ export default function HighPoints() {
     const legacyAqha = breed === "AQHA";
 
     if (modal.type === "edit") {
-      const namePattern = String(modal.entry.name).trim().replace(/([%_\\])/g, "\\$1");
-      const del = await supabase.from("high_points").delete()
-        .eq("season", season).eq("category", effectiveCategory).ilike("entity_name", namePattern)
-        .eq("breed", breed);
-      if (del.error && isMissingBreedColumn(del.error)) {
-        if (!legacyAqha) { setFormError(MIGRATION_HINT); return; }
-        await supabase.from("high_points").delete()
-          .eq("season", season).eq("category", effectiveCategory).ilike("entity_name", namePattern);
-      } else if (del.error) { setFormError(del.error.message); return; }
+      // By id — the rows on screen for this name, whatever stray spaces or
+      // capitals they were saved with.
+      const ids = catRows.filter((r) => String(r.entity_name ?? "").trim().toLowerCase() === String(modal.entry.name).trim().toLowerCase()).map((r) => r.id);
+      if (ids.length) {
+        const del = await supabase.from("high_points").delete().in("id", ids);
+        if (del.error) { setFormError(del.error.message); return; }
+      }
     }
 
     let { error } = await supabase.from("high_points").insert(toInsert);
@@ -383,20 +381,49 @@ export default function HighPoints() {
     closeModal();
   };
 
+  // Remove a horse or rider from this season's leaderboard in this category
+  // (owner's report, Nov 2026 — horses that left, or names entered twice).
+  // Deletes the rows the board is showing for that name by id, so stray
+  // spaces or capitals can't make it miss, and records the name
+  // (schema-v70) so a later "Push all HP" from the dashboard doesn't put it
+  // back. Restore undoes that.
+  const rowsFor = (name) => catRows.filter((r) => String(r.entity_name ?? "").trim().toLowerCase() === String(name).trim().toLowerCase());
   const deleteEntry = async (entry) => {
-    if (!window.confirm(`Remove all ${season} points for "${entry.name}" in ${effectiveCategory}?`)) return;
-    const namePattern = String(entry.name).trim().replace(/([%_\\])/g, "\\$1");
-    const del = await supabase.from("high_points").delete()
-      .eq("season", season).eq("category", effectiveCategory).ilike("entity_name", namePattern)
-      .eq("breed", breed);
-    if (del.error && isMissingBreedColumn(del.error) && breed === "AQHA") {
-      await supabase.from("high_points").delete()
-        .eq("season", season).eq("category", effectiveCategory).ilike("entity_name", namePattern);
-    } else if (del.error) {
-      window.alert(isMissingBreedColumn(del.error) ? MIGRATION_HINT : del.error.message);
-      return;
+    if (!window.confirm(
+      `Remove "${entry.name}" from the ${season} ${effectiveCategory} leaderboard?\n\n` +
+      `Their points here are deleted, and pushing High Points from the dashboard won't add them back. ` +
+      `You can restore them from "Removed" under the table.`
+    )) return;
+    const ids = rowsFor(entry.name).map((r) => r.id);
+    if (ids.length) {
+      const { error } = await supabase.from("high_points").delete().in("id", ids);
+      if (error) { window.alert(error.message); return; }
+    }
+    const { data: s } = await supabase.auth.getSession();
+    const { error: remErr } = await supabase.from("high_points_removed")
+      .insert({ season, category: effectiveCategory, entity_name: String(entry.name).trim(), removed_by: s?.session?.user?.email ?? null });
+    if (remErr && !/duplicate key|unique/i.test(remErr.message ?? "")) {
+      window.alert(/does not exist|schema cache/i.test(remErr.message ?? "")
+        ? `Points removed. To keep "${entry.name}" off the leaderboard when High Points are pushed again, run "schema-v70-high-points-removed.sql" in the Supabase SQL Editor (or use the catch-up button on the Health page).`
+        : remErr.message);
     }
     await load();
+    await loadRemoved();
+  };
+
+  // Names removed from this season's leaderboards (staff only).
+  const [removedRows, setRemovedRows] = useState([]);
+  const loadRemoved = useCallback(async () => {
+    if (!session) { setRemovedRows([]); return; }
+    const { data, error } = await supabase.from("high_points_removed").select("*").order("created_at", { ascending: false });
+    setRemovedRows(error ? [] : data ?? []);
+  }, [session]);
+  useEffect(() => { loadRemoved(); }, [loadRemoved]);
+  const restoreEntry = async (row) => {
+    if (!window.confirm(`Restore "${row.entity_name}" to the ${row.season} ${row.category} leaderboard?\n\nTheir points come back the next time High Points are pushed from the dashboard ("↑ Push all HP" on that event).`)) return;
+    const { error } = await supabase.from("high_points_removed").delete().eq("id", row.id);
+    if (error) { window.alert(error.message); return; }
+    await loadRemoved();
   };
 
   // ---- CSV import ----
@@ -692,7 +719,7 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                             <td style={{ whiteSpace: "nowrap" }}>
                               <span style={{ display: "inline-flex", gap: 4 }}>
                                 <button className="btn-ghost" onClick={() => openEdit(entry)}>Edit</button>
-                                <button className="btn-ghost danger" onClick={() => deleteEntry(entry)}>✕</button>
+                                <button className="btn-ghost danger" onClick={() => deleteEntry(entry)} title="Remove from this leaderboard (stays removed when High Points are pushed again)">✕</button>
                               </span>
                             </td>
                           )}
@@ -702,6 +729,22 @@ grant insert, update, delete on high_points to authenticated;`}</pre>
                   </table>
                 </div>
               )}
+              {session && (() => {
+                const here = removedRows.filter((r) => r.season === season && r.category === effectiveCategory);
+                if (!here.length) return null;
+                return (
+                  <details style={{ padding: "8px 16px 12px", fontSize: 13 }}>
+                    <summary style={{ cursor: "pointer", color: "var(--quiet)", fontWeight: 700 }}>Removed from this leaderboard ({here.length})</summary>
+                    <p style={{ color: "var(--quiet)", margin: "6px 0" }}>These stay off it when High Points are pushed from the dashboard. Restore one to let its points come back on the next push.</p>
+                    {here.map((r) => (
+                      <div key={r.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 0", borderTop: "1px solid var(--line)" }}>
+                        <span style={{ flex: 1 }}>{r.entity_name}<span style={{ color: "var(--quiet)" }}>{r.removed_by ? ` · removed by ${r.removed_by}` : ""}</span></span>
+                        <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => restoreEntry(r)}>Restore</button>
+                      </div>
+                    ))}
+                  </details>
+                );
+              })()}
             </section>
           </>
         )}

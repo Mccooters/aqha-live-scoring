@@ -990,8 +990,13 @@ export default function Coordinator() {
     await loadClasses();
   };
 
-  const pushToHighPoints = async (cls) => {
+  // `opts.classesNow` — the event's classes as they are AFTER an edit that
+  // React state hasn't caught up with yet (e.g. a category just changed).
+  // Pushing a category no completed class uses any more (pass
+  // { hp_category, id: null }) removes this event's points in it.
+  const pushToHighPoints = async (cls, opts = {}) => {
     if (!cls.hp_category || !currentEvent?.starts_on) return;
+    const classesNow = opts.classesNow ?? classes;
 
     const [y, mo] = currentEvent.starts_on.split("-").map(Number);
     const season = mo >= 8 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
@@ -1002,7 +1007,7 @@ export default function Coordinator() {
     // points are never combined across judges, so each judge's column is
     // stored as its own "show" — "<event> · J1" / "<event> · J2". A
     // single-judge show keeps the plain event name as before.
-    const twoJudgeShow = classes.some((c) => c.judge2 && !c.hidden);
+    const twoJudgeShow = classesNow.some((c) => c.judge2 && !c.hidden);
     const showNameFor = (judgeIdx) => (twoJudgeShow ? `${showName} · J${judgeIdx + 1}` : showName);
 
     // Recalculate from ALL completed classes in this category so that:
@@ -1011,7 +1016,7 @@ export default function Coordinator() {
     // When called from completeClass, React state may still say the passed-in
     // class is "live" (the DB update hasn't round-tripped yet) — count it as
     // completed so the class that just finished isn't skipped.
-    const categoryClasses = classes.filter(
+    const categoryClasses = classesNow.filter(
       (c) => c.hp_category === category && !c.hidden && (c.status === "completed" || c.id === cls.id)
     );
     const pointsMap = {};
@@ -1050,6 +1055,10 @@ export default function Coordinator() {
       // A dual-registered horse earns the same points once per breed —
       // separate leaderboard entries. No registrations known = plain name.
       const classBreed = isHorseCat ? breedOfClass(c) : null;
+      // A horse (or rider) entered twice in the same class by mistake counts
+      // once per judge — the first credit is its best result, because every
+      // caller walks the results best-first (owner's report, Nov 2026).
+      const creditedHere = new Set();
       const credit = (e, pts, judgeIdx = 0) => {
         if (!e) return;
         const show = showNameFor(judgeIdx);
@@ -1065,6 +1074,12 @@ export default function Coordinator() {
         names.forEach((raw) => {
           const name = String(raw ?? "").trim();
           if (!name) return;
+          // Same horse (back number, else horse name) + same name = the
+          // same entry twice; a rider on two different horses still counts twice.
+          const horseKey = e.back_number != null ? `#${e.back_number}` : String(e.horse ?? "").trim().toLowerCase();
+          const hereKey = `${judgeIdx}||${horseKey}||${name.toLowerCase()}`;
+          if (creditedHere.has(hereKey)) return;
+          creditedHere.add(hereKey);
           const key = `${show}||${name.toLowerCase()}`;
           const cur = pointsMap[key];
           pointsMap[key] = {
@@ -1143,7 +1158,16 @@ export default function Coordinator() {
     // deleted first and could leave the category wiped if the insert then
     // failed on a dropped connection — this way the leaderboard never ends up
     // with the data nowhere, even if one request fails mid-push.
-    const toInsert = Object.values(pointsMap).map(({ name, show, pts }) => ({
+    // Names staff removed from this leaderboard (schema-v70) stay off it —
+    // a horse that left the club, or a duplicate name. Nothing to skip on a
+    // database without the table.
+    const removed = new Set();
+    {
+      const { data: rem, error: remErr } = await supabase.from("high_points_removed")
+        .select("entity_name").eq("season", season).eq("category", category);
+      if (!remErr) (rem ?? []).forEach((r) => removed.add(String(r.entity_name ?? "").trim().toLowerCase()));
+    }
+    const toInsert = Object.values(pointsMap).filter(({ name }) => !removed.has(name.toLowerCase())).map(({ name, show, pts }) => ({
       season, category, breed: "AQHA",
       entity_type: isHorseCat ? "horse" : "rider",
       entity_name: name, show_name: show, show_date: currentEvent.starts_on, points: pts,
@@ -2220,6 +2244,19 @@ export default function Coordinator() {
       updateData.judge_card_config = editJc.config;
     }
     const { error } = await supabase.from("classes").update(updateData).eq("id", modal.cls.id);
+    if (!error && !isClinic) {
+      // A finished class's High Points category changed or was cleared
+      // (owner's report, Nov 2026: clearing it left the points on the
+      // leaderboard). Recalculate the OLD category without this class, and
+      // the new one with it, using the classes as they now are.
+      const oldCat = modal.cls.hp_category || null;
+      const newCat = updateData.hp_category || null;
+      if (oldCat !== newCat && modal.cls.status === "completed") {
+        const classesNow = classes.map((c) => (c.id === modal.cls.id ? { ...c, ...updateData } : c));
+        if (oldCat) await pushToHighPoints({ hp_category: oldCat, id: null }, { classesNow });
+        if (newCat) await pushToHighPoints({ ...modal.cls, ...updateData }, { classesNow });
+      }
+    }
     if (error) {
       setFormError(/judge_card/i.test(error.message ?? "")
         ? 'Pattern judge cards need a database update. Please run "schema-v64-pattern-cards.sql" in your Supabase SQL Editor first (or leave the judge card on Auto).'
@@ -2699,7 +2736,6 @@ export default function Coordinator() {
   // ---- push all HP points ----
   const pushAllHighPoints = async () => {
     const eligible = classes.filter((c) => c.hp_category && c.status === "completed");
-    if (!eligible.length) return;
     setPushingAllHp(true);
     try {
       // One push per unique category — each call already recalculates the whole category.
@@ -2710,6 +2746,22 @@ export default function Coordinator() {
         seen.add(cls.hp_category);
         const res = await pushToHighPoints(cls);
         if (res && !res.ok) failed += 1;
+      }
+      // Categories this event still has points in, but no finished class
+      // feeds any more (a category changed or cleared, a class deleted) —
+      // pushing them with no classes removes the leftover points.
+      if (currentEvent?.starts_on) {
+        const [y, mo] = currentEvent.starts_on.split("-").map(Number);
+        const season = mo >= 8 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
+        const names = [currentEvent.name, `${currentEvent.name} · J1`, `${currentEvent.name} · J2`];
+        const { data: leftover } = await supabase.from("high_points")
+          .select("category").eq("season", season).in("show_name", names);
+        for (const cat of new Set((leftover ?? []).map((r) => r.category))) {
+          if (!cat || seen.has(cat)) continue;
+          seen.add(cat);
+          const res = await pushToHighPoints({ hp_category: cat, id: null });
+          if (res && !res.ok) failed += 1;
+        }
       }
       if (failed > 0) {
         window.alert(`${failed} high-points ${failed === 1 ? "category" : "categories"} could not be updated — check your internet connection and try “Push all HP” again.`);

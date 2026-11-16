@@ -101,6 +101,7 @@ const PROBES = {
   "schema-v67-paid-at.sql": "catch_up_has_column('registrations', 'paid_at')",
   "schema-v68-member-credits.sql": "catch_up_has_table('member_credits')",
   "schema-v69-sponsors.sql": "catch_up_has_table('sponsors')",
+  "schema-v70-high-points-removed.sql": "catch_up_has_table('high_points_removed')",
 };
 
 function versionOf(file) {

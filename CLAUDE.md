@@ -382,7 +382,22 @@ PR with a clear plain-English description.
   line). Equal totals share a rank, shown as "1=", with the next rank
   skipping the tied places, and ties sort by name (owner's report, Oct
   2026 — three horses on 8 points were listed 1st, 2nd, 3rd in database
-  order). Only COMPLETED classes WITH an `hp_category` are ever pushed; the
+  order). **Removals stick (schema-v70)**: ✕ on a leaderboard row deletes
+  that name's rows by id (so stray spaces/capitals can't miss) and records
+  it in `high_points_removed` (season, category, entity_name; staff only);
+  `pushToHighPoints` skips those names, and a staff-only "Removed from
+  this leaderboard (n)" list under the table has Restore (owner's report,
+  Nov 2026 — horses that left / double entries came back on every push).
+  The same horse entered twice in one class (same back number, else horse
+  name) is credited once per judge (its best result); a rider on two
+  different horses still counts twice. **Category changes clean up**: editing a COMPLETED
+  class's category re-pushes the old category without it (and the new one
+  with it), via `pushToHighPoints(cls, { classesNow })`; pushing
+  `{ hp_category, id: null }` for a category no finished class uses
+  deletes this event's points in it, and "Push all HP" does that for every
+  category the event still has rows in (owner's report, Nov 2026: setting
+  a class to no category left its points on the leaderboard).
+  Only COMPLETED classes WITH an `hp_category` are ever pushed; the
   dashboard flags an upcoming class that already holds results ("⚠ Has
   results but isn't completed") with an inline ✓ Mark completed button,
   and a completed class with results but NO category ("⚠ No HP category —
@@ -446,7 +461,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v68)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v70)
 
 **Catch-up script**: `supabase/schema-catch-up.sql` is GENERATED (by
 `scripts/build-catch-up-sql.mjs`, also the `prebuild` step) from `schema.sql`

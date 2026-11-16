@@ -58,6 +58,7 @@ const MIGRATION_CHECKS = [
   } },
   { m: "v67", what: "Payment dates for the Revenue page (registrations.paid_at, club_members.paid_at)", probe: () => supabase.from("registrations").select("paid_at").limit(1) },
   { m: "v68", what: "Club credits (credit instead of a refund, spent on a later event)", probe: () => supabase.from("member_credits").select("id").limit(1) },
+  { m: "v70", what: "High Points: removed horses/riders stay removed when points are pushed again", probe: () => supabase.from("high_points_removed").select("id").limit(1) },
   { m: "v69", what: "Sponsors (logos, tiers and sponsored classes on the website)", probe: () => supabase.from("sponsors").select("id").limit(1) },
 ];
 

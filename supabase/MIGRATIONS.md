@@ -307,6 +307,11 @@ hasn't been run.
         page → give or take back credit) and let them spend it at checkout
         when they next enter signed in to the member portal. Until it's run
         the credit buttons say so and nothing is offered at checkout.
+- [ ] **v70** — `schema-v70-high-points-removed.sql`
+      → **High Points removals that stick**: a horse or rider removed with ✕
+        on the High Points page stays off when points are pushed again
+        (Restore under the table brings them back). Until it's run, ✕ still
+        deletes the points but the next push adds them back.
 
 Tick these off once you've run them — or just run the catch-up script above.
 
@@ -384,6 +389,7 @@ Tick these off once you've run them — or just run the catch-up script above.
 | `schema-v66-staff-viewers-service-role-grants.sql` | Grants the server (service role) write access to `staff_viewers` so read-only logins can be created from the Staff access page |
 | `schema-v67-paid-at.sql` | Payment dates: `registrations.paid_at` + `club_members.paid_at` (backfilled) so the staff **Revenue** page can list the club's money month by month |
 | `schema-v68-member-credits.sql` | Club credits: `member_credits` ledger per email (credit instead of a refund, given/taken back by staff, spent at checkout) + `registrations.credit_cents` |
+| `schema-v70-high-points-removed.sql` | `high_points_removed` — names staff removed from a season's leaderboard in a category; every push skips them |
 | `schema-catch-up.sql` | GENERATED — all of the above in one skip-what's-done script (see "The easy way" at the top); records what it applied in `schema_versions` |
 
 ## For whoever updates the code next
