@@ -312,6 +312,11 @@ hasn't been run.
         on the High Points page stays off when points are pushed again
         (Restore under the table brings them back). Until it's run, ✕ still
         deletes the points but the next push adds them back.
+- [ ] **v71** — `schema-v71-duplicate-entries.sql`
+      → **Same horse twice in a class**: if a second paid booking for a
+        horse already in the class arrives, it isn't added again and the
+        Registrations page shows it so you can refund it. Until it's run
+        the entry is still skipped, just not shown there.
 
 Tick these off once you've run them — or just run the catch-up script above.
 
@@ -390,6 +395,7 @@ Tick these off once you've run them — or just run the catch-up script above.
 | `schema-v67-paid-at.sql` | Payment dates: `registrations.paid_at` + `club_members.paid_at` (backfilled) so the staff **Revenue** page can list the club's money month by month |
 | `schema-v68-member-credits.sql` | Club credits: `member_credits` ledger per email (credit instead of a refund, given/taken back by staff, spent at checkout) + `registrations.credit_cents` |
 | `schema-v70-high-points-removed.sql` | `high_points_removed` — names staff removed from a season's leaderboard in a category; every push skips them |
+| `schema-v71-duplicate-entries.sql` | `registrations.skipped_entries` — paid entries not added because the horse (back number) was already in the class |
 | `schema-catch-up.sql` | GENERATED — all of the above in one skip-what's-done script (see "The easy way" at the top); records what it applied in `schema_versions` |
 
 ## For whoever updates the code next

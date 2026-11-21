@@ -2628,6 +2628,25 @@ begin
 end $$;
 $catch_up$);
 
+-- ---------------------------------------------------------------------------
+-- schema-v71-duplicate-entries.sql — record entries that weren't added because the horse was already in the class
+-- ---------------------------------------------------------------------------
+select catch_up_apply('schema-v71-duplicate-entries.sql', 71, 'catch_up_has_column(''registrations'', ''skipped_entries'')', $catch_up$
+-- schema-v71: record entries that weren't added because the horse was already in the class
+-- Run in Supabase: SQL Editor -> New query -> paste -> Run. Safe to run twice.
+--
+-- Owner's report, Nov 2026: the exact same horse ended up in a class twice.
+-- Two online bookings for the same horse and class, both made before either
+-- was paid, each passed the "already entered?" check, and both became
+-- entries when paid. The website now refuses the second booking up front,
+-- and if one still gets paid, the horse is NOT added to the class a second
+-- time — the skipped classes are noted here so staff can see who may be
+-- owed a refund on the Registrations page.
+
+alter table registrations add column if not exists skipped_entries jsonb;
+-- [{ class_id, class_label, back_number, horse, reason, at }]
+$catch_up$);
+
 -- Tidy up the helpers; the schema_versions record stays.
 drop function if exists catch_up_apply(text, integer, text, text);
 drop function if exists catch_up_has_column(text, text);

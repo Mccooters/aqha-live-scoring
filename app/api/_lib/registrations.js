@@ -601,7 +601,38 @@ export async function approveRegistration(db, registrationId) {
       maxDraws[classId] = existing?.[0]?.draw_order ?? 0;
     }
 
-    const entryRows = regEntries.map((e) => {
+    // Never put the same horse (back number) in a show class twice — the
+    // online form checks too, but two bookings made before either was paid
+    // can both arrive here (owner's report, Nov 2026). Skipped ones are
+    // noted on the registration (schema-v71) so staff can refund them.
+    let toPlace = regEntries;
+    const skipped = [];
+    if (!isClinic) {
+      const { data: inClass } = await db
+        .from("entries").select("class_id, back_number")
+        .in("class_id", classIds).eq("scratched", false);
+      const taken = new Set((inClass ?? []).map((x) => `${x.class_id}:${x.back_number}`));
+      toPlace = [];
+      for (const e of regEntries) {
+        const key = e.back_number == null ? null : `${e.class_id}:${e.back_number}`;
+        if (key && taken.has(key)) {
+          skipped.push({ class_id: e.class_id, back_number: e.back_number, horse: e.horse_name, reason: "already in the class", at: new Date().toISOString() });
+          continue;
+        }
+        if (key) taken.add(key);
+        toPlace.push(e);
+      }
+      if (skipped.length) {
+        const { data: clsRows } = await db.from("classes").select("id, num, name").in("id", [...new Set(skipped.map((s) => s.class_id))]);
+        const label = Object.fromEntries((clsRows ?? []).map((c) => [c.id, `Class ${c.num} · ${c.name}`]));
+        skipped.forEach((s) => { s.class_label = label[s.class_id] ?? "a class"; });
+        console.error(`Registration ${registrationId}: ${skipped.length} entr${skipped.length === 1 ? "y" : "ies"} not added — horse already in the class`);
+        const { error: skipErr } = await db.from("registrations").update({ skipped_entries: skipped }).eq("id", registrationId);
+        if (skipErr) console.error("Could not record skipped entries (run schema-v71):", skipErr.message);
+      }
+    }
+
+    const entryRows = toPlace.map((e) => {
       maxDraws[e.class_id] = (maxDraws[e.class_id] ?? 0) + 1;
       return {
         class_id: e.class_id,
@@ -616,7 +647,7 @@ export async function approveRegistration(db, registrationId) {
       };
     });
 
-    const { error: insertErr } = await db.from("entries").insert(entryRows);
+    const { error: insertErr } = entryRows.length ? await db.from("entries").insert(entryRows) : { error: null };
     if (insertErr) {
       // Put the registration back to pending so the webhook retry or the
       // coordinator's force-approve button can try again.
