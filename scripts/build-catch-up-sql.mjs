@@ -102,6 +102,7 @@ const PROBES = {
   "schema-v68-member-credits.sql": "catch_up_has_table('member_credits')",
   "schema-v69-sponsors.sql": "catch_up_has_table('sponsors')",
   "schema-v70-high-points-removed.sql": "catch_up_has_table('high_points_removed')",
+  "schema-v71-duplicate-entries.sql": "catch_up_has_column('registrations', 'skipped_entries')",
 };
 
 function versionOf(file) {

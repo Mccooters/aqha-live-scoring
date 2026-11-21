@@ -975,6 +975,17 @@ function RegistrationsInner() {
                   ) : (
                     <p style={{ color: "var(--quiet)", fontSize: 13, padding: "4px 0 0" }}>No entry details found.</p>
                   )}
+                  {Array.isArray(reg.skipped_entries) && reg.skipped_entries.length > 0 && (
+                    <div style={{ margin: "8px 0 0", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--clay)", background: "#FDEEE9", fontSize: 13 }}>
+                      <div style={{ fontWeight: 800, color: "var(--clay)" }}>⚠ Not added — this horse was already in the class</div>
+                      {reg.skipped_entries.map((s, i) => (
+                        <div key={i}>{s.class_label ?? "A class"}: #{String(s.back_number ?? "").padStart(3, "0")} {s.horse ?? ""}</div>
+                      ))}
+                      <div style={{ color: "var(--quiet)", marginTop: 2 }}>
+                        They paid for {reg.skipped_entries.length === 1 ? "this entry" : "these entries"} but the horse is only in the class once. Refund {reg.skipped_entries.length === 1 ? "it" : "them"} below, or keep it as club credit.
+                      </div>
+                    </div>
+                  )}
                   {(reg.registration_extras ?? []).length > 0 && (
                     <div style={{ padding: "8px 0 0", fontSize: 13 }}>
                       <div style={{ fontWeight: 800, color: "var(--leather)", marginBottom: 4 }}>🏕 Camping &amp; yards</div>

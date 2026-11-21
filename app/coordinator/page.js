@@ -2191,6 +2191,14 @@ export default function Coordinator() {
       setFormError("Scores must be a number, DQ, or left blank.");
       return;
     }
+    if (!isClinic && entryClass) {
+      const back = parseInt(form.back, 10);
+      const clash = entryClass.entries.find((e) => e.id !== modal.entry.id && e.back_number === back && !e.scratched);
+      if (clash) {
+        setFormError(`#${fmtBack(back)} ${clash.horse} is already in this class — the same horse can't be entered twice. Edit or delete that entry instead.`);
+        return;
+      }
+    }
     const updateData = {
       back_number: parseInt(form.back, 10),
       horse: form.horse?.trim() ?? "",
@@ -3353,6 +3361,20 @@ export default function Coordinator() {
                       <button className="btn-ghost" style={{ padding: "1px 8px", fontSize: 11, borderColor: "#A05000", color: "#A05000" }} onClick={() => openModal("hpCategories")}>Set</button>
                     </div>
                   ))}
+                  {!isClinic && (() => {
+                    // The same horse twice in one class (owner's report, Nov
+                    // 2026) — show it so the extra entry can be deleted.
+                    const seen = new Map();
+                    cls.entries.filter((e) => !e.scratched && e.back_number != null).forEach((e) => seen.set(e.back_number, (seen.get(e.back_number) ?? 0) + 1));
+                    const dups = [...seen.entries()].filter(([, n]) => n > 1).map(([b]) => b);
+                    if (!dups.length) return null;
+                    return (
+                      <div style={{ fontSize: 11.5, color: "var(--clay)", marginTop: 3, fontWeight: 700 }}
+                        title="The same back number is in this class more than once — delete the extra entry (it may be one with no result)">
+                        ⚠ Entered twice: {dups.map((b) => `#${fmtBack(b)} ${cls.entries.find((e) => e.back_number === b)?.horse ?? ""}`.trim()).join(", ")} — delete the extra entry
+                      </div>
+                    );
+                  })()}
                   {cls.status === "upcoming" && !isClinic && placed.length > 0 && (
                     <div style={{ fontSize: 11.5, color: "#A05000", marginTop: 3, fontWeight: 700, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
                       title="Results have been entered but the class was never marked completed, so it is not counted for High Points or the results page">

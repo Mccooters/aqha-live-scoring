@@ -390,6 +390,37 @@ export async function POST(req) {
         }
       }
 
+      // Bookings still waiting for payment count too (owner's report, Nov
+      // 2026: the same horse ended up in a class twice — two bookings made
+      // before either was paid both passed the check above). A pending
+      // booking under the SAME email is let through: that's someone trying
+      // again after abandoning a checkout, and if both somehow get paid,
+      // approval skips the second entry instead of doubling the horse.
+      const backNumbersHere = normalEntries.map((e) => e.back_number).filter((n) => n != null);
+      if (backNumbersHere.length) {
+        const { data: pendingRows, error: pendErr } = await db
+          .from("registration_entries")
+          .select("class_id, back_number, horse_name, registrations!inner(status, contact_email)")
+          .in("class_id", classIds)
+          .in("back_number", backNumbersHere)
+          .eq("registrations.status", "pending");
+        if (!pendErr) {
+          const me = String(contact_email ?? "").trim().toLowerCase();
+          for (const entry of normalEntries) {
+            const other = (pendingRows ?? []).find((p) =>
+              p.class_id === entry.class_id && p.back_number === entry.back_number &&
+              String(p.registrations?.contact_email ?? "").trim().toLowerCase() !== me);
+            if (other) {
+              const cls = classMap[entry.class_id];
+              return NextResponse.json(
+                { error: `Back #${entry.back_number} (${entry.horse_name}) already has an entry in ${classLabel(cls)} waiting for payment — someone else may have entered this horse. Please check with them or contact the show secretary.` },
+                { status: 409 }
+              );
+            }
+          }
+        }
+      }
+
       // Back number is the horse's permanent registry identity — the name
       // submitted must match whatever's on file for that number so entries
       // can't be recorded against the wrong horse. Unregistered back numbers

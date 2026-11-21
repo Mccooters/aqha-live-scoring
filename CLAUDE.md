@@ -461,7 +461,7 @@ PR with a clear plain-English description.
   season; fails open if the v23 migration hasn't been run). The entry form
   warns non-members early via `app/api/memberships/check` (boolean only).
 
-## Database (supabase/schema.sql + migrations schema-v2 … schema-v70)
+## Database (supabase/schema.sql + migrations schema-v2 … schema-v71)
 
 **Catch-up script**: `supabase/schema-catch-up.sql` is GENERATED (by
 `scripts/build-catch-up-sql.mjs`, also the `prebuild` step) from `schema.sql`
@@ -857,7 +857,19 @@ number when the horse name matches an existing registry horse, else takes
 the next available number AND inserts the horse into the `horses` registry
 (permanent, per back-numbers-for-life; the unique index arbitrates races).
 The assigned number is written back to `registration_entries` so the success
-page and booking email show it. It also sends the app booking confirmation
+page and booking email show it. **One horse per class (owner's report, Nov 2026 — the same
+horse ended up in a class twice):** a show class never gets the same back
+number twice while it isn't scratched. `registrations/create` refuses a
+back number already entered OR waiting in another person's PENDING
+booking for that class (same email is let through — a retried checkout);
+`approveRegistration` skips any entry whose back number is already in the
+class and records it in `registrations.skipped_entries` (schema-v71,
+shown on the Registrations page as "Not added — already in the class" so
+staff refund or credit it); the dashboard's + Entry, Day entry, Edit entry
+and the entry import all refuse/skip a duplicate; and a class card shows
+"⚠ Entered twice: #094 …" when one slips in. No database unique index
+(clinic placeholder numbers can coincide with registry numbers, and a
+failed insert would strand a paid registration). It also sends the app booking confirmation
 email via Resend after approval; Square remains responsible for the payment
 receipt/invoice email.
 
