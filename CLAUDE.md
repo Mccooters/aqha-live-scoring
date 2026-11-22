@@ -280,6 +280,15 @@ PR with a clear plain-English description.
   one), scratch/restore entries, reorder pending draw, reorder upcoming
   classes, start/complete classes, revert event status, Excel import/export,
   pattern upload, link to registry/registrations, "End event"/"Archive".
+  **One live class at a time** (owner's report, Nov 2026 — two classes
+  were live at once during a show): `completeClass` only auto-starts the
+  next class when the class it completed was the LIVE one and no other
+  class is live (✓ Mark completed on an upcoming class used to start the
+  next one too); the gate and judge routes apply the same "nothing else
+  live" rule. `reopenClass` also takes a LIVE class back to upcoming (⋯ →
+  "Take out of the ring"), a red banner lists the live classes with "Back
+  to upcoming" buttons whenever more than one is live, and Start refuses
+  while several are.
   **Toolbar layout** (owner's report, Oct 2026 — four open rows of ~30
   buttons were "way too cluttered"): one always-visible quick row (the
   next status step — Open entries / Close entries / Go live / End event —
