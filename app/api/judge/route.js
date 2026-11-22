@@ -280,7 +280,8 @@ export async function POST(req) {
         if (wasLive && event.status === "live") {
           const { data: rest } = await db
             .from("classes").select("id, num, name, sort_order, status, hidden").eq("event_id", event_id).order("sort_order");
-          const nextUp = (rest ?? []).find((c) => c.status === "upcoming" && !c.hidden && (c.sort_order ?? 0) > (cls.sort_order ?? 0));
+          const stillLive = (rest ?? []).some((c) => c.status === "live" && c.id !== cls.id);
+          const nextUp = stillLive ? null : (rest ?? []).find((c) => c.status === "upcoming" && !c.hidden && (c.sort_order ?? 0) > (cls.sort_order ?? 0));
           if (nextUp) {
             await db.from("classes").update({ status: "live" }).eq("id", nextUp.id);
             next = `Class ${nextUp.num} · ${nextUp.name}`;

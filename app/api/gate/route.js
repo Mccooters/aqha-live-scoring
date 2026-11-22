@@ -86,7 +86,10 @@ export async function POST(req) {
         .select("id, num, name, sort_order, status, hidden")
         .eq("event_id", event_id)
         .order("sort_order");
-      const nextUp = (rest ?? []).find((c) =>
+      // Never start another class while one is still live (two live at
+      // once — owner's report, Nov 2026).
+      const stillLive = (rest ?? []).some((c) => c.status === "live" && c.id !== class_id);
+      const nextUp = stillLive ? null : (rest ?? []).find((c) =>
         c.status === "upcoming" && !c.hidden && (c.sort_order ?? 0) > (cls.sort_order ?? 0));
       if (nextUp) {
         const { error: startErr } = await db.from("classes").update({ status: "live" }).eq("id", nextUp.id);

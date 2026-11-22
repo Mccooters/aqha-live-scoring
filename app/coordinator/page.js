@@ -424,6 +424,9 @@ export default function Coordinator() {
   }, [session, eventId, loadClasses]);
 
   const liveClass = classes.find((c) => c.status === "live");
+  // Only one class should ever be in the ring. If two are live (owner's
+  // report, Nov 2026), a banner offers to put the extras back to upcoming.
+  const liveClasses = classes.filter((c) => c.status === "live" && !c.hidden);
   const current = liveClass ? firstPending(liveClass.entries, liveClass.scoring_mode) : null;
   const [nowTick, setNowTick] = useState(() => new Date());
   const [breakLabelInput, setBreakLabelInput] = useState("");
@@ -681,6 +684,10 @@ export default function Coordinator() {
     }
     // Starting a class while another is still live will complete that one —
     // warn if it has entries that haven't been scored yet.
+    if (liveClasses.filter((c) => c.id !== cls.id).length > 1) {
+      window.alert(`${liveClasses.length} classes are live at once (${liveClasses.map((c) => `Class ${c.num}`).join(", ")}).\n\nPut the ones that aren't in the ring back to upcoming first — use the red banner at the top of the class list.`);
+      return;
+    }
     if (liveClass && liveClass.id !== cls.id) {
       const mode = liveClass.scoring_mode ?? "score";
       const unscored = liveClass.entries.filter((e) => !e.scratched && !e.called && e.score == null).length;
@@ -736,7 +743,13 @@ export default function Coordinator() {
     // Auto-advance only while the event is live, and to the next class AFTER
     // this one in running order (not the earliest upcoming, which could jump
     // backwards over classes you've deliberately skipped).
-    if (currentEvent?.status === "live") {
+    // Only when the class just completed was the one IN THE RING and nothing
+    // else is live: marking some other class completed (✓ Mark completed on
+    // an upcoming class, or an accidental Complete) used to start the next
+    // class as well, leaving two live at once (owner's report, Nov 2026).
+    const wasInRing = cls.status === "live";
+    const otherLive = classes.some((c) => c.status === "live" && c.id !== cls.id);
+    if (currentEvent?.status === "live" && wasInRing && !otherLive) {
       const nextUp = classes
         .filter((c) => c.status === "upcoming" && !c.hidden && c.id !== cls.id && (c.sort_order ?? 0) > (cls.sort_order ?? 0))
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0];
@@ -766,13 +779,17 @@ export default function Coordinator() {
   // Results already typed in are kept — only the status changes.
   const reopenClass = async (cls) => {
     if (busy) return;
-    if (!window.confirm(`Reopen Class ${cls.num} (back to "upcoming")?\n\nAny results already entered are kept — the class just stops counting as completed until it's completed again.`)) return;
+    const msg = cls.status === "live"
+      ? `Take Class ${cls.num} out of the ring (back to "upcoming")?\n\nNothing is completed and no results are changed — press Start on it when it's really its turn.`
+      : `Reopen Class ${cls.num} (back to "upcoming")?\n\nAny results already entered are kept — the class just stops counting as completed until it's completed again. Press Start on it to put it back in the ring.`;
+    if (!window.confirm(msg)) return;
     setBusy(true);
     try {
       await saveOrWarn(
         supabase.from("classes").update({ status: "upcoming" }).eq("id", cls.id),
         `Reopening Class ${cls.num} could not be saved.`
       );
+      await loadClasses();
     } finally { setBusy(false); }
   };
 
@@ -3135,6 +3152,22 @@ export default function Coordinator() {
           </section>
         )}
 
+        {!isClinic && liveClasses.length > 1 && (
+          <section className="card" style={{ border: "2px solid var(--clay)", background: "#FDEEE9" }}>
+            <div style={{ padding: "12px 16px" }}>
+              <div style={{ fontWeight: 800, color: "var(--clay)", fontSize: 15 }}>⚠ {liveClasses.length} classes are live at once — only one can be in the ring</div>
+              <p style={{ fontSize: 13, margin: "4px 0 8px", color: "var(--leather)" }}>
+                Put the ones that aren&apos;t in the ring back to upcoming. Nothing is completed and no results change.
+              </p>
+              {liveClasses.map((c) => (
+                <div key={c.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "5px 0", borderTop: "1px solid #E8C4B8" }}>
+                  <span style={{ flex: "1 1 200px", fontWeight: 700 }}>Class {c.num} · {c.name}</span>
+                  <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => reopenClass(c)} disabled={busy}>Back to upcoming</button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {liveClass && current && liveClass.scoring_mode !== "class_only" && liveClass.scoring_mode !== "tbc_class" && liveClass.scoring_mode !== "tbc" && (
           <section className="card" style={{ padding: 20, borderColor: "var(--brass)" }}>
             {liveHeader(liveClass.scoring_mode === "placing" ? "set placing" : "enter score")}
@@ -3462,6 +3495,7 @@ export default function Coordinator() {
                           { label: "🧹 Remove duplicates here", show: classHasDuplicates(cls), onClick: () => removeDuplicateEntries([cls]) },
                           { label: "✓ Mark completed", show: cls.status === "upcoming" && !isClinic, onClick: () => completeClassManual(cls) },
                           { label: "Reopen (back to upcoming)", show: cls.status === "completed" && !isClinic, onClick: () => reopenClass(cls) },
+                          { label: "Take out of the ring (back to upcoming)", show: cls.status === "live" && !isClinic, onClick: () => reopenClass(cls) },
                           { label: cls.entries_closed ? "Reopen bookings for this spot type" : "Close bookings for this spot type", show: isClinic && cls.status === "upcoming", onClick: () => toggleBookingsClosed(cls) },
                           { label: cls.membership_exempt ? "Membership needed again for this spot type" : "No membership needed for this spot type", show: isClinic && cls.status === "upcoming", onClick: () => toggleMembershipExempt(cls) },
                           { label: "Hide from schedule", show: cls.status === "upcoming", onClick: () => hideClass(cls) },
